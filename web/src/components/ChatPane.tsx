@@ -173,7 +173,7 @@ export function ChatPane({
   const normalizedProjectTitle = projectTitle?.trim() || null;
   const [localProjectTitle, setLocalProjectTitle] = React.useState<string | null>(normalizedProjectTitle);
   const [composerDraft, setComposerDraft] = React.useState('');
-  const [composerAgentName, setComposerAgentName] = React.useState('Codex');
+  const [composerAgentName, setComposerAgentName] = React.useState('Agent');
   const [scrolledFromBottom, setScrolledFromBottom] = React.useState(false);
   const [previewImage, setPreviewImage] = React.useState<ImagePreviewState | null>(null);
   const [previewImageFitScale, setPreviewImageFitScale] = React.useState(IMAGE_PREVIEW_INITIAL_SCALE);
@@ -564,7 +564,7 @@ export function ChatPane({
           onOpenDesignSystemPicker={onOpenDesignSystemPicker}
           onSelectDesignSystem={onSelectDesignSystem}
           onInstallAgent={onInstallAgent}
-          onAgentChange={(_, label) => setComposerAgentName(label)}
+          onAgentChange={(agentId, label) => setComposerAgentName(agentDisplayName(agentId, label))}
           onDraftChange={setComposerDraft}
           onSend={onSend}
           onStop={onStop}
@@ -1550,7 +1550,7 @@ function ProjectEmptyState({ agentName }: { agentName: string }) {
 
 function agentDisplayName(agentId: 'codex' | 'claude' | null, fallback: string): string {
   if (agentId === 'claude') return 'Claude Code';
-  if (agentId === 'codex') return 'Codex';
+  if (agentId === 'codex') return 'Agent';
   return fallback;
 }
 

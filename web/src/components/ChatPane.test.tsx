@@ -517,7 +517,7 @@ describe('ChatPane', () => {
     try {
       expect(container.querySelector('[data-testid="project-chat-empty-icon"]')).not.toBeNull();
       expect(container.textContent).toContain('Ready to start creating');
-      expect(container.textContent).toContain('Describe the first screen or change you want, and Codex will generate the project files here.');
+      expect(container.textContent).toContain('Describe the first screen or change you want, and Agent will generate the project files here.');
       expect(container.textContent).not.toContain('Start with context');
       expect(container.textContent).not.toContain('SaaS Analytics Dashboard');
       expect(container.textContent).not.toContain('Mobile Banking Onboarding');
