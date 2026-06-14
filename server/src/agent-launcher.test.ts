@@ -106,6 +106,59 @@ describe('startAgentRun', () => {
     }
   });
 
+  it('maps current Codex JSONL response_item records into ACP kit events', async () => {
+    const provider = createVibeCodexProvider();
+    const adapter = provider.createAdapter?.();
+
+    expect(adapter).toBeDefined();
+
+    const events = [];
+    for await (const event of adapter!.parseEvents((async function* () {
+      yield { type: 'session_meta', payload: { id: 'session-1' } };
+      yield {
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'Built the page.' }],
+        },
+      };
+      yield {
+        type: 'response_item',
+        payload: {
+          type: 'function_call',
+          name: 'exec_command',
+          call_id: 'call-1',
+          arguments: '{"cmd":"wc -l DESIGN.md"}',
+        },
+      };
+      yield {
+        type: 'response_item',
+        payload: {
+          type: 'function_call_output',
+          call_id: 'call-1',
+          output: '229 DESIGN.md\n',
+        },
+      };
+      yield { type: 'done', status: 'completed', exitCode: 0 };
+    })())) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: 'text_delta', text: 'Built the page.' },
+      { type: 'tool_call', id: 'call-1', name: 'exec_command', input: { cmd: 'wc -l DESIGN.md' } },
+      {
+        type: 'tool_result',
+        id: 'call-1',
+        output: '229 DESIGN.md\n',
+        status: 'completed',
+        isError: false,
+      },
+      { type: 'done', status: 'completed', exitCode: 0, sessionId: 'session-1' },
+    ]);
+  });
+
   it('runs Codex through the ACP kit runtime and maps kit events into existing run events', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     try {
