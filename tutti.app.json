@@ -1,7 +1,7 @@
 {
   "schemaVersion": "tutti.app.manifest.v1",
   "appId": "vibe-design",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "name": "Vibe Design",
   "description": "Create and iterate on design prototypes inside a Tutti workspace.",
   "localizationInfo": {
