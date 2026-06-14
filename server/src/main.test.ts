@@ -47,6 +47,7 @@ function createTestServer(options?: Parameters<TestCreateServer>[0]): Server {
       { id: 'codex', label: 'Codex', available: true },
       { id: 'claude', label: 'Claude Code', available: true },
     ],
+    startAgentRun: () => {},
     ...options,
   });
 }
@@ -437,7 +438,7 @@ describe('createServer', () => {
   });
 
   it('serves the dashboard page at the root route', async () => {
-    const port = await listenOnRandomPort(createServer());
+    const port = await listenOnRandomPort(createServer({ runtimeDir: await createRuntimeDir() }));
 
     const response = await fetch(`http://127.0.0.1:${port}/`);
 
@@ -449,7 +450,7 @@ describe('createServer', () => {
   });
 
   it('serves the project editor page under /project/:projectId', async () => {
-    const port = await listenOnRandomPort(createServer());
+    const port = await listenOnRandomPort(createTestServer({ runtimeDir: await createRuntimeDir() }));
 
     const response = await fetch(`http://127.0.0.1:${port}/project/demo-project`);
 
@@ -466,7 +467,7 @@ describe('createServer', () => {
   });
 
   it('serves the client bundle without browser caching', async () => {
-    const port = await listenOnRandomPort(createServer());
+    const port = await listenOnRandomPort(createServer({ runtimeDir: await createRuntimeDir() }));
 
     const response = await fetch(`http://127.0.0.1:${port}/client.js`);
 
@@ -476,7 +477,7 @@ describe('createServer', () => {
   });
 
   it('returns 404 for unknown app routes', async () => {
-    const port = await listenOnRandomPort(createServer());
+    const port = await listenOnRandomPort(createServer({ runtimeDir: await createRuntimeDir() }));
 
     const response = await fetch(`http://127.0.0.1:${port}/missing`);
 
@@ -484,7 +485,7 @@ describe('createServer', () => {
   });
 
   it('serves the web SSR page at /index.html', async () => {
-    const port = await listenOnRandomPort(createServer());
+    const port = await listenOnRandomPort(createServer({ runtimeDir: await createRuntimeDir() }));
 
     const response = await fetch(`http://127.0.0.1:${port}/index.html`);
 
@@ -2785,7 +2786,7 @@ describe('createServer', () => {
   });
 
   it('serves the chat UI stylesheet asset', async () => {
-    const port = await listenOnRandomPort(createServer());
+    const port = await listenOnRandomPort(createServer({ runtimeDir: await createRuntimeDir() }));
 
     const response = await fetch(`http://127.0.0.1:${port}/assets/chat-ui.css`);
     const css = await response.text();
@@ -2796,7 +2797,7 @@ describe('createServer', () => {
   });
 
   it('serves the installed UI-system stylesheet asset', async () => {
-    const port = await listenOnRandomPort(createServer());
+    const port = await listenOnRandomPort(createServer({ runtimeDir: await createRuntimeDir() }));
 
     const response = await fetch(`http://127.0.0.1:${port}/assets/@tutti-os/ui-system/styles.css`);
     const css = await response.text();
@@ -2807,7 +2808,7 @@ describe('createServer', () => {
   });
 
   it('serves bundled agent provider icon assets', async () => {
-    const port = await listenOnRandomPort(createServer());
+    const port = await listenOnRandomPort(createServer({ runtimeDir: await createRuntimeDir() }));
 
     const response = await fetch(`http://127.0.0.1:${port}/assets/agent-icons/workspace-dock-agent-codex.png`);
     const body = await response.arrayBuffer();
@@ -2818,7 +2819,7 @@ describe('createServer', () => {
   });
 
   it('serves bundled brand image assets', async () => {
-    const port = await listenOnRandomPort(createServer());
+    const port = await listenOnRandomPort(createServer({ runtimeDir: await createRuntimeDir() }));
 
     const response = await fetch(`http://127.0.0.1:${port}/assets/brand/vibedesign.png`);
     const body = await response.arrayBuffer();
@@ -2829,7 +2830,7 @@ describe('createServer', () => {
   });
 
   it('serves the bundled app icon asset', async () => {
-    const port = await listenOnRandomPort(createServer());
+    const port = await listenOnRandomPort(createServer({ runtimeDir: await createRuntimeDir() }));
 
     const response = await fetch(`http://127.0.0.1:${port}/icon.png`);
     const body = await response.arrayBuffer();
