@@ -1,0 +1,1 @@
+Read `DESIGN.md` as the visual source of truth. Paste the `tokens.css` `:root` block into generated standalone artifacts before writing component styles, then build buttons, cards, fields, and panels from those variables.
