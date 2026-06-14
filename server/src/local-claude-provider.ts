@@ -11,10 +11,15 @@ import type {
   RawAgentStream,
 } from '@tutti-os/agent-acp-kit';
 import { resolveClaudeCommand } from './local-claude-command.js';
+import { scrubNestedClaudeSessionEnv } from './nested-session-env.js';
 
 const execFileAsync = promisify(execFile);
 
 export function createVibeClaudeProvider(): LocalAgentProviderPlugin<'local-agent', 'claude'> {
+  // Clear any leaked nested-session marker up front so both detection
+  // (`claude --version` / `auth status`) and runs spawn a clean `claude`.
+  scrubNestedClaudeSessionEnv();
+
   return {
     id: 'claude',
     displayName: 'Claude Code',
@@ -176,6 +181,11 @@ function parseAssistantEvent(record: Record<string, unknown>): AgentEvent[] {
 }
 
 function buildClaudeLaunchPlan(params: AgentRunParams<'local-agent', 'claude'>): LaunchPlan {
+  // If this server was launched from within a Claude Code session, the
+  // CLAUDECODE marker leaks into our env and would be inherited by the spawned
+  // `claude`, making it abort as a "nested session". Strip it before spawning.
+  scrubNestedClaudeSessionEnv();
+
   const args = ['-p', '--output-format', 'stream-json', '--verbose'];
   const model = normalizeClaudeModel(params.model);
   if (model && model !== 'default') {
