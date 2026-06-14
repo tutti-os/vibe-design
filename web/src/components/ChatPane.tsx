@@ -317,7 +317,21 @@ export function ChatPane({
 
   function editQueuedTurn(turn: QueuedTurnPreview): void {
     onDeleteQueuedTurn?.(turn.id);
+    restoreQueuedTurnContext(turn);
     composerRef.current?.setDraft(editableQueuedTurnDraft(turn), { attachments: queuedTurnAttachments(turn) });
+  }
+
+  function restoreQueuedTurnContext(turn: QueuedTurnPreview): void {
+    for (const skill of contextSnapshot.selectedSkills) {
+      contextRemove?.('skill', skill.id);
+    }
+    for (const file of contextSnapshot.selectedDesignFiles) {
+      contextRemove?.('design-file', selectedDesignFileContextValue(file));
+    }
+
+    for (const item of queuedTurnContextItems(turn)) {
+      void Promise.resolve(contextSelect(item)).catch(() => undefined);
+    }
   }
 
   const pendingDeleteTitle = pendingDeleteConversation
@@ -1294,6 +1308,35 @@ function editableQueuedTurnDraft(turn: QueuedTurnPreview): string {
     return turn.content;
   }
   return turn.prompt ?? turn.content;
+}
+
+function queuedTurnContextItems(turn: QueuedTurnPreview): ContextSearchResultItem[] {
+  const messageContext = turn.messageContext;
+  if (!messageContext) return [];
+
+  return [
+    ...(messageContext.selectedSkills ?? []).map((skill): ContextSearchResultItem => ({
+      id: `skill:${skill.id}`,
+      kind: 'skill',
+      label: skill.name,
+      value: skill.id,
+      ...(skill.description ? { description: skill.description } : {}),
+    })),
+    ...(messageContext.selectedDesignFiles ?? []).map((file): ContextSearchResultItem => {
+      const value = selectedDesignFileContextValue(file);
+      return {
+        id: `design-file:${value}`,
+        kind: 'design-file',
+        label: file.name,
+        value,
+        path: file.path ?? file.name,
+      };
+    }),
+  ];
+}
+
+function selectedDesignFileContextValue(file: { id?: string; path?: string; name: string }): string {
+  return file.id ?? file.path ?? file.name;
 }
 
 function attachmentsWithoutPreviewCommentImages(

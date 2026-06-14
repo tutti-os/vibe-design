@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatPane } from './ChatPane';
 import { PRESET_PROMPTS, pickPresetPrompts } from './presetPrompts';
 import type { ChatTimelineSnapshot } from '../services/chat-timeline/chat-timeline-types';
-import type { CanvasCommentAttachment, ChatAttachment } from '../types';
+import type { CanvasCommentAttachment, ChatAttachment, ProjectFile } from '../types';
 import type {
   CanvasPreviewComment,
   CanvasVisualMarkCommentAttachment,
@@ -1524,6 +1524,114 @@ describe('ChatPane', () => {
     }
   });
 
+  it('restores queued turn skill and design-file context when editing', async () => {
+    const onDeleteQueuedTurn = vi.fn();
+    const onSend = vi.fn();
+    const snapshot: ChatTimelineSnapshot = {
+      activeRunId: 'run-1',
+      phase: 'streaming',
+      activeConversationId: 'conversation-1',
+      activeConversationTitle: 'Build a dashboard',
+      conversations: [{ id: 'conversation-1', title: 'Build a dashboard', createdAt: 1, updatedAt: 1 }],
+      pinnedTodoInput: null,
+      messages: [
+        {
+          id: 'assistant-1',
+          role: 'assistant',
+          content: '',
+          runStatus: 'running',
+          events: [],
+          blocks: [],
+        },
+      ],
+    };
+
+    function Harness() {
+      const [contextSnapshot, setContextSnapshot] = React.useState({
+        selectedSkills: [{ id: 'stale-skill', name: 'Stale Skill' }],
+        selectedDesignFiles: [projectFile({ id: 'stale-file', path: 'src/Stale.tsx', name: 'Stale.tsx' })],
+      });
+      const contextSelect = vi.fn((item) => {
+        setContextSnapshot((current) => {
+          if (item.kind === 'skill') {
+            return {
+              ...current,
+              selectedSkills: [...current.selectedSkills, { id: item.value, name: item.label }],
+            };
+          }
+          return {
+            ...current,
+            selectedDesignFiles: [
+              ...current.selectedDesignFiles,
+              projectFile({ id: item.value, path: item.path, name: item.label }),
+            ],
+          };
+        });
+      });
+      const contextRemove = vi.fn((kind, id) => {
+        setContextSnapshot((current) => {
+          if (kind === 'skill') {
+            return {
+              ...current,
+              selectedSkills: current.selectedSkills.filter((skill) => skill.id !== id),
+            };
+          }
+          return {
+            ...current,
+            selectedDesignFiles: current.selectedDesignFiles.filter((file) => file.id !== id && file.path !== id),
+          };
+        });
+      });
+
+      return (
+        <ChatPane
+          snapshot={snapshot}
+          contextSnapshot={contextSnapshot}
+          contextSearch={async () => ({ items: [] })}
+          contextSelect={contextSelect}
+          contextRemove={contextRemove}
+          queuedTurns={[
+            {
+              id: 'queued-1',
+              content: 'Use the selected skill.',
+              prompt: 'Use the selected skill.',
+              conversationId: 'conversation-1',
+              attachments: [],
+              commentAttachments: [],
+              messageContext: {
+                selectedSkills: [{ id: 'skill-1', name: 'Hero Builder' }],
+                selectedDesignFiles: [projectFile({ id: 'file-1', path: 'pages/landing.html', name: 'landing.html' })],
+              },
+            },
+          ]}
+          onDeleteQueuedTurn={onDeleteQueuedTurn}
+          onSend={onSend}
+          onStop={vi.fn()}
+          onAnswerToolQuestion={vi.fn()}
+          onCreateConversation={vi.fn()}
+          onSelectConversation={vi.fn()}
+          onRenameConversation={vi.fn()}
+        />
+      );
+    }
+
+    const { container, root } = renderComponent(<Harness />);
+
+    try {
+      await act(async () => getByLabelText(container, 'Edit queued turn').click());
+      await nextAnimationFrame();
+
+      const selectedContext = getByLabelText(container, 'Selected context');
+      expect(selectedContext.textContent).toContain('Hero Builder');
+      expect(selectedContext.textContent).toContain('landing.html');
+      expect(selectedContext.textContent).not.toContain('Stale Skill');
+      expect(selectedContext.textContent).not.toContain('Stale.tsx');
+      expect(onDeleteQueuedTurn).toHaveBeenCalledWith('queued-1');
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('submits inline question-form answers with the active conversation provider', async () => {
     const onSend = vi.fn();
     const snapshot: ChatTimelineSnapshot = {
@@ -2574,5 +2682,16 @@ function visualCommentAttachment(): CanvasVisualMarkCommentAttachment {
     source: 'visual-mark',
     markKind: 'click',
     screenshotPath: 'assets/visual-comment.svg',
+  };
+}
+
+function projectFile(overrides: Pick<ProjectFile, 'id' | 'name' | 'path'>): ProjectFile {
+  return {
+    ...overrides,
+    type: 'file',
+    size: 0,
+    mtime: 0,
+    kind: 'code',
+    mime: 'text/html',
   };
 }
