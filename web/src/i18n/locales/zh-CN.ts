@@ -565,6 +565,8 @@ export const zhCN = {
     answersRecorded: '已记录你的选择',
     quickBrief: '快速简报',
     required: '必填',
+    skipped: '已跳过',
+    skippedHint: '该问题已跳过。',
     submit: '提交',
     submitFailed: '提交失败',
     submitHint: '提交回答以继续。',

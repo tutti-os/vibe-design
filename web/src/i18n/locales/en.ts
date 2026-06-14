@@ -563,6 +563,8 @@ export const en = {
     answersRecorded: 'Your choices are recorded',
     quickBrief: 'Quick brief',
     required: 'Required',
+    skipped: 'Skipped',
+    skippedHint: 'This question was skipped.',
     submit: 'Submit',
     submitFailed: 'Submit failed',
     submitHint: 'Submit answers to continue.',

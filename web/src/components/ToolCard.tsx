@@ -52,6 +52,8 @@ export type ToolCardProps =
       toolUseId: string;
       input: AskUserQuestionInput;
       live: boolean;
+      answered?: boolean;
+      nextUserContent?: string;
       onAnswer?: (toolUseId: string, content: string) => void | Promise<void>;
       onFallbackAnswer?: (content: string) => void | Promise<void>;
     }
@@ -80,6 +82,8 @@ export function ToolCard(props: ToolCardProps) {
         toolUseId={props.toolUseId}
         input={props.input}
         live={props.live}
+        answered={props.answered}
+        nextUserContent={props.nextUserContent}
         onAnswer={props.onAnswer}
         onFallbackAnswer={props.onFallbackAnswer}
       />
@@ -326,12 +330,16 @@ function QuestionCard({
   toolUseId,
   input,
   live,
+  answered,
+  nextUserContent,
   onAnswer,
   onFallbackAnswer,
 }: {
   toolUseId: string;
   input: AskUserQuestionInput;
   live: boolean;
+  answered?: boolean;
+  nextUserContent?: string;
   onAnswer?: (toolUseId: string, content: string) => void | Promise<void>;
   onFallbackAnswer?: (content: string) => void | Promise<void>;
 }) {
@@ -363,6 +371,8 @@ function QuestionCard({
     <QuestionFormCard
       form={form}
       interactive={true}
+      answered={answered}
+      nextUserContent={nextUserContent}
       requireAllAnswers
       submitErrorMessage={t('tools.answerFailed')}
       formatSubmitContent={(_form, answers) => formatAskUserQuestionAnswers(questions, answers) ?? ''}

@@ -225,11 +225,11 @@ describe('canvas comment bridge', () => {
     const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true, clientX: 12, clientY: 18 });
     const wasNotCanceled = document.body.dispatchEvent(clickEvent);
 
-    expect(wasNotCanceled).toBe(true);
+    expect(wasNotCanceled).toBe(false);
     expect(messagesOfType(received, 'vd-comment-select')).toEqual([]);
   });
 
-  it('ignores container background clicks when picker mode is active', () => {
+  it('selects a container when its own background is clicked in picker mode', () => {
     document.body.innerHTML = '<main><section id="hero"><h1>Hero</h1><p>Copy</p></section></main>';
     const section = document.querySelector('section');
     const received: unknown[] = [];
@@ -244,11 +244,14 @@ describe('canvas comment bridge', () => {
     const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true, clientX: 320, clientY: 180 });
     const wasNotCanceled = section!.dispatchEvent(clickEvent);
 
-    expect(wasNotCanceled).toBe(true);
-    expect(messagesOfType(received, 'vd-comment-select')).toEqual([]);
+    expect(wasNotCanceled).toBe(false);
+    expect(messagesOfType(received, 'vd-comment-select')).toContainEqual({
+      type: 'vd-comment-select',
+      target: expect.objectContaining({ targetId: 'hero', selector: 'section#hero' }),
+    });
   });
 
-  it('does not turn interactive blank clicks into free pins', () => {
+  it('selects interactive nodes while blocking their native click behavior', () => {
     document.body.innerHTML = '<main><button>Native action</button><div contenteditable="true">Edit me</div></main>';
     const button = document.querySelector('button');
     const editable = document.querySelector('[contenteditable]');
@@ -261,8 +264,8 @@ describe('canvas comment bridge', () => {
 
     expect(button).not.toBeNull();
     expect(editable).not.toBeNull();
-    mockRect(button as Element, { x: 0, y: 0, width: 0, height: 0 });
-    mockRect(editable as Element, { x: 0, y: 0, width: 0, height: 0 });
+    mockRect(button as Element, { x: 0, y: 0, width: 80, height: 24 });
+    mockRect(editable as Element, { x: 0, y: 30, width: 80, height: 24 });
     button!.addEventListener('click', buttonClick);
     editable!.addEventListener('click', editableClick);
 
@@ -271,14 +274,81 @@ describe('canvas comment bridge', () => {
       new MouseEvent('click', { bubbles: true, cancelable: true, clientX: 14, clientY: 18 }),
     );
     const editableWasNotCanceled = editable!.dispatchEvent(
-      new MouseEvent('click', { bubbles: true, cancelable: true, clientX: 20, clientY: 24 }),
+      new MouseEvent('click', { bubbles: true, cancelable: true, clientX: 20, clientY: 44 }),
     );
 
-    expect(buttonWasNotCanceled).toBe(true);
-    expect(editableWasNotCanceled).toBe(true);
-    expect(buttonClick).toHaveBeenCalledTimes(1);
-    expect(editableClick).toHaveBeenCalledTimes(1);
-    expect(messagesOfType(received, 'vd-comment-select')).toEqual([]);
+    expect(buttonWasNotCanceled).toBe(false);
+    expect(editableWasNotCanceled).toBe(false);
+    expect(buttonClick).not.toHaveBeenCalled();
+    expect(editableClick).not.toHaveBeenCalled();
+    const selectedSelectors = messagesOfType(received, 'vd-comment-select').map(
+      (message) => (message as { target?: { selector?: string } }).target?.selector,
+    );
+    expect(selectedSelectors).toContain('button');
+    expect(selectedSelectors).toContain('div');
+  });
+
+  it('blocks native typing, navigation, focus and form submission while marking', () => {
+    document.body.innerHTML =
+      '<main><form><input id="field" /><a id="link" href="#go">Go</a><button type="submit">Send</button></form></main>';
+    const input = document.querySelector('input');
+    const link = document.querySelector('a');
+    const form = document.querySelector('form');
+    const keydownHandler = vi.fn();
+    const beforeInputHandler = vi.fn();
+    const mousedownHandler = vi.fn();
+    const submitHandler = vi.fn();
+
+    expect(input).not.toBeNull();
+    expect(link).not.toBeNull();
+    expect(form).not.toBeNull();
+    input!.addEventListener('keydown', keydownHandler);
+    input!.addEventListener('beforeinput', beforeInputHandler);
+    input!.addEventListener('mousedown', mousedownHandler);
+    form!.addEventListener('submit', submitHandler);
+
+    runBridge(buildCanvasCommentBridge(true));
+
+    const keydownNotCanceled = input!.dispatchEvent(
+      new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'a' }),
+    );
+    const beforeInputNotCanceled = input!.dispatchEvent(
+      new InputEvent('beforeinput', { bubbles: true, cancelable: true, data: 'a' }),
+    );
+    const mousedownNotCanceled = input!.dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, cancelable: true }),
+    );
+    const submitNotCanceled = form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+
+    expect(keydownNotCanceled).toBe(false);
+    expect(beforeInputNotCanceled).toBe(false);
+    expect(mousedownNotCanceled).toBe(false);
+    expect(submitNotCanceled).toBe(false);
+    expect(keydownHandler).not.toHaveBeenCalled();
+    expect(beforeInputHandler).not.toHaveBeenCalled();
+    expect(mousedownHandler).not.toHaveBeenCalled();
+    expect(submitHandler).not.toHaveBeenCalled();
+  });
+
+  it('keeps native keyboard and form behavior when comment mode is disabled', () => {
+    document.body.innerHTML = '<main><form><input id="field" /></form></main>';
+    const input = document.querySelector('input');
+    const form = document.querySelector('form');
+    const keydownHandler = vi.fn();
+    const submitHandler = vi.fn();
+
+    expect(input).not.toBeNull();
+    expect(form).not.toBeNull();
+    input!.addEventListener('keydown', keydownHandler);
+    form!.addEventListener('submit', submitHandler);
+
+    runBridge(buildCanvasCommentBridge(false));
+
+    input!.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'a' }));
+    form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+
+    expect(keydownHandler).toHaveBeenCalledTimes(1);
+    expect(submitHandler).toHaveBeenCalledTimes(1);
   });
 
   it('preserves native click behavior when comment mode is disabled', () => {

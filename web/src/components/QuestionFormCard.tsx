@@ -26,6 +26,7 @@ export function QuestionFormCard({
   form,
   interactive,
   nextUserContent,
+  answered = false,
   onSubmit,
   requireAllAnswers = false,
   formatSubmitContent = formatQuestionFormAnswers,
@@ -34,6 +35,7 @@ export function QuestionFormCard({
   form: QuestionFormDefinition;
   interactive: boolean;
   nextUserContent?: string;
+  answered?: boolean;
   onSubmit?: (content: string) => void | Promise<void>;
   requireAllAnswers?: boolean;
   formatSubmitContent?: (form: QuestionFormDefinition, answers: QuestionFormAnswers) => string;
@@ -51,7 +53,13 @@ export function QuestionFormCard({
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const locked = !interactive || !onSubmit || submitted || submittedAnswers !== null;
+  // The conversation has moved past this question once a later user message exists.
+  const hasFollowingMessage = typeof nextUserContent === 'string' && nextUserContent.trim().length > 0;
+  // Answered = we parsed the submitted form answers, the run recorded a result, or we just submitted here.
+  const isAnswered = answered || submitted || submittedAnswers !== null;
+  // Skipped = the user moved on (sent another message / re-entered later) without answering this question.
+  const isSkipped = !isAnswered && hasFollowingMessage;
+  const locked = !interactive || !onSubmit || isAnswered || isSkipped;
   const currentAnswers = submittedAnswers ?? answers;
   const formTitle = form.title === 'Quick brief' ? t('questionForm.quickBrief') : form.title;
   const ready = requireAllAnswers
@@ -101,7 +109,11 @@ export function QuestionFormCard({
             <GuideIcon size={16} />
             <span>{formTitle}</span>
           </CardTitle>
-          {locked ? <Badge variant="secondary">{t('questionForm.answered')}</Badge> : null}
+          {locked ? (
+            <Badge variant="secondary">
+              {isSkipped ? t('questionForm.skipped') : t('questionForm.answered')}
+            </Badge>
+          ) : null}
         </div>
       </CardHeader>
       <CardContent className="question-form-card__content">
@@ -123,18 +135,20 @@ export function QuestionFormCard({
       </CardContent>
       <CardFooter className="question-form-card__footer">
         <span className="tool-card__meta">
-          {locked ? t('questionForm.answersLocked') : t('questionForm.submitHint')}
+          {isSkipped
+            ? t('questionForm.skippedHint')
+            : locked
+              ? t('questionForm.answersLocked')
+              : t('questionForm.submitHint')}
         </span>
-        {!locked ? (
-          <Button
-            type="button"
-            size="xs"
-            disabled={pending || !ready}
-            onClick={() => void submit()}
-          >
-            {pending ? t('questionForm.submitting') : form.submitLabel ?? t('questionForm.submit')}
-          </Button>
-        ) : null}
+        <Button
+          type="button"
+          size="xs"
+          disabled={locked || pending || !ready}
+          onClick={() => void submit()}
+        >
+          {pending ? t('questionForm.submitting') : form.submitLabel ?? t('questionForm.submit')}
+        </Button>
       </CardFooter>
     </Card>
   );

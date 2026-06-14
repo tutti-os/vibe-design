@@ -29,7 +29,7 @@ export type MessageBlock =
   | { kind: 'tool-group'; calls: ToolCall[]; results: ToolResult[]; running?: boolean }
   | { kind: 'file-ops'; ops: FileOpEntry[] }
   | { kind: 'generated-files'; files: GeneratedFileEntry[] }
-  | { kind: 'ask-user-question'; toolUseId: string; input: AskUserQuestionInput }
+  | { kind: 'ask-user-question'; toolUseId: string; input: AskUserQuestionInput; answered?: boolean }
   | { kind: 'question-form'; form: QuestionFormDefinition }
   | { kind: 'todo-write'; toolUseId: string; input: unknown };
 

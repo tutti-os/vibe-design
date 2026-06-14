@@ -1308,9 +1308,97 @@ describe('AssistantMessage', () => {
     try {
       expect(buttonByName(container, '可玩的网页游戏').disabled).toBe(true);
       expect(container.textContent).toContain('Answered');
-      expect(container.textContent).not.toContain('Submit');
+      expect(buttonByName(container, 'Submit').disabled).toBe(true);
     } finally {
       cleanup(root, container);
+    }
+  });
+
+  it('marks an unanswered inline question form as skipped once a later user message exists', () => {
+    const onSubmitToolQuestionFallback = vi.fn();
+    const message: ChatMessage = {
+      id: 'assistant-skip',
+      role: 'assistant',
+      content: '',
+      runStatus: 'succeeded',
+    };
+    const blocks: MessageBlock[] = [
+      {
+        kind: 'question-form',
+        form: {
+          id: 'discovery',
+          title: '快速确认',
+          questions: [
+            {
+              id: 'output_type',
+              title: '任务类型是什么？',
+              type: 'select',
+              options: [{ value: 'web_game', label: '可玩的网页游戏' }],
+            },
+          ],
+        },
+      },
+    ];
+
+    const { container, root } = renderComponent(
+      <AssistantMessage
+        message={message}
+        blocks={blocks}
+        streaming={false}
+        nextUserContent={'帮我直接生成一个落地页'}
+        onSubmitToolQuestionFallback={onSubmitToolQuestionFallback}
+      />,
+    );
+
+    try {
+      expect(buttonByName(container, '可玩的网页游戏').disabled).toBe(true);
+      expect(container.textContent).toContain('Skipped');
+      expect(buttonByName(container, 'Submit').disabled).toBe(true);
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('locks an answered AskUserQuestion card and keeps an unanswered one skippable but non-submittable', () => {
+    const message: ChatMessage = {
+      id: 'assistant-aq',
+      role: 'assistant',
+      content: '',
+      runStatus: 'succeeded',
+    };
+    const input = { question: 'Pick one', options: [{ label: 'Alpha' }, { label: 'Beta' }] };
+
+    const answered = renderComponent(
+      <AssistantMessage
+        message={message}
+        blocks={[{ kind: 'ask-user-question', toolUseId: 't1', input, answered: true }]}
+        streaming={false}
+        onAnswerToolQuestion={vi.fn()}
+        onSubmitToolQuestionFallback={vi.fn()}
+      />,
+    );
+    try {
+      expect(answered.container.textContent).toContain('Answered');
+      expect(buttonByName(answered.container, 'Submit').disabled).toBe(true);
+    } finally {
+      cleanup(answered.root, answered.container);
+    }
+
+    const skipped = renderComponent(
+      <AssistantMessage
+        message={message}
+        blocks={[{ kind: 'ask-user-question', toolUseId: 't1', input, answered: false }]}
+        streaming={false}
+        nextUserContent={'别问了，直接做'}
+        onAnswerToolQuestion={vi.fn()}
+        onSubmitToolQuestionFallback={vi.fn()}
+      />,
+    );
+    try {
+      expect(skipped.container.textContent).toContain('Skipped');
+      expect(buttonByName(skipped.container, 'Submit').disabled).toBe(true);
+    } finally {
+      cleanup(skipped.root, skipped.container);
     }
   });
 

@@ -46,20 +46,6 @@ export function buildCanvasCommentBridge(enabled: boolean): string {
     return !isHostNode(element) && !element.matches(excludedTargetSelector) && isVisibleTargetNode(element);
   }
 
-  function hasVisibleElementChildren(element) {
-    return Array.from(element.children || []).some((child) => {
-      return child instanceof Element && !isHostNode(child) && !child.matches(excludedTargetSelector) && isVisibleTargetNode(child);
-    });
-  }
-
-  function isInteractiveCommentSkipNode(element) {
-    if (element.closest('a,button,input,textarea,select,label')) {
-      return true;
-    }
-    const editable = element.closest('[contenteditable]');
-    return !!editable && (editable.getAttribute('contenteditable') || '').toLowerCase() !== 'false';
-  }
-
   function isVisibleTargetNode(element) {
     if (element.hasAttribute('hidden')) {
       return false;
@@ -369,14 +355,8 @@ export function buildCanvasCommentBridge(enabled: boolean): string {
     if (!commentModeEnabled || !(event.target instanceof Element)) {
       return null;
     }
-    if (isInteractiveCommentSkipNode(event.target)) {
-      return null;
-    }
     const element = event.target.closest('body *');
     if (!element || !isEligibleTargetNode(element)) {
-      return null;
-    }
-    if (element === event.target && hasVisibleElementChildren(element)) {
       return null;
     }
     return element;
@@ -438,23 +418,25 @@ export function buildCanvasCommentBridge(enabled: boolean): string {
   }
 
   function selectPickerTarget(event) {
-    if (!commentModeEnabled || commentMode !== 'picker') {
+    if (!commentModeEnabled) {
+      return;
+    }
+    // While marking, every click is intercepted so the underlying HTML never runs its
+    // native behavior (link navigation, button handlers, label/checkbox toggles, ...).
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    if (commentMode !== 'picker') {
       return;
     }
     if (suppressNextPickerClick) {
       suppressNextPickerClick = false;
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation();
       return;
     }
     const element = targetElementFromEvent(event);
     if (!element) {
       return;
     }
-    event.preventDefault();
-    event.stopPropagation();
-    event.stopImmediatePropagation();
     const target = targetSnapshotForElement(element, pointFromEvent(event));
     activeTargetId = target.targetId;
     activeSelector = target.selector;
@@ -614,7 +596,7 @@ export function buildCanvasCommentBridge(enabled: boolean): string {
       return;
     }
     if (commentMode === 'picker') {
-      if (!(event.target instanceof Element) || isHostNode(event.target) || isInteractiveCommentSkipNode(event.target)) {
+      if (!(event.target instanceof Element) || isHostNode(event.target)) {
         return;
       }
       pickerDragStart = pointFromEvent(event);
@@ -723,6 +705,20 @@ export function buildCanvasCommentBridge(enabled: boolean): string {
     postMessage({ type: 'vd-comment-active-target-update', targetId: activeTargetId, selector: activeSelector, target });
   }
 
+  function blockNativeInteraction(event) {
+    if (!commentModeEnabled) {
+      return;
+    }
+    if (event.target instanceof Element && isHostNode(event.target)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (typeof event.stopImmediatePropagation === 'function') {
+      event.stopImmediatePropagation();
+    }
+  }
+
   window.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'vd-comment-mode') {
       setCommentMode(event.data);
@@ -731,6 +727,36 @@ export function buildCanvasCommentBridge(enabled: boolean): string {
     if (event.data && event.data.type === 'vd-comment-active-target') {
       setActiveTarget(event.data);
     }
+  });
+  // Suppress every native interaction the underlying HTML would otherwise perform while
+  // marking: focusing/typing into fields, opening selects, submitting forms, dragging,
+  // context menus and middle/secondary-button activation. Pointer/click/hover events are
+  // handled by the picker + pod selection logic above, so they are intentionally excluded.
+  [
+    'mousedown',
+    'mouseup',
+    'dblclick',
+    'auxclick',
+    'contextmenu',
+    'keydown',
+    'keypress',
+    'keyup',
+    'beforeinput',
+    'input',
+    'compositionstart',
+    'compositionupdate',
+    'compositionend',
+    'paste',
+    'cut',
+    'submit',
+    'change',
+    'reset',
+    'dragstart',
+    'dragover',
+    'drop',
+    'dragend',
+  ].forEach((eventName) => {
+    document.addEventListener(eventName, blockNativeInteraction, true);
   });
   document.addEventListener('mouseover', emitHover, true);
   document.addEventListener('mousemove', emitHover, true);

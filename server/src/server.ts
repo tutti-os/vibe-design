@@ -44,7 +44,7 @@ import {
   type StoredProject,
 } from './sqlite-store.js';
 import type { ServerContext, SubmitToolResultResult } from './server-context.js';
-import type { ChatRun, ChatRunCreateMeta } from './types/run.js';
+import type { ChatRun, ChatRunCreateMeta, ChatRunService, RunStatus } from './types/run.js';
 
 export interface CreateServerOptions {
   runtimeDir?: string;
@@ -527,6 +527,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       projectsDir,
       project,
       await safeDetectAgentAvailability(detectAgentAvailability),
+      runs,
     );
     sendNoStore(res);
     res.type('html').send(renderPage({ route, projectEditor }));
@@ -561,6 +562,7 @@ async function createProjectEditorInitialData(
   projectsDir: string,
   project: StoredProject,
   agentAvailability: AgentAvailability[],
+  runs: Pick<ChatRunService, 'get' | 'isTerminal'>,
 ): Promise<ProjectEditorInitialData> {
   const conversations = await listConversations(projectsDir, project.id);
   const activeConversation = conversations[0] ?? (await ensureDefaultConversation(projectsDir, project.id, readProjectTitle(project)));
@@ -609,7 +611,7 @@ async function createProjectEditorInitialData(
     files,
     conversations: conversations.length > 0 ? conversations.map(conversationSummaryForClient) : [conversationSummaryForClient(activeConversation)],
     activeConversationId: activeConversation.id,
-    messages: (messages ?? []).map(messageForClient),
+    messages: (messages ?? []).map((message) => messageForClient(message, runs)),
     agentAvailability,
   };
 }
@@ -638,7 +640,38 @@ function conversationSummaryForClient(conversation: {
   };
 }
 
-function messageForClient(message: StoredConversationMessage): ProjectEditorInitialData['messages'][number] {
+function reconcileRunStatus(
+  message: StoredConversationMessage,
+  runs: Pick<ChatRunService, 'get' | 'isTerminal'>,
+): RunStatus | null {
+  const stored = message.runStatus ?? null;
+  if (message.role !== 'assistant' || !message.runId) {
+    return stored;
+  }
+
+  const liveRun = runs.get(message.runId);
+  if (liveRun) {
+    // The live run is authoritative. While streaming, the persisted status lags
+    // at 'queued' (it is only updated on the end/error event), so surface it as
+    // 'running' to let the client reattach and resume the SSE stream.
+    return runs.isTerminal(liveRun.status) ? liveRun.status : 'running';
+  }
+
+  // No live run, but the persisted status never reached a terminal state: the run
+  // vanished without an end event (server restart/crash mid-run). Collapse it to
+  // 'failed' so it does not show up as a permanent "in progress" zombie.
+  if (stored !== null && !runs.isTerminal(stored)) {
+    return 'failed';
+  }
+
+  return stored;
+}
+
+function messageForClient(
+  message: StoredConversationMessage,
+  runs: Pick<ChatRunService, 'get' | 'isTerminal'>,
+): ProjectEditorInitialData['messages'][number] {
+  const runStatus = reconcileRunStatus(message, runs);
   return {
     id: message.id,
     role: message.role,
@@ -656,7 +689,7 @@ function messageForClient(message: StoredConversationMessage): ProjectEditorInit
         ? [{ kind: 'text', content: message.content, markdown: true }]
         : [],
     runId: message.runId ?? undefined,
-    runStatus: message.runStatus ?? undefined,
+    runStatus: runStatus ?? undefined,
     createdAt: message.createdAt,
     startedAt: message.startedAt ?? undefined,
     endedAt: message.endedAt ?? undefined,

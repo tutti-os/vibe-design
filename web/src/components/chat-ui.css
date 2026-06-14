@@ -1803,26 +1803,22 @@ button.user-attachment-file {
 
 .chat-composer__design-system-selected-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 24px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 7px;
-  min-height: 54px;
-  border: 1px solid var(--border-1);
+  gap: 10px;
+  min-height: 65px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 44%, var(--border-1));
   border-radius: var(--project-button-radius);
   background: var(--background-fronted);
-  padding: 8px 4px 8px 12px;
+  padding: 11px 4px 11px 12px;
   color: var(--text-primary);
   box-shadow: var(--project-shadow-none);
 }
 
-.chat-composer__design-system-selected-title {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-primary);
-  font-size: var(--project-font-body);
-  font-weight: var(--project-font-weight-semibold);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.chat-composer__design-system-selected-card .chat-composer__design-system-option-summary {
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
 }
 
 .chat-composer__design-system-remove {
@@ -1911,6 +1907,21 @@ button.user-attachment-file {
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.chat-composer__design-system-tooltip {
+  position: fixed;
+  z-index: 2147483000;
+  padding: 8px 10px;
+  border-radius: var(--project-radius-xs, 6px);
+  background: var(--text-primary);
+  color: var(--background-fronted);
+  font-size: var(--project-font-meta);
+  line-height: 1.4;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+  pointer-events: none;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .chat-composer__design-system-swatches {

@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import {
   Button,
   Dialog,
@@ -8,6 +9,49 @@ import {
   DialogTitle,
 } from '@tutti-os/ui-system/components';
 import { CheckIcon, CloseIcon } from '@tutti-os/ui-system/icons';
+
+interface SummaryTip {
+  text: string;
+  top: number;
+  left: number;
+}
+
+// Instant, styled hover tooltip that reveals the full (otherwise truncated)
+// summary. Portaled to <body> so it escapes the dialog transform and the
+// scrollable list's overflow clipping.
+function useSummaryTooltip() {
+  const [tip, setTip] = React.useState<SummaryTip | null>(null);
+  const show = React.useCallback((element: HTMLElement | null, text: string) => {
+    if (!element) return;
+    // Only surface the tooltip when the text is actually clipped.
+    if (element.scrollWidth <= element.clientWidth + 1) {
+      setTip(null);
+      return;
+    }
+    const rect = element.getBoundingClientRect();
+    setTip({ text, top: rect.bottom + 6, left: rect.left });
+  }, []);
+  const hide = React.useCallback(() => setTip(null), []);
+  return { tip, show, hide };
+}
+
+function SummaryTooltip({ tip }: { tip: SummaryTip | null }) {
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => setMounted(true), []);
+  if (!tip || !mounted || typeof document === 'undefined') return null;
+  const maxWidth = 320;
+  const left = Math.max(12, Math.min(tip.left, window.innerWidth - maxWidth - 12));
+  return createPortal(
+    <div
+      className="chat-composer__design-system-tooltip"
+      role="tooltip"
+      style={{ top: tip.top, left, maxWidth }}
+    >
+      {tip.text}
+    </div>,
+    document.body,
+  );
+}
 
 export interface PickerDesignSystem {
   id: string;
@@ -63,9 +107,7 @@ export function DesignSystemPickerDialog({
   onOpenChange: (open: boolean) => void;
   onSelectDesignSystem: (designSystemId: string) => void;
 }) {
-  const availableDesignSystems = designSystems.filter(
-    (designSystem) => designSystem.id !== selectedDesignSystem?.id,
-  );
+  const availableDesignSystems = designSystems;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -172,9 +214,32 @@ function SelectedDesignSystemCard({
   onClear(): void;
   removeAriaLabel: string;
 }) {
+  const summaryRef = React.useRef<HTMLSpanElement>(null);
+  const { tip, show, hide } = useSummaryTooltip();
+  const summary = designSystem.summary || designSystem.category;
   return (
     <div className="chat-composer__design-system-selected-card">
-      <span className="chat-composer__design-system-selected-title">{designSystem.title}</span>
+      <span className="chat-composer__design-system-option-main">
+        <span className="chat-composer__design-system-option-title">{designSystem.title}</span>
+        <span
+          ref={summaryRef}
+          className="chat-composer__design-system-option-summary"
+          onMouseEnter={() => show(summaryRef.current, summary)}
+          onMouseLeave={hide}
+        >
+          {summary}
+        </span>
+      </span>
+      <SummaryTooltip tip={tip} />
+      <span className="chat-composer__design-system-swatches" aria-hidden>
+        {designSystem.swatches.slice(0, 4).map((swatch) => (
+          <span
+            key={`${designSystem.id}-${swatch}`}
+            className="chat-composer__design-system-swatch"
+            style={{ backgroundColor: swatch }}
+          />
+        ))}
+      </span>
       <Button
         type="button"
         className="chat-composer__design-system-remove"
@@ -203,6 +268,9 @@ function AvailableDesignSystemOption({
   selectAriaLabel: string;
   onSelect(): void;
 }) {
+  const summaryRef = React.useRef<HTMLSpanElement>(null);
+  const { tip, show, hide } = useSummaryTooltip();
+  const summary = designSystem.summary || designSystem.category;
   return (
     <button
       type="button"
@@ -217,10 +285,12 @@ function AvailableDesignSystemOption({
       <span className="chat-composer__design-system-option-main">
         <span className="chat-composer__design-system-option-title">{designSystem.title}</span>
         <span
+          ref={summaryRef}
           className="chat-composer__design-system-option-summary"
-          title={designSystem.summary || designSystem.category}
+          onMouseEnter={() => show(summaryRef.current, summary)}
+          onMouseLeave={hide}
         >
-          {designSystem.summary || designSystem.category}
+          {summary}
         </span>
       </span>
       <span className="chat-composer__design-system-swatches" aria-hidden>
@@ -233,6 +303,7 @@ function AvailableDesignSystemOption({
         ))}
       </span>
       {selected ? <CheckIcon size={14} aria-hidden /> : null}
+      <SummaryTooltip tip={tip} />
     </button>
   );
 }

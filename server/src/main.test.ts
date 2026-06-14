@@ -290,6 +290,72 @@ describe('createServer', () => {
     });
   });
 
+  it('reports an assistant message as running while its run is still live', async () => {
+    const runtimeRoot = await createRuntimeDir();
+    const projectId = 'project-live-run';
+    writeProjectToStore(join(runtimeRoot, 'projects'), {
+      id: projectId,
+      designSystemId: null,
+      createdAt: 1,
+      updatedAt: 2,
+      tabsState: { tabs: [], activeTabKey: null },
+      metadata: { title: 'Live run', prompt: 'Generate a page.', projectKind: 'prototype' },
+    });
+    // The default no-op startAgentRun leaves the run live (non-terminal) without
+    // ever writing an end event, mirroring a project reopened mid-generation.
+    const port = await listenOnRandomPort(createTestServer({ runtimeDir: runtimeRoot }));
+
+    const runResponse = await fetch(`http://127.0.0.1:${port}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ projectId, prompt: 'Generate a page.', provider: 'codex' }),
+    });
+    expect(runResponse.status).toBe(202);
+    const run = (await runResponse.json()) as { assistantMessageId: string };
+
+    const editorResponse = await fetch(`http://127.0.0.1:${port}/project/${projectId}`);
+    const initial = readInitialDataFromHtml(await editorResponse.text());
+    const messages = (initial.projectEditor as { messages: Array<{ id: string; runStatus?: string }> }).messages;
+    const assistant = messages.find((message) => message.id === run.assistantMessageId);
+
+    // Persisted status lags at 'queued'; reconciliation against the live run
+    // surfaces 'running' so the client reattaches and resumes streaming.
+    expect(assistant?.runStatus).toBe('running');
+  });
+
+  it('collapses an orphaned non-terminal run to failed when no live run remains', async () => {
+    const runtimeRoot = await createRuntimeDir();
+    const projectsDir = join(runtimeRoot, 'projects');
+    const projectId = 'project-orphan-run';
+    const conversationId = 'conversation-orphan';
+    writeProjectToStore(projectsDir, {
+      id: projectId,
+      designSystemId: null,
+      createdAt: 1,
+      updatedAt: 2,
+      tabsState: { tabs: [], activeTabKey: null },
+      metadata: { title: 'Orphan run', prompt: 'Generate a page.', projectKind: 'prototype' },
+    });
+    createConversationInStore(projectsDir, projectId, conversationId, 'Main thread');
+    upsertMessageInStore(projectsDir, projectId, conversationId, {
+      id: 'assistant-orphan',
+      role: 'assistant',
+      content: 'partial output',
+      runId: 'run-gone',
+      runStatus: 'queued',
+    });
+    const port = await listenOnRandomPort(createTestServer({ runtimeDir: runtimeRoot }));
+
+    const editorResponse = await fetch(`http://127.0.0.1:${port}/project/${projectId}`);
+    const initial = readInitialDataFromHtml(await editorResponse.text());
+    const messages = (initial.projectEditor as { messages: Array<{ id: string; runStatus?: string }> }).messages;
+    const assistant = messages.find((message) => message.id === 'assistant-orphan');
+
+    // The run vanished without an end event (server restart mid-run); it must not
+    // remain a permanent "in progress" zombie.
+    expect(assistant?.runStatus).toBe('failed');
+  });
+
   it('installs Claude Code and returns refreshed local agent availability', async () => {
     const installCalls: string[] = [];
     let detectCalls = 0;

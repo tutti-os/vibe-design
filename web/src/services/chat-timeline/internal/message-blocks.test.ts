@@ -45,6 +45,7 @@ describe('buildMessageBlocks', () => {
       kind: 'ask-user-question',
       toolUseId: 'tool-2',
       input: { question: 'Pick one', options: ['A', 'B'] },
+      answered: false,
     });
     expect(blocks[4]).toEqual({
       kind: 'todo-write',
@@ -83,8 +84,24 @@ describe('buildMessageBlocks', () => {
       kind: 'ask-user-question',
       toolUseId: 'question-1',
       input,
+      answered: false,
     });
     expect(blocks.find((block) => block.kind === 'tool-group')).toBeUndefined();
+  });
+
+  it('marks an AskUserQuestion block as answered once its tool result arrives', () => {
+    const input = { question: 'Pick one', options: ['A', 'B'] };
+    const blocks = buildMessageBlocks([
+      { type: 'tool_use', id: 'q-1', name: 'AskUserQuestion', input },
+      { type: 'tool_result', toolUseId: 'q-1', content: 'A', isError: false },
+    ]);
+
+    expect(blocks).toContainEqual({
+      kind: 'ask-user-question',
+      toolUseId: 'q-1',
+      input,
+      answered: true,
+    });
   });
 
   it('converts reasoning tags inside text deltas into thinking blocks', () => {
@@ -301,6 +318,7 @@ describe('buildMessageBlocks', () => {
         kind: 'ask-user-question',
         toolUseId: 'tool-1',
         input: { question: 'Pick a layout', options: [{ label: 'Compact' }, { label: 'Comfortable' }] },
+        answered: false,
       },
     ]);
   });

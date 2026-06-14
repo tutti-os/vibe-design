@@ -81,6 +81,7 @@ export function buildMessageBlocks(events: AgentEvent[]): MessageBlock[] {
         kind: 'ask-user-question',
         toolUseId: event.id,
         input: event.input,
+        answered: resultByToolId.has(event.id),
       });
       lastQuestionInput = event.input;
       continue;

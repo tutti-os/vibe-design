@@ -150,6 +150,8 @@ function AssistantBlock({
         toolUseId={block.toolUseId}
         input={block.input}
         live={streaming}
+        answered={block.answered}
+        nextUserContent={nextUserContent}
         onAnswer={onAnswerToolQuestion}
         onFallbackAnswer={onSubmitToolQuestionFallback}
       />

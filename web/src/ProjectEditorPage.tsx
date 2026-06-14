@@ -283,7 +283,6 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
         id: comment.id,
         revision: (currentRequest?.revision ?? 0) + 1,
       }));
-      setCommentPanelOpen(false);
     },
     [requestCanvasOpen],
   );
