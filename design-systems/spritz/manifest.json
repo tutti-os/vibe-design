@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "spritz",
+  "name": "Spritz",
+  "category": "Playful",
+  "description": "Candy pink, mint, and cream for cheerful, high-energy consumer products.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "normalized",
+  "i18n": {
+    "en": {
+      "name": "Spritz",
+      "category": "Playful",
+      "description": "Candy pink, mint, and cream for cheerful, high-energy consumer products."
+    },
+    "zh-CN": {
+      "name": "气泡糖",
+      "category": "轻快趣味",
+      "description": "糖果粉、薄荷绿与奶油色，打造愉悦而充满活力的消费产品。"
+    }
+  }
+}

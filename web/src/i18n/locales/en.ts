@@ -13,6 +13,7 @@ export const en = {
     audioPreview: 'Audio preview',
     download: 'Download',
     downloadAria: 'Download {{title}}',
+    downloadStarted: '{{title}} downloaded',
     generatedMedia: 'Generated Media',
     liveArtifactStatus: 'Live artifact status',
     openLiveArtifact: 'Open live artifact {{title}}',

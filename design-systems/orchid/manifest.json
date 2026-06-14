@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "orchid",
+  "name": "Orchid",
+  "category": "Vivid product",
+  "description": "Clean neutrals lifted by an electric violet for expressive, modern interfaces.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "normalized",
+  "i18n": {
+    "en": {
+      "name": "Orchid",
+      "category": "Vivid product",
+      "description": "Clean neutrals lifted by an electric violet for expressive, modern interfaces."
+    },
+    "zh-CN": {
+      "name": "兰影",
+      "category": "活力产品",
+      "description": "干净的中性底色被电光紫点亮，呈现富有表现力的现代界面。"
+    }
+  }
+}

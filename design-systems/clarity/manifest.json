@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "clarity",
+  "name": "Clarity",
+  "category": "Minimal application",
+  "description": "Crisp white space and a single confident blue for focused, content-first product work.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "normalized",
+  "i18n": {
+    "en": {
+      "name": "Clarity",
+      "category": "Minimal application",
+      "description": "Crisp white space and a single confident blue for focused, content-first product work."
+    },
+    "zh-CN": {
+      "name": "澄澈",
+      "category": "极简应用",
+      "description": "清爽的留白搭配一抹自信的蓝色，专注于内容优先的产品界面。"
+    }
+  }
+}

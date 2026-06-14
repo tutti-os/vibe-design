@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "beacon",
+  "name": "Beacon",
+  "category": "Social product",
+  "description": "Bright sky-blue actions on clean surfaces for fast, real-time social feeds.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "normalized",
+  "i18n": {
+    "en": {
+      "name": "Beacon",
+      "category": "Social product",
+      "description": "Bright sky-blue actions on clean surfaces for fast, real-time social feeds."
+    },
+    "zh-CN": {
+      "name": "信标",
+      "category": "社交产品",
+      "description": "明亮的天蓝色操作搭配干净表面，适合快速的实时社交信息流。"
+    }
+  }
+}

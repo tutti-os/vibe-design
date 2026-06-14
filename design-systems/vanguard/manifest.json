@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "vanguard",
+  "name": "Vanguard",
+  "category": "Bold developer",
+  "description": "Industrial grays with a crimson alert accent for dense, high-contrast tooling.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "normalized",
+  "i18n": {
+    "en": {
+      "name": "Vanguard",
+      "category": "Bold developer",
+      "description": "Industrial grays with a crimson alert accent for dense, high-contrast tooling."
+    },
+    "zh-CN": {
+      "name": "先锋",
+      "category": "硬核开发",
+      "description": "工业灰底搭配警示红强调，适合高密度、高对比的开发工具。"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "nebula",
+  "name": "Nebula",
+  "category": "Dark cinematic",
+  "description": "A deep midnight canvas with luminous violet for immersive, image-led interfaces.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "normalized",
+  "i18n": {
+    "en": {
+      "name": "Nebula",
+      "category": "Dark cinematic",
+      "description": "A deep midnight canvas with luminous violet for immersive, image-led interfaces."
+    },
+    "zh-CN": {
+      "name": "星云",
+      "category": "暗色影院",
+      "description": "深邃的午夜底色与流光紫色，打造沉浸式、以图像为主的界面。"
+    }
+  }
+}

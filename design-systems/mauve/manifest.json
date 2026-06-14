@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "mauve",
+  "name": "Mauve",
+  "category": "Soft UI",
+  "description": "Gentle slate surfaces with a purple-and-cyan duo for friendly, soft applications.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "normalized",
+  "i18n": {
+    "en": {
+      "name": "Mauve",
+      "category": "Soft UI",
+      "description": "Gentle slate surfaces with a purple-and-cyan duo for friendly, soft applications."
+    },
+    "zh-CN": {
+      "name": "锦葵",
+      "category": "柔和界面",
+      "description": "柔和的石蓝表面搭配紫色与青色双强调，呈现亲和柔软的应用界面。"
+    }
+  }
+}

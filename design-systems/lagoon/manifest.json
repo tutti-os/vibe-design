@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "lagoon",
+  "name": "Lagoon",
+  "category": "Technical",
+  "description": "Deep teal over cool mist for calm, legible technical dashboards and consoles.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "normalized",
+  "i18n": {
+    "en": {
+      "name": "Lagoon",
+      "category": "Technical",
+      "description": "Deep teal over cool mist for calm, legible technical dashboards and consoles."
+    },
+    "zh-CN": {
+      "name": "礁湖",
+      "category": "技术工具",
+      "description": "深青色铺陈于冷雾底色，打造冷静、清晰的技术仪表盘与控制台。"
+    }
+  }
+}

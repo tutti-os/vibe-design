@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "terra",
+  "name": "Terra",
+  "category": "Warm editorial",
+  "description": "Earthy clay tones over warm paper for grounded, tactile editorial layouts.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "normalized",
+  "i18n": {
+    "en": {
+      "name": "Terra",
+      "category": "Warm editorial",
+      "description": "Earthy clay tones over warm paper for grounded, tactile editorial layouts."
+    },
+    "zh-CN": {
+      "name": "陶土",
+      "category": "温暖编辑",
+      "description": "大地陶土色调铺陈于暖纸之上，营造踏实而有质感的编辑式版面。"
+    }
+  }
+}

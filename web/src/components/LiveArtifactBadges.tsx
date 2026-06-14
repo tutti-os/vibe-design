@@ -1,4 +1,4 @@
-import { Badge, Button, Card, CardContent } from '@tutti-os/ui-system/components';
+import { Badge, Button, Card, CardContent, toast } from '@tutti-os/ui-system/components';
 import { FileIcon } from '@tutti-os/ui-system/icons';
 import React from 'react';
 import type { LiveArtifactWorkspaceEntry } from '../types';
@@ -34,7 +34,12 @@ export function LiveArtifactBadges({ artifacts, onOpenLiveArtifact }: LiveArtifa
               </Button>
               <LiveArtifactStatusBadges artifact={artifact} />
               {artifact.preview.url ? (
-                <a href={artifact.preview.url} download={artifact.title} aria-label={t('artifacts.downloadAria', { title: artifact.title })}>
+                <a
+                  href={artifact.preview.url}
+                  download={artifact.title}
+                  aria-label={t('artifacts.downloadAria', { title: artifact.title })}
+                  onClick={() => toast.success(t('artifacts.downloadStarted', { title: artifact.title }))}
+                >
                   {t('artifacts.download')}
                 </a>
               ) : null}

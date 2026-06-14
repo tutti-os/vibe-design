@@ -19,6 +19,7 @@ import {
 } from './conversations.js';
 import { composeSystemPrompt, type ComposeInput } from './prompts/system.js';
 import { localAgentRuntime } from './local-agent-runtime.js';
+import { prepareAppDataCodexHome } from './codex-home.js';
 import { findSkillById, listSkills, type SkillInfo } from './skills.js';
 import {
   readAvailableDesignSystemDetail,
@@ -80,6 +81,13 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   const projectId = readString(request.projectId) ?? run.projectId;
   const cwd = projectId ? join(paths.projectsDir, projectId) : paths.projectsDir;
   await mkdir(cwd, { recursive: true });
+
+  // Persist Codex rollouts (the conversation's native context) under the app data
+  // dir so they survive across runs and resume works, instead of the platform's
+  // per-run ephemeral CODEX_HOME. Only Codex uses CODEX_HOME; leave Claude alone.
+  const codexHome = agentId === 'codex'
+    ? await prepareAppDataCodexHome(dirname(paths.projectsDir))
+    : null;
 
   const locale = readString(request.locale) ?? undefined;
   const skill = await resolveRequestedSkill(request, paths);
@@ -197,6 +205,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       ...(history.length > 0 ? { history } : {}),
       ...(readString(request.model) ? { model: readString(request.model) ?? undefined } : {}),
       ...(readString(request.reasoning) ? { reasoning: readString(request.reasoning) ?? undefined } : {}),
+      ...(codexHome ? { env: { CODEX_HOME: codexHome } } : {}),
       signal: controller.signal,
       resume,
     })) {

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "ledger",
+  "name": "Ledger",
+  "category": "Editorial",
+  "description": "Paper surfaces, ink typography, and a margin-gold accent for document-led tools.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "normalized",
+  "i18n": {
+    "en": {
+      "name": "Ledger",
+      "category": "Editorial",
+      "description": "Paper surfaces, ink typography, and a margin-gold accent for document-led tools."
+    },
+    "zh-CN": {
+      "name": "笺记",
+      "category": "编辑文稿",
+      "description": "纸感表面、墨色排版与页边金色强调，适合以文档为主的工具。"
+    }
+  }
+}

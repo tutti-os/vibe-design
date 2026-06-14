@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "dusk",
+  "name": "Dusk",
+  "category": "Calm product",
+  "description": "Hazy lavender and muted plum for a soft, contemplative product mood.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "normalized",
+  "i18n": {
+    "en": {
+      "name": "Dusk",
+      "category": "Calm product",
+      "description": "Hazy lavender and muted plum for a soft, contemplative product mood."
+    },
+    "zh-CN": {
+      "name": "暮霭",
+      "category": "静谧产品",
+      "description": "朦胧的薰衣草紫与柔和梅子色，营造静谧、内省的产品氛围。"
+    }
+  }
+}

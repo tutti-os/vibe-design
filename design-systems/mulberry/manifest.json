@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "mulberry",
+  "name": "Mulberry",
+  "category": "Conversational",
+  "description": "Soft blush surfaces and a deep berry accent for warm chat and messaging products.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "normalized",
+  "i18n": {
+    "en": {
+      "name": "Mulberry",
+      "category": "Conversational",
+      "description": "Soft blush surfaces and a deep berry accent for warm chat and messaging products."
+    },
+    "zh-CN": {
+      "name": "桑莓",
+      "category": "对话式",
+      "description": "柔和的胭脂色表面与深莓红强调色，适合温暖的对话与消息产品。"
+    }
+  }
+}

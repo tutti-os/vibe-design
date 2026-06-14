@@ -1,0 +1,1 @@
+Use Mulberry as the active visual source of truth. Start from the `--vd-*` tokens in tokens.css before inventing new colors, spacing, or component styling. Treat the accent as a scarce resource: one primary action per view, and let neutral surfaces carry the rest.

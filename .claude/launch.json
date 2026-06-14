@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "vibe-design-empty",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "TUTTI_APP_DATA_DIR=/tmp/vibe-empty-data PORT=3010 pnpm dev"],
+      "port": 3010
+    }
+  ]
+}

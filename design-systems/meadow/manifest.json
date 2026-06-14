@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "meadow",
+  "name": "Meadow",
+  "category": "Organic",
+  "description": "Sun-warmed tan and olive green for soft, natural, outdoorsy interfaces.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "normalized",
+  "i18n": {
+    "en": {
+      "name": "Meadow",
+      "category": "Organic",
+      "description": "Sun-warmed tan and olive green for soft, natural, outdoorsy interfaces."
+    },
+    "zh-CN": {
+      "name": "草甸",
+      "category": "自然有机",
+      "description": "被阳光晒暖的米褐与橄榄绿，呈现柔和、自然、带户外气息的界面。"
+    }
+  }
+}

@@ -686,7 +686,7 @@ describe('createServer', () => {
     }));
   });
 
-  it('lists bundled third-party reference design systems', async () => {
+  it('lists the bundled palette design styles', async () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: await createRuntimeDir(),
@@ -697,66 +697,29 @@ describe('createServer', () => {
 
     const response = await fetch(`http://127.0.0.1:${port}/api/design-systems`);
     const body = await response.json() as {
-      designSystems: Array<{ id: string; title: string; source: string; isEditable: boolean }>;
+      designSystems: Array<{ id: string; title: string; source: string; isEditable: boolean; swatches: string[] }>;
     };
 
     expect(response.status).toBe(200);
+
+    // Every bundled style is a non-editable built-in.
+    expect(body.designSystems.length).toBeGreaterThanOrEqual(15);
+    for (const designSystem of body.designSystems) {
+      expect(designSystem.source).toBe('built-in');
+      expect(designSystem.isEditable).toBe(false);
+    }
+
     expect(body.designSystems).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        id: 'alibaba',
-        title: 'Alibaba Marketplace Reference',
-        source: 'built-in',
-        isEditable: false,
-      }),
-      expect.objectContaining({
-        id: 'anthropic',
-        title: 'Anthropic Web Reference',
-        source: 'built-in',
-        isEditable: false,
-      }),
-      expect.objectContaining({
-        id: 'bytedance',
-        title: 'ByteDance Corporate Reference',
-        source: 'built-in',
-        isEditable: false,
-      }),
-      expect.objectContaining({
-        id: 'capcut',
-        title: 'CapCut Creator Reference',
-        source: 'built-in',
-        isEditable: false,
-      }),
-      expect.objectContaining({
-        id: 'jimeng',
-        title: 'Jimeng AI Reference',
-        source: 'built-in',
-        isEditable: false,
-      }),
-      expect.objectContaining({
-        id: 'lovable',
-        title: 'Lovable App Builder Reference',
-        source: 'built-in',
-        isEditable: false,
-      }),
-      expect.objectContaining({
-        id: 'openai',
-        title: 'OpenAI Web Reference',
-        source: 'built-in',
-        isEditable: false,
-      }),
-      expect.objectContaining({
-        id: 'tencent',
-        title: 'Tencent Corporate Reference',
-        source: 'built-in',
-        isEditable: false,
-      }),
-      expect.objectContaining({
-        id: 'vercel',
-        title: 'Vercel AI Cloud Reference',
-        source: 'built-in',
-        isEditable: false,
-      }),
+      expect.objectContaining({ id: 'clarity', title: 'Clarity', source: 'built-in', isEditable: false }),
+      expect.objectContaining({ id: 'vanguard', title: 'Vanguard', source: 'built-in', isEditable: false }),
+      expect.objectContaining({ id: 'spritz', title: 'Spritz', source: 'built-in', isEditable: false }),
+      expect.objectContaining({ id: 'nebula', title: 'Nebula', source: 'built-in', isEditable: false }),
+      expect.objectContaining({ id: 'ember', title: 'Ember', source: 'built-in', isEditable: false }),
     ]));
+
+    // Each style leads with its own distinct signature accent swatch.
+    const leadSwatches = body.designSystems.map((designSystem) => designSystem.swatches[0]);
+    expect(new Set(leadSwatches).size).toBe(leadSwatches.length);
   });
 
   it('returns design-system detail and renders an HTML preview', async () => {

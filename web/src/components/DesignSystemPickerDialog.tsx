@@ -216,7 +216,10 @@ function AvailableDesignSystemOption({
     >
       <span className="chat-composer__design-system-option-main">
         <span className="chat-composer__design-system-option-title">{designSystem.title}</span>
-        <span className="chat-composer__design-system-option-summary">
+        <span
+          className="chat-composer__design-system-option-summary"
+          title={designSystem.summary || designSystem.category}
+        >
           {designSystem.summary || designSystem.category}
         </span>
       </span>

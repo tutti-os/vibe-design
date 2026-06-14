@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "ember",
+  "name": "Ember",
+  "category": "Energetic",
+  "description": "Warm amber on soft neutrals for confident, lively commerce and product surfaces.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "normalized",
+  "i18n": {
+    "en": {
+      "name": "Ember",
+      "category": "Energetic",
+      "description": "Warm amber on soft neutrals for confident, lively commerce and product surfaces."
+    },
+    "zh-CN": {
+      "name": "余烬",
+      "category": "活力暖色",
+      "description": "温暖的橘色铺于柔和中性底色，适合自信、活泼的电商与产品界面。"
+    }
+  }
+}

@@ -15,6 +15,7 @@ export const zhCN = {
     audioPreview: '音频预览',
     download: '下载',
     downloadAria: '下载 {{title}}',
+    downloadStarted: '已下载 {{title}}',
     generatedMedia: '生成媒体',
     liveArtifactStatus: '实时产物状态',
     openLiveArtifact: '打开实时产物 {{title}}',

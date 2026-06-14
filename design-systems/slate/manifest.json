@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "slate",
+  "name": "Slate",
+  "category": "Monochrome",
+  "description": "A pure grayscale system for neutral, content-first surfaces with no color noise.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "normalized",
+  "i18n": {
+    "en": {
+      "name": "Slate",
+      "category": "Monochrome",
+      "description": "A pure grayscale system for neutral, content-first surfaces with no color noise."
+    },
+    "zh-CN": {
+      "name": "石板",
+      "category": "单色系统",
+      "description": "纯灰阶系统，提供中性、内容优先且无色彩干扰的界面。"
+    }
+  }
+}

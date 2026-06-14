@@ -8,7 +8,7 @@ import { EditorState, type Extension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
 import { MonitorSmartphone } from 'lucide-react';
-import { Badge, Button } from '@tutti-os/ui-system/components';
+import { Badge, Button, toast } from '@tutti-os/ui-system/components';
 import {
   AddIcon,
   ChatIcon,
@@ -1928,6 +1928,7 @@ function DesignFileDetail({
                 href={selectedFile.url}
                 download={selectedFile.name}
                 aria-label={t('artifacts.downloadAria', { title: selectedFile.name })}
+                onClick={() => toast.success(t('artifacts.downloadStarted', { title: selectedFile.name }))}
               >
                 <DownloadIcon size={14} />
                 {t('artifacts.download')}

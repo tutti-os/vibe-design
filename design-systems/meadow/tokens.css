@@ -1,0 +1,36 @@
+:root {
+  --vd-canvas: #e4d7b0;
+  --vd-canvas-soft: #e0d2a6;
+  --vd-panel: #e7dbbf;
+  --vd-ink: #5c4b3e;
+  --vd-ink-soft: #6e5e52;
+  --vd-muted: #85766a;
+  --vd-border: #b19681;
+  --vd-field: #decea0;
+  --vd-accent: #8d9d4f;
+  --vd-accent-soft: #dad0a4;
+  --vd-accent-strong: #748141;
+  --vd-accent-ink: #fdfbf6;
+  --vd-highlight: #dbc894;
+  --vd-success: #3f8f5b;
+  --vd-warning: #c98a26;
+  --vd-danger: #d98b7e;
+  --vd-radius-xs: 4px;
+  --vd-radius-sm: 6px;
+  --vd-radius-md: 10px;
+  --vd-radius-lg: 16px;
+  --vd-radius-pill: 999px;
+  --vd-space-1: 4px;
+  --vd-space-2: 8px;
+  --vd-space-3: 12px;
+  --vd-space-4: 16px;
+  --vd-space-6: 24px;
+  --vd-space-8: 32px;
+  --vd-space-12: 48px;
+  --vd-space-16: 64px;
+  --vd-shadow-card: 0 10px 30px rgba(15,23,42, 0.08);
+  --vd-shadow-panel: 0 18px 48px rgba(15,23,42, 0.12);
+  --vd-font-sans: "Lexend Variable", "Lexend", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --vd-font-serif: "Iowan Old Style", "Palatino Linotype", Georgia, Cambria, "Times New Roman", serif;
+  --vd-font-mono: "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+}
