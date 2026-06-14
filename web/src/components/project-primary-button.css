@@ -1,0 +1,16 @@
+.project-primary-button {
+  border-color: transparent;
+  background: var(--project-primary-bg);
+  color: white;
+  box-shadow: var(--project-shadow-none);
+}
+
+.project-primary-button:hover {
+  background: var(--project-primary-hover-bg);
+  color: white;
+}
+
+.project-primary-button:disabled {
+  background: var(--project-primary-disabled-bg);
+  color: white;
+}

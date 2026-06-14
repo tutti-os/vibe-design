@@ -1,0 +1,95 @@
+{
+  "schemaVersion": "tutti.app.cli.v1",
+  "scope": "vibe-design",
+  "documentation": {
+    "file": "COMMANDS.md"
+  },
+  "commands": [
+    {
+      "path": ["projects"],
+      "summary": "List Vibe Design projects",
+      "description": "List projects in the current Vibe Design workspace.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "description": "Maximum number of projects to return." }
+        }
+      },
+      "output": { "defaultMode": "json", "json": true },
+      "handler": { "kind": "http", "method": "POST", "path": "/tutti/cli/projects", "timeoutMs": 30000 }
+    },
+    {
+      "path": ["conversations"],
+      "summary": "List project conversations",
+      "description": "List conversations for one project.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project-id": { "type": "string", "description": "Project id." }
+        },
+        "required": ["project-id"]
+      },
+      "output": { "defaultMode": "json", "json": true },
+      "handler": { "kind": "http", "method": "POST", "path": "/tutti/cli/conversations", "timeoutMs": 30000 }
+    },
+    {
+      "path": ["conversation-messages"],
+      "summary": "Get conversation messages",
+      "description": "Return all messages in a project conversation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project-id": { "type": "string", "description": "Project id." },
+          "conversation-id": { "type": "string", "description": "Conversation id." }
+        },
+        "required": ["project-id", "conversation-id"]
+      },
+      "output": { "defaultMode": "json", "json": true },
+      "handler": { "kind": "http", "method": "POST", "path": "/tutti/cli/conversation-messages", "timeoutMs": 30000 }
+    },
+    {
+      "path": ["files"],
+      "summary": "List project resources",
+      "description": "List file resources for one project, including each resource's static HTTP URL.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project-id": { "type": "string", "description": "Project id." }
+        },
+        "required": ["project-id"]
+      },
+      "output": { "defaultMode": "json", "json": true },
+      "handler": { "kind": "http", "method": "POST", "path": "/tutti/cli/files", "timeoutMs": 30000 }
+    },
+    {
+      "path": ["file-get"],
+      "summary": "Get a project resource",
+      "description": "Return a file resource. Text files use utf8; binary files use base64.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project-id": { "type": "string", "description": "Project id." },
+          "name": { "type": "string", "description": "File name." }
+        },
+        "required": ["project-id", "name"]
+      },
+      "output": { "defaultMode": "json", "json": true },
+      "handler": { "kind": "http", "method": "POST", "path": "/tutti/cli/file-get", "timeoutMs": 30000 }
+    },
+    {
+      "path": ["comments"],
+      "summary": "List preview comments",
+      "description": "List comments for a project conversation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project-id": { "type": "string", "description": "Project id." },
+          "conversation-id": { "type": "string", "description": "Conversation id." }
+        },
+        "required": ["project-id", "conversation-id"]
+      },
+      "output": { "defaultMode": "json", "json": true },
+      "handler": { "kind": "http", "method": "POST", "path": "/tutti/cli/comments", "timeoutMs": 30000 }
+    }
+  ]
+}

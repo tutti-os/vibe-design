@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+.vite/
+.vibe/
+web/artifacts/
+.worktrees/
+*.tsbuildinfo
+.DS_Store
+.worktrees/

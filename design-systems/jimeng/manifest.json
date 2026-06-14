@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "jimeng",
+  "name": "Jimeng AI Reference",
+  "category": "AI imaging",
+  "description": "A cinematic Chinese AI imaging system inspired by Jimeng public pages, with dark immersive hero media, dreamlike gradients, prompt-to-video sections, smart canvas controls, and inspiration-community cards.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "hybrid",
+  "i18n": {
+    "en": {
+      "name": "Jimeng AI Reference",
+      "category": "AI imaging",
+      "description": "A cinematic Chinese AI imaging system inspired by Jimeng public pages, with dark immersive hero media, dreamlike gradients, prompt-to-video sections, smart canvas controls, and inspiration-community cards."
+    },
+    "zh-CN": {
+      "name": "即梦 AI 参考",
+      "category": "AI 影像",
+      "description": "受即梦公开页面启发的电影感中文 AI 影像系统，包含深色沉浸式首屏媒体、梦幻渐变、提示词生成视频区块、智能画布控件和灵感社区卡片。"
+    }
+  }
+}

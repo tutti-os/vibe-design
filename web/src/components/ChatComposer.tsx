@@ -1,0 +1,1038 @@
+import React, {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { AtSign, SwatchBook } from 'lucide-react';
+import {
+  Badge,
+  Button,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@tutti-os/ui-system/components';
+import {
+  CloseIcon,
+  FileTextIcon,
+  ImageFileIcon,
+  LoadingIcon,
+  ToolsIcon,
+  UploadIcon,
+} from '@tutti-os/ui-system/icons';
+import type {
+  ContextPickerSnapshot,
+  ContextSearchResultItem,
+} from '../services/context-picker/context-picker-types';
+import type { CanvasCommentAttachment, ChatAttachment } from '../types';
+import { useTranslation } from '../i18n';
+import { DesignSystemPickerDialog } from './DesignSystemPickerDialog';
+import { PromptInput, type PromptInputHandle } from './PromptInput';
+
+type ModelProvider = 'codex' | 'claude-code';
+type AgentId = 'codex' | 'claude';
+type MentionFilter = 'all' | ContextSearchResultItem['kind'];
+
+const MODEL_PROVIDERS: Array<{ value: ModelProvider; label: string }> = [
+  { value: 'codex', label: 'Codex' },
+  { value: 'claude-code', label: 'Claude Code' },
+];
+
+const MODEL_PROVIDER_ICON_URLS: Record<ModelProvider, string> = {
+  codex: '/assets/agent-icons/workspace-dock-agent-codex.png',
+  'claude-code': '/assets/agent-icons/workspace-dock-agent-claude-code.png',
+};
+
+export interface ChatComposerProps {
+  streaming: boolean;
+  draft?: string;
+  context: {
+    search(query: string): Promise<{ items: ContextSearchResultItem[] }>;
+    selectResult(item: ContextSearchResultItem): void | Promise<void>;
+    removeSelection?(kind: ContextSearchResultItem['kind'], id: string): void;
+    snapshot: ContextPickerSnapshot;
+  };
+  activeDesignSystem?: ChatComposerDesignSystem | null;
+  designSystems?: ChatComposerDesignSystem[];
+  designSystemPickerState?: ChatComposerDesignSystemPickerState;
+  designSystemPickerError?: string | null;
+  commentAttachments?: CanvasCommentAttachment[];
+  agentAvailability?: ChatComposerAgentAvailability[];
+  lockedAgentId?: AgentId | null;
+  onOpenDesignSystemPicker?(): void | Promise<void>;
+  onSelectDesignSystem?(designSystemId: string | null): void | Promise<void>;
+  onInstallAgent?(agentId: AgentId): void | Promise<void>;
+  onAgentChange?(agentId: AgentId, label: string): void;
+  onDraftChange?(draft: string): void;
+  onSend(input: {
+    draft: string;
+    files: File[];
+    attachments?: ChatAttachment[];
+    agentId: AgentId;
+    commentAttachments?: CanvasCommentAttachment[];
+  }): void | Promise<void>;
+  onStop(): void | Promise<void>;
+}
+
+export interface ChatComposerAgentAvailability {
+  id: string;
+  label: string;
+  available: boolean;
+  unavailableReason?: string;
+}
+
+export interface ChatComposerDesignSystem {
+  id: string;
+  title: string;
+  category: string;
+  summary: string;
+  swatches: string[];
+}
+
+export type ChatComposerDesignSystemPickerState = 'idle' | 'loading' | 'ready' | 'error';
+
+export interface ChatComposerHandle {
+  setDraft(text: string, options?: { attachments?: ChatAttachment[] }): void;
+  focus(): void;
+}
+
+export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
+  function ChatComposer({
+    streaming,
+    draft: controlledDraft,
+    context,
+    activeDesignSystem = null,
+    designSystems = [],
+    designSystemPickerState = 'idle',
+    designSystemPickerError = null,
+    commentAttachments = [],
+    agentAvailability = [],
+    lockedAgentId = null,
+    onOpenDesignSystemPicker,
+    onSelectDesignSystem,
+    onInstallAgent,
+    onAgentChange,
+    onDraftChange,
+    onSend,
+  }, ref) {
+    const { t } = useTranslation();
+    const [uncontrolledDraft, setUncontrolledDraft] = useState('');
+    const [files, setFiles] = useState<File[]>([]);
+    const [uploadedAttachments, setUploadedAttachments] = useState<ChatAttachment[]>([]);
+    const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+    const [mentionItems, setMentionItems] = useState<ContextSearchResultItem[]>([]);
+    const [mentionFilter, setMentionFilter] = useState<MentionFilter>('all');
+    const [mentionPending, setMentionPending] = useState(false);
+    const [mentionError, setMentionError] = useState<string | null>(null);
+    const [selectingContextId, setSelectingContextId] = useState<string | null>(null);
+    const [modelProvider, setModelProvider] = useState<ModelProvider>('codex');
+    const [sendPending, setSendPending] = useState(false);
+    const [sendError, setSendError] = useState<string | null>(null);
+    const [designSystemDialogOpen, setDesignSystemDialogOpen] = useState(false);
+    const [draftDesignSystemId, setDraftDesignSystemId] = useState<string | null>(null);
+    const [selectingDesignSystemId, setSelectingDesignSystemId] = useState<string | null>(null);
+    const [designSystemSelectionError, setDesignSystemSelectionError] = useState<string | null>(null);
+    const [installingAgentId, setInstallingAgentId] = useState<AgentId | null>(null);
+    const [agentInstallMessage, setAgentInstallMessage] = useState<string | null>(null);
+    const promptInputRef = useRef<PromptInputHandle | null>(null);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const draft = controlledDraft ?? uncontrolledDraft;
+    const hasCommentAttachments = commentAttachments.length > 0;
+    const lockedModelProvider = lockedAgentId ? modelProviderFromAgentId(lockedAgentId) : null;
+    const providerLocked = lockedModelProvider !== null;
+    const selectedProviderUnavailableReason = unavailableReasonForProvider(modelProvider, agentAvailability);
+    const hasSelectedContext =
+      context.snapshot.selectedSkills.length > 0 || context.snapshot.selectedDesignFiles.length > 0;
+    const hasSendableInput =
+      draft.trim().length > 0 ||
+      files.length > 0 ||
+      uploadedAttachments.length > 0 ||
+      hasCommentAttachments ||
+      hasSelectedContext;
+    const showResponseLoading = sendPending || (streaming && !hasSendableInput);
+    const canSend = hasSendableInput && !sendPending && !selectedProviderUnavailableReason;
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        setDraft(text: string, options?: { attachments?: ChatAttachment[] }) {
+          updateDraft(text);
+          if (options && 'attachments' in options) {
+            setUploadedAttachments(options.attachments ?? []);
+          }
+          requestAnimationFrame(() => {
+            promptInputRef.current?.focusToEnd();
+          });
+        },
+        focus() {
+          promptInputRef.current?.focus();
+        },
+      }),
+      [draft],
+    );
+
+    useEffect(() => {
+      if (lockedModelProvider) {
+        setModelProvider(lockedModelProvider);
+      }
+    }, [lockedModelProvider]);
+
+    useEffect(() => {
+      const agentId = agentIdFromModelProvider(modelProvider);
+      const label = MODEL_PROVIDERS.find((provider) => provider.value === modelProvider)?.label ?? 'Codex';
+      onAgentChange?.(agentId, label);
+    }, [modelProvider, onAgentChange]);
+
+    useEffect(() => {
+      if (mentionQuery === null) {
+        setMentionItems([]);
+        setMentionFilter('all');
+        setMentionPending(false);
+        setMentionError(null);
+        return;
+      }
+
+      let canceled = false;
+      setMentionPending(true);
+      setMentionError(null);
+      void context
+        .search(mentionQuery)
+        .then((result) => {
+          if (canceled) return;
+          setMentionItems(
+              result.items.filter((item) => item.kind === 'skill' || item.kind === 'design-file'),
+          );
+          setMentionPending(false);
+        })
+        .catch(() => {
+          if (canceled) return;
+          setMentionItems([]);
+          setMentionPending(false);
+          setMentionError(t('chat.composer.contextSearchUnavailable'));
+        });
+
+      return () => {
+        canceled = true;
+      };
+    }, [context, mentionQuery]);
+
+    const selectedChips = useMemo(
+      () => [
+        ...context.snapshot.selectedSkills.map((skill) => ({
+          id: `skill:${skill.id}`,
+          kind: 'skill' as const,
+          value: skill.id,
+          label: skill.name,
+        })),
+        ...context.snapshot.selectedDesignFiles.map((file) => ({
+          id: `design-file:${selectedDesignFileValue(file)}`,
+          kind: 'design-file' as const,
+          value: selectedDesignFileValue(file),
+          label: file.name,
+        })),
+      ],
+      [context.snapshot.selectedDesignFiles, context.snapshot.selectedSkills],
+    );
+    const filteredMentionItems = useMemo(
+      () =>
+        mentionFilter === 'all'
+          ? mentionItems
+          : mentionItems.filter((item) => item.kind === mentionFilter),
+      [mentionFilter, mentionItems],
+    );
+
+    function updateDraft(value: string): void {
+      if (controlledDraft === undefined) {
+        setUncontrolledDraft(value);
+      }
+      onDraftChange?.(value);
+      setMentionQuery(extractMentionQuery(value));
+      setSendError(null);
+    }
+
+    async function submit(): Promise<void> {
+      if (!canSend) return;
+      const sentContextChips = selectedChips;
+      setSendPending(true);
+      setSendError(null);
+      try {
+        await onSend({
+          draft: draft.trim(),
+          files,
+          ...(uploadedAttachments.length > 0 ? { attachments: uploadedAttachments } : {}),
+          agentId: agentIdFromModelProvider(modelProvider),
+          ...(hasCommentAttachments ? { commentAttachments } : {}),
+        });
+        updateDraft('');
+        setFiles([]);
+        setUploadedAttachments([]);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+        for (const chip of sentContextChips) {
+          context.removeSelection?.(chip.kind, chip.value);
+        }
+        setMentionQuery(null);
+        setMentionError(null);
+        setMentionPending(false);
+      } catch (error) {
+        setSendError(readSendErrorMessage(error, t('chat.composer.messageSendFailed')));
+      } finally {
+        setSendPending(false);
+      }
+    }
+
+    async function selectMentionResult(item: ContextSearchResultItem): Promise<void> {
+      if (selectingContextId !== null) return;
+      setSelectingContextId(item.id);
+      setMentionError(null);
+      try {
+        await context.selectResult(item);
+        updateDraft(removeActiveMentionToken(draft));
+        setMentionQuery(null);
+        setMentionItems([]);
+        setMentionFilter('all');
+        setMentionError(null);
+        setMentionPending(false);
+      } catch {
+        setMentionError(t('chat.composer.contextSelectionFailed'));
+      } finally {
+        setSelectingContextId(null);
+      }
+    }
+
+    function insertMentionTrigger(): void {
+      promptInputRef.current?.insertText('@');
+    }
+
+    function focusPromptFromInputLayer(event: React.MouseEvent<HTMLDivElement>): void {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || target.closest('[role="textbox"]')) {
+        return;
+      }
+
+      event.preventDefault();
+      promptInputRef.current?.focus();
+    }
+
+    function cycleMentionFilter(reverse: boolean): void {
+      setMentionFilter((currentFilter) => nextMentionFilter(currentFilter, reverse ? -1 : 1));
+    }
+
+    function handleMentionEditorKeyDown(event: KeyboardEvent): boolean {
+      if (event.key !== 'Tab' || mentionQuery === null || mentionItems.length === 0) {
+        return false;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      cycleMentionFilter(event.shiftKey);
+      return true;
+    }
+
+    function handleMentionKeyDown(event: React.KeyboardEvent<HTMLElement>): void {
+      if (event.key !== 'Tab' || mentionQuery === null || mentionItems.length === 0) {
+        return;
+      }
+
+      if (event.defaultPrevented) {
+        event.stopPropagation();
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      cycleMentionFilter(event.shiftKey);
+    }
+
+    function updateModelProvider(value: string): void {
+      if (providerLocked) return;
+      if (value === 'codex' || value === 'claude-code') {
+        if (unavailableReasonForProvider(value, agentAvailability)) return;
+        setAgentInstallMessage(null);
+        setModelProvider(value);
+      }
+    }
+
+    async function installAgent(agentId: AgentId, label: string): Promise<void> {
+      if (!onInstallAgent || installingAgentId !== null) return;
+      setInstallingAgentId(agentId);
+      setAgentInstallMessage(t('chat.composer.installingAgent', { name: label }));
+      try {
+        await onInstallAgent(agentId);
+        setAgentInstallMessage(t('chat.composer.agentInstallSucceeded', { name: label }));
+      } catch (error) {
+        setAgentInstallMessage(readSendErrorMessage(error, t('chat.composer.agentInstallFailed', { name: label })));
+      } finally {
+        setInstallingAgentId(null);
+      }
+    }
+
+    function updateDesignSystemDialog(open: boolean): void {
+      setDesignSystemDialogOpen(open);
+      if (open) {
+        setDraftDesignSystemId(activeDesignSystem?.id ?? null);
+        setDesignSystemSelectionError(null);
+        void onOpenDesignSystemPicker?.();
+      }
+    }
+
+    function stageDesignSystem(designSystemId: string | null): void {
+      if (selectingDesignSystemId !== null) return;
+      setDraftDesignSystemId(designSystemId);
+      setDesignSystemSelectionError(null);
+    }
+
+    async function commitDesignSystem(): Promise<void> {
+      if (selectingDesignSystemId !== null) return;
+      if (draftDesignSystemId === (activeDesignSystem?.id ?? null)) {
+        setDesignSystemDialogOpen(false);
+        return;
+      }
+      if (!onSelectDesignSystem) return;
+      setSelectingDesignSystemId(draftDesignSystemId);
+      setDesignSystemSelectionError(null);
+      try {
+        await onSelectDesignSystem(draftDesignSystemId);
+        setDesignSystemDialogOpen(false);
+      } catch {
+        setDesignSystemSelectionError(t('chat.composer.designSystemSelectionFailed'));
+      } finally {
+        setSelectingDesignSystemId(null);
+      }
+    }
+
+    const pickerSelectedDesignSystem =
+      (draftDesignSystemId
+        ? designSystems.find((designSystem) => designSystem.id === draftDesignSystemId) ??
+          (activeDesignSystem?.id === draftDesignSystemId ? activeDesignSystem : null)
+        : null);
+    const selectedDesignSystemLabel = activeDesignSystem?.title ?? t('dashboard.designSystem.title');
+    function stageSelectedFiles(fileList: FileList | null): void {
+      const selectedFiles = Array.from(fileList ?? []);
+      if (selectedFiles.length === 0) return;
+
+      setFiles((currentFiles) => [...currentFiles, ...selectedFiles]);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+
+    function stagePastedImages(event: ClipboardEvent): boolean {
+      if (sendPending) {
+        return false;
+      }
+
+      const pastedImages = imageFilesFromClipboardData(event.clipboardData);
+      if (pastedImages.length === 0) {
+        return false;
+      }
+
+      event.preventDefault();
+      setFiles((currentFiles) => [...currentFiles, ...pastedImages]);
+      setSendError(null);
+      return true;
+    }
+
+    function removeStagedFile(index: number): void {
+      setFiles((currentFiles) => currentFiles.filter((_, fileIndex) => fileIndex !== index));
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+
+    function removeUploadedAttachment(index: number): void {
+      setUploadedAttachments((currentAttachments) =>
+        currentAttachments.filter((_, attachmentIndex) => attachmentIndex !== index),
+      );
+    }
+
+    return (
+      <section className="composer" aria-label={t('chat.composer.chatComposer')}>
+        {sendError ? (
+          <span className="composer-hint" aria-live="polite">
+            {sendError}
+          </span>
+        ) : null}
+        {selectedProviderUnavailableReason ? (
+          <span className="composer-hint" aria-live="polite">
+            {selectedProviderUnavailableReason}
+          </span>
+        ) : null}
+        {agentInstallMessage ? (
+          <span className="composer-hint" aria-live="polite">
+            {agentInstallMessage}
+          </span>
+        ) : null}
+
+        <div className="composer-shell">
+          <div className="chat-composer__topbar">
+            <Button
+              type="button"
+              className="chat-composer__design-system-trigger"
+              variant="ghost"
+              size="sm"
+              aria-label={t('chat.composer.chooseDesignSystem')}
+              onClick={() => updateDesignSystemDialog(true)}
+            >
+              <SwatchBook size={14} aria-hidden />
+              <span>{selectedDesignSystemLabel}</span>
+            </Button>
+          </div>
+
+          {selectedChips.length > 0 ? (
+            <div className="chat-composer__chips" aria-label={t('chat.composer.selectedContext')}>
+              {selectedChips.map((chip) => (
+                <Badge key={chip.id} className="chat-composer__context-chip" variant="secondary">
+                  {chip.label}
+                  {context.removeSelection ? (
+                    <Button
+                      type="button"
+                      className="chat-composer__context-remove"
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={t('chat.composer.removeContext', { name: chip.label })}
+                      onClick={() => context.removeSelection?.(chip.kind, chip.value)}
+                    >
+                      <CloseIcon size={10} aria-hidden />
+                    </Button>
+                  ) : null}
+                </Badge>
+              ))}
+            </div>
+          ) : null}
+
+          {commentAttachments.length > 0 ? (
+            <CommentAttachmentChips
+              ariaLabel={t('chat.composer.stagedPreviewComments')}
+              commentAttachments={commentAttachments}
+            />
+          ) : null}
+
+          <div className="composer-input-wrap">
+            {files.length > 0 || uploadedAttachments.length > 0 ? (
+              <StagedInputAttachments
+                files={files}
+                uploadedAttachments={uploadedAttachments}
+                onRemoveFile={removeStagedFile}
+                onRemoveUploadedAttachment={removeUploadedAttachment}
+              />
+            ) : null}
+
+            <div className="composer-textarea-layer" onMouseDown={focusPromptFromInputLayer}>
+              <PromptInput
+                ref={promptInputRef}
+                ariaLabel={t('chat.composer.message')}
+                className="chat-composer__textarea"
+                disabled={sendPending}
+                placeholder={t('chat.composer.placeholder')}
+                value={draft}
+                onChange={updateDraft}
+                onEditorKeyDown={handleMentionEditorKeyDown}
+                onEditorPaste={stagePastedImages}
+                onKeyDown={handleMentionKeyDown}
+                shouldSubmitOnEnter={(event) =>
+                  !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey
+                }
+                onSubmitShortcut={(event) => {
+                  if (!event.metaKey && !event.ctrlKey && filteredMentionItems.length > 0) {
+                    void selectMentionResult(filteredMentionItems[0]);
+                    return;
+                  }
+
+                  void submit();
+                }}
+              />
+            </div>
+
+            {mentionQuery !== null && (!mentionError || mentionItems.length > 0) ? (
+              <div
+                className="chat-composer__mention-list"
+                aria-label={t('chat.composer.mentionResults')}
+                onKeyDown={handleMentionKeyDown}
+              >
+                {mentionPending ? (
+                  <div className="chat-composer__mention-empty">{t('chat.composer.searchingContext')}</div>
+                ) : mentionItems.length > 0 ? (
+                  <>
+                    <div className="chat-composer__mention-tabs" role="tablist" aria-label={t('chat.composer.mentionFilters')}>
+                      {MENTION_FILTERS.map((filter) => (
+                        <Button
+                          key={filter}
+                          type="button"
+                          className="chat-composer__mention-tab"
+                          role="tab"
+                          aria-selected={mentionFilter === filter}
+                          variant={mentionFilter === filter ? 'secondary' : 'ghost'}
+                          size="sm"
+                          onClick={() => setMentionFilter(filter)}
+                        >
+                          {mentionFilterLabel(filter, t)}
+                        </Button>
+                      ))}
+                    </div>
+                    {filteredMentionItems.length > 0 ? (
+                      filteredMentionItems.map((item) => (
+                        <Button
+                          className="chat-composer__mention-button"
+                          key={item.id}
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={selectingContextId !== null}
+                          onClick={() => void selectMentionResult(item)}
+                        >
+                          <MentionResultIcon kind={item.kind} />
+                          <span>{item.label}</span>
+                          {item.kind === 'design-file' ? (
+                            <span className="chat-composer__meta">{item.path}</span>
+                          ) : null}
+                        </Button>
+                      ))
+                    ) : (
+                      <div className="chat-composer__mention-empty">{t('chat.composer.noContextResults')}</div>
+                    )}
+                  </>
+                ) : (
+                  <div className="chat-composer__mention-empty">{t('chat.composer.noContextResults')}</div>
+                )}
+              </div>
+            ) : null}
+          </div>
+
+          {mentionError ? (
+            <div className="chat-composer__meta" aria-live="polite">
+              {mentionError}
+            </div>
+          ) : null}
+
+          <div className="composer-row">
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label={t('chat.composer.openMentions')}
+              title={t('chat.composer.openMentions')}
+              onClick={insertMentionTrigger}
+            >
+              <AtSign size={14} aria-hidden />
+            </button>
+
+            <input
+              ref={fileInputRef}
+              aria-label={t('chat.composer.importFiles')}
+              disabled={sendPending}
+              multiple
+              type="file"
+              onChange={(event) => stageSelectedFiles(event.currentTarget.files)}
+            />
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label={t('chat.composer.attachFiles')}
+              title={t('chat.composer.attachFiles')}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <UploadIcon size={14} />
+            </button>
+
+            <span className="composer-spacer" />
+
+            <TooltipProvider delayDuration={120}>
+              <Select
+                value={modelProvider}
+                onValueChange={updateModelProvider}
+              >
+                <SelectTrigger
+                  aria-label={t('chat.composer.modelProvider')}
+                  className="composer-model-select"
+                  size="sm"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="composer-model-select-content">
+                  {MODEL_PROVIDERS.map((provider) => {
+                    const isLockedOption = providerLocked && provider.value !== lockedModelProvider;
+                    const unavailableReason = unavailableReasonForProvider(provider.value, agentAvailability);
+                    const disabledReason = isLockedOption ? t('chat.composer.lockedModelProvider') : unavailableReason;
+                    const agentId = agentIdFromModelProvider(provider.value);
+                    const showInstallAction =
+                      provider.value === 'claude-code' &&
+                      Boolean(unavailableReason) &&
+                      !isLockedOption &&
+                      Boolean(onInstallAgent);
+                    const item = (
+                      <SelectItem
+                        className="composer-model-select-item"
+                        disabled={isLockedOption || Boolean(unavailableReason)}
+                        key={provider.value}
+                        value={provider.value}
+                      >
+                        <ModelProviderIcon provider={provider.value} />
+                        <span>{provider.label}</span>
+                      </SelectItem>
+                    );
+
+                    if (!disabledReason) {
+                      return item;
+                    }
+
+                    const tooltipItem = (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="composer-model-select-tooltip-trigger">
+                            {item}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" align="center">
+                          {disabledReason}
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+
+                    if (showInstallAction) {
+                      return (
+                        <React.Fragment key={provider.value}>
+                          {tooltipItem}
+                          <div className="composer-model-install-row">
+                            <Button
+                              type="button"
+                              className="composer-model-install-button"
+                              variant="secondary"
+                              size="sm"
+                              aria-label={t('chat.composer.installAgent', { name: provider.label })}
+                              disabled={installingAgentId !== null}
+                              onPointerDown={(event) => event.stopPropagation()}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                void installAgent(agentId, provider.label);
+                              }}
+                            >
+                              {installingAgentId === agentId
+                                ? t('chat.composer.installing')
+                                : t('chat.composer.install')}
+                            </Button>
+                          </div>
+                        </React.Fragment>
+                      );
+                    }
+
+                    return (
+                      <Tooltip key={provider.value}>
+                        <TooltipTrigger asChild>
+                          <span className="composer-model-select-tooltip-trigger">
+                            {item}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" align="center">
+                          {disabledReason}
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </TooltipProvider>
+
+            <Button
+              type="button"
+              className="project-primary-button composer-send"
+              size="sm"
+              aria-label={showResponseLoading ? t('chat.composer.responseLoading') : t('chat.composer.sendMessage')}
+              disabled={showResponseLoading || !canSend}
+              onClick={() => void submit()}
+            >
+              {showResponseLoading ? (
+                <span className="composer-send-loading-icon">
+                  <LoadingIcon size={14} title={t('chat.composer.responseLoading')} />
+                </span>
+              ) : (
+                t('chat.composer.send')
+              )}
+            </Button>
+          </div>
+        </div>
+
+        <DesignSystemPickerDialog
+          disabled={selectingDesignSystemId !== null}
+          designSystems={designSystems}
+          error={designSystemPickerError}
+          loadState={designSystemPickerState}
+          open={designSystemDialogOpen}
+          selectedDesignSystem={pickerSelectedDesignSystem}
+          selectionError={designSystemSelectionError}
+          text={{
+            allSelected: t('dashboard.designSystem.allSelected'),
+            availableLabel: t('dashboard.designSystem.availableLabel'),
+            availableListLabel: t('dashboard.designSystem.availableListLabel'),
+            clearSelectionAria: (title: string) => t('dashboard.designSystem.clearSelectionAria', { title }),
+            dialogDescription: t('dashboard.designSystem.dialogDescription'),
+            dialogTitle: t('dashboard.designSystem.dialogTitle'),
+            done: t('common.done'),
+            emptySelected: t('dashboard.designSystem.emptySelected'),
+            errorFallback: t('dashboard.designSystem.loadError'),
+            importHint: t('dashboard.designSystem.importHint'),
+            loading: t('common.loading'),
+            selectAria: (title: string) => t('dashboard.designSystem.selectAria', { title }),
+            selectedLabel: t('dashboard.designSystem.selectedLabel'),
+            setupPrompt: t('dashboard.designSystem.setupPrompt'),
+          }}
+          onClearDesignSystem={() => stageDesignSystem(null)}
+          onDone={() => void commitDesignSystem()}
+          onOpenChange={updateDesignSystemDialog}
+          onSelectDesignSystem={(designSystemId) => stageDesignSystem(designSystemId)}
+        />
+      </section>
+    );
+  },
+);
+
+const MENTION_FILTERS: MentionFilter[] = ['all', 'skill', 'design-file'];
+
+function MentionResultIcon({ kind }: { kind: ContextSearchResultItem['kind'] }) {
+  if (kind === 'design-file') {
+    return <FileTextIcon size={14} aria-hidden data-mention-icon="design-file" />;
+  }
+  return <ToolsIcon size={14} aria-hidden data-mention-icon="skill" />;
+}
+
+function ModelProviderIcon({ provider }: { provider: ModelProvider }) {
+  const iconUrl = MODEL_PROVIDER_ICON_URLS[provider];
+  const label = provider === 'codex' ? 'Codex' : 'Claude Code';
+  return (
+    <img
+      src={iconUrl}
+      alt=""
+      aria-hidden
+      className="composer-model-provider-icon"
+      data-provider-icon={provider}
+      title={label}
+    />
+  );
+}
+
+function agentIdFromModelProvider(provider: ModelProvider): AgentId {
+  return provider === 'claude-code' ? 'claude' : 'codex';
+}
+
+function modelProviderFromAgentId(agentId: AgentId): ModelProvider {
+  return agentId === 'claude' ? 'claude-code' : 'codex';
+}
+
+function unavailableReasonForProvider(
+  provider: ModelProvider,
+  agentAvailability: ChatComposerAgentAvailability[],
+): string | null {
+  const agentId = agentIdFromModelProvider(provider);
+  const agent = agentAvailability.find((candidate) => candidate.id === agentId);
+  return agent && !agent.available ? agent.unavailableReason ?? `${agent.label} is unavailable.` : null;
+}
+
+function readSendErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  return fallback;
+}
+
+function mentionFilterLabel(filter: MentionFilter, t: ReturnType<typeof useTranslation>['t']): string {
+  if (filter === 'skill') return t('chat.composer.mentionFilterSkills');
+  if (filter === 'design-file') return t('chat.composer.mentionFilterFiles');
+  return t('chat.composer.mentionFilterAll');
+}
+
+function nextMentionFilter(currentFilter: MentionFilter, offset: 1 | -1): MentionFilter {
+  const currentIndex = MENTION_FILTERS.indexOf(currentFilter);
+  const nextIndex = (currentIndex + offset + MENTION_FILTERS.length) % MENTION_FILTERS.length;
+  return MENTION_FILTERS[nextIndex];
+}
+
+function selectedDesignFileValue(file: ContextPickerSnapshot['selectedDesignFiles'][number]): string {
+  return file.id ?? file.path ?? file.name;
+}
+
+function imageFilesFromClipboardData(clipboardData: DataTransfer | null): File[] {
+  if (!clipboardData) {
+    return [];
+  }
+
+  if (clipboardData.items.length > 0) {
+    return Array.from(clipboardData.items).flatMap((item) => {
+      if (item.kind !== 'file' || !item.type.startsWith('image/')) {
+        return [];
+      }
+
+      const file = item.getAsFile();
+      return file ? [file] : [];
+    });
+  }
+
+  return Array.from(clipboardData.files).filter((file) => file.type.startsWith('image/'));
+}
+
+function StagedInputAttachments({
+  files,
+  uploadedAttachments,
+  onRemoveFile,
+  onRemoveUploadedAttachment,
+}: {
+  files: File[];
+  uploadedAttachments: ChatAttachment[];
+  onRemoveFile(index: number): void;
+  onRemoveUploadedAttachment(index: number): void;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="chat-composer__input-attachments" aria-label={t('chat.composer.stagedInputAttachments')}>
+      {files.map((file, index) => (
+        <StagedLocalInputAttachment
+          key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+          file={file}
+          onRemove={() => onRemoveFile(index)}
+        />
+      ))}
+      {uploadedAttachments.map((attachment, index) => (
+        <StagedUploadedInputAttachment
+          key={`${attachment.path}-${index}`}
+          attachment={attachment}
+          onRemove={() => onRemoveUploadedAttachment(index)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function StagedLocalInputAttachment({
+  file,
+  onRemove,
+}: {
+  file: File;
+  onRemove(): void;
+}) {
+  const previewUrl = useImagePreviewUrl(file);
+
+  return (
+    <StagedInputAttachment
+      name={file.name}
+      isImage={file.type.startsWith('image/')}
+      previewUrl={previewUrl}
+      onRemove={onRemove}
+    />
+  );
+}
+
+function StagedUploadedInputAttachment({
+  attachment,
+  onRemove,
+}: {
+  attachment: ChatAttachment;
+  onRemove(): void;
+}) {
+  return (
+    <StagedInputAttachment
+      name={attachment.name}
+      isImage={attachment.kind === 'image'}
+      previewUrl={null}
+      onRemove={onRemove}
+    />
+  );
+}
+
+function StagedInputAttachment({
+  name,
+  isImage,
+  previewUrl,
+  onRemove,
+}: {
+  name: string;
+  isImage: boolean;
+  previewUrl: string | null;
+  onRemove(): void;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <div className={`chat-composer__attachment${isImage ? ' chat-composer__attachment--image' : ''}`}>
+      <span className="chat-composer__attachment-preview" aria-hidden="true">
+        {isImage && previewUrl ? (
+          <img src={previewUrl} alt={name} />
+        ) : isImage ? (
+          <ImageFileIcon size={15} />
+        ) : (
+          <FileTextIcon size={15} />
+        )}
+      </span>
+      <span className="chat-composer__attachment-name">{name}</span>
+      <Button
+        type="button"
+        className="chat-composer__attachment-remove"
+        size="icon-sm"
+        variant="ghost"
+        aria-label={t('chat.composer.removeAttachment', { name })}
+        onClick={onRemove}
+      >
+        <CloseIcon size={12} aria-hidden />
+      </Button>
+    </div>
+  );
+}
+
+function useImagePreviewUrl(file: File): string | null {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!file.type.startsWith('image/') || typeof URL.createObjectURL !== 'function') {
+      setPreviewUrl(null);
+      return undefined;
+    }
+
+    const nextPreviewUrl = URL.createObjectURL(file);
+    setPreviewUrl(nextPreviewUrl);
+    return () => {
+      URL.revokeObjectURL(nextPreviewUrl);
+    };
+  }, [file]);
+
+  return previewUrl;
+}
+
+function CommentAttachmentChips({
+  ariaLabel,
+  commentAttachments,
+}: {
+  ariaLabel: string;
+  commentAttachments: CanvasCommentAttachment[];
+}) {
+  return (
+    <div className="chat-composer__chips" aria-label={ariaLabel}>
+      {commentAttachments.map((attachment) => (
+        <Badge key={attachment.id} className="preview-comment-attachment-chip" variant="outline">
+          <span>{attachment.selectionKind}</span>
+          <span>{attachment.label || attachment.targetId}</span>
+          <span>{attachment.filePath}</span>
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
+const ACTIVE_MENTION_QUERY_PATTERN = /[@＠]([^\s@＠]*)$/;
+const ACTIVE_MENTION_TOKEN_PATTERN = /[@＠][^\s@＠]*$/;
+
+function extractMentionQuery(value: string): string | null {
+  const match = ACTIVE_MENTION_QUERY_PATTERN.exec(value);
+  return match ? match[1] : null;
+}
+
+function removeActiveMentionToken(value: string): string {
+  return value.replace(ACTIVE_MENTION_TOKEN_PATTERN, '').trimEnd();
+}

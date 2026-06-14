@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "lovable",
+  "name": "Lovable App Builder Reference",
+  "category": "AI app builder",
+  "description": "A playful AI app-builder system inspired by Lovable public pages, with chat-first creation, soft gradient accents, template galleries, builder metrics, and simple idea-to-ship flows.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "hybrid",
+  "i18n": {
+    "en": {
+      "name": "Lovable App Builder Reference",
+      "category": "AI app builder",
+      "description": "A playful AI app-builder system inspired by Lovable public pages, with chat-first creation, soft gradient accents, template galleries, builder metrics, and simple idea-to-ship flows."
+    },
+    "zh-CN": {
+      "name": "Lovable 应用构建器参考",
+      "category": "AI 应用构建器",
+      "description": "受 Lovable 公开页面启发的轻快 AI 应用构建器系统，包含聊天优先创建、柔和渐变强调、模板画廊、构建指标和从想法到发布的简化流程。"
+    }
+  }
+}

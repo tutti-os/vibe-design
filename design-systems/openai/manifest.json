@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "openai",
+  "name": "OpenAI Web Reference",
+  "category": "Editorial application",
+  "description": "A restrained black-and-white web system inspired by OpenAI public pages, with editorial hierarchy, quiet cards, and precise product CTAs.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "hybrid",
+  "i18n": {
+    "en": {
+      "name": "OpenAI Web Reference",
+      "category": "Editorial application",
+      "description": "A restrained black-and-white web system inspired by OpenAI public pages, with editorial hierarchy, quiet cards, and precise product CTAs."
+    },
+    "zh-CN": {
+      "name": "OpenAI 网页参考",
+      "category": "编辑式应用",
+      "description": "受 OpenAI 公开页面启发的克制黑白网页系统，包含编辑式层级、安静卡片和精准产品行动入口。"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+.project-secondary-button,
+.project-secondary-ghost-button {
+  border-color: transparent;
+  background: var(--project-secondary-bg);
+  color: var(--project-accent);
+  box-shadow: var(--project-shadow-none);
+}
+
+.project-secondary-button:hover,
+.project-secondary-ghost-button:hover {
+  border-color: transparent;
+  background: var(--project-secondary-hover-bg);
+  color: var(--project-accent);
+}
+
+.project-secondary-button:disabled,
+.project-secondary-ghost-button:disabled {
+  border-color: transparent;
+  background: var(--project-secondary-disabled-bg);
+  color: var(--text-disabled);
+}

@@ -1,0 +1,114 @@
+@import "@fontsource-variable/lexend";
+@import "@fontsource/dm-serif-text/400.css";
+@import "@fontsource/dm-serif-text/400-italic.css";
+@import "tailwindcss";
+@import "@tutti-os/ui-system/styles.css";
+@import "./components/project-primary-button.css";
+@import "./components/project-secondary-button.css";
+@import "./components/prompt-input.css";
+@import "./components/chat-ui.css";
+
+@source "./";
+@source "../node_modules/@tutti-os/ui-system/dist";
+
+@theme {
+  --font-sans: "Lexend Variable", "Lexend", ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  --vd-font-sans: "Lexend Variable", "Lexend", ui-sans-serif, system-ui, sans-serif;
+  --vd-font-serif: "DM Serif Text", ui-serif, Georgia, serif;
+
+  --project-font-caption: 11px;
+  --project-font-meta: 12px;
+  --project-font-body: 13px;
+  --project-font-title: 14px;
+  --project-font-dialog-title: 15px;
+  --project-font-weight-normal: 400;
+  --project-font-weight-medium: 500;
+  --project-font-weight-semibold: 600;
+  --project-font-weight-strong: 650;
+
+  --project-radius-xs: 4px;
+  --project-radius-sm: 5px;
+  --project-radius-md: 6px;
+  --project-radius-lg: 8px;
+  --project-radius-xl: 10px;
+  --project-radius-dialog: 12px;
+  --project-radius-pill: 999px;
+  --project-button-radius: 6px;
+
+  --project-input-bg: rgb(246 244 241);
+  --project-input-hover-bg: rgb(246 244 241);
+  --project-workspace-bg: rgb(252 250 248);
+  --project-message-bg: #f4f3ef;
+  --project-message-border: rgb(238 235 230);
+  --project-inline-bg: #f7f6f2;
+  --project-primary-rgb: 194 62 1;
+  --project-primary: rgb(var(--project-primary-rgb));
+  --project-primary-alpha-4: rgb(var(--project-primary-rgb) / 0.04);
+  --project-primary-alpha-8: rgb(var(--project-primary-rgb) / 0.08);
+  --project-primary-alpha-10: rgb(var(--project-primary-rgb) / 0.1);
+  --project-primary-alpha-12: rgb(var(--project-primary-rgb) / 0.12);
+  --project-primary-alpha-16: rgb(var(--project-primary-rgb) / 0.16);
+  --project-primary-alpha-24: rgb(var(--project-primary-rgb) / 0.24);
+  --project-primary-alpha-32: rgb(var(--project-primary-rgb) / 0.32);
+  --project-primary-alpha-40: rgb(var(--project-primary-rgb) / 0.4);
+  --project-primary-bg: var(--project-primary);
+  --project-primary-hover-bg: color-mix(in srgb, var(--project-primary) 88%, black);
+  --project-primary-disabled-bg: var(--project-primary-alpha-32);
+  --project-secondary-bg: var(--project-primary-alpha-8);
+  --project-secondary-hover-bg: var(--project-primary-alpha-12);
+  --project-secondary-disabled-bg: var(--project-primary-alpha-4);
+  --project-accent: var(--project-primary);
+  --project-comment-marker-bg: var(--project-primary);
+  --primary: var(--project-primary);
+  --primary-foreground: white;
+
+  --project-shadow-none: none;
+  --project-shadow-raised: 0 1px 1px rgba(15, 23, 42, 0.04);
+  --project-shadow-popover: 0 4px 8px rgba(15, 23, 42, 0.14);
+  --project-shadow-floating: 0 6px 8px rgba(15, 23, 42, 0.16);
+}
+
+:root:lang(zh) {
+  --vd-font-sans: ui-sans-serif, system-ui, sans-serif;
+}
+
+html,
+body,
+#root {
+  font-family: var(--vd-font-sans);
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+button {
+  border-radius: var(--project-button-radius);
+}
+
+button[class] {
+  border-radius: var(--project-button-radius);
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='hidden']),
+textarea {
+  background-color: var(--project-input-bg);
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='hidden']):hover,
+textarea:hover {
+  background-color: var(--project-input-hover-bg);
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='hidden']):focus,
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='hidden']):focus-visible,
+textarea:focus,
+textarea:focus-visible {
+  border-color: var(--border-2);
+}

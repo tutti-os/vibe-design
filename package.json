@@ -1,0 +1,20 @@
+{
+  "name": "vibe-design",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "scripts": {
+    "build:server": "esbuild ./server/src/main.ts --bundle --platform=node --format=esm --target=node24 --banner:js=\"import { createRequire as __createRequire } from 'node:module';import { dirname as __pathDirname } from 'node:path';import { fileURLToPath as __fileURLToPath } from 'node:url';const require = __createRequire(import.meta.url);const __filename = __fileURLToPath(import.meta.url);const __dirname = __pathDirname(__filename);\" --outfile=./server/dist/main.js && node ./scripts/copy-tutti-package-assets.mjs server",
+    "build:web": "pnpm --filter @vibe-design/web build",
+    "build:css": "pnpm --filter @vibe-design/web build:css",
+    "dev": "pnpm build:web && pnpm --filter @vibe-design/server dev",
+    "package:tutti-app": "node ./scripts/package-tutti-app.mjs",
+    "start": "pnpm build:web && pnpm --filter @vibe-design/server start",
+    "test": "pnpm -r --if-present test",
+    "test:package": "node --test ./scripts/package-tutti-app.test.mjs",
+    "type-check": "pnpm -r --if-present type-check"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0"
+  }
+}

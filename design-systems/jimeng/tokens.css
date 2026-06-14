@@ -1,0 +1,34 @@
+:root {
+  --vd-canvas: #070914;
+  --vd-canvas-deep: #0e1026;
+  --vd-panel: #171a33;
+  --vd-panel-soft: #20244a;
+  --vd-ink: #ffffff;
+  --vd-ink-soft: #d9defc;
+  --vd-muted: #9098c8;
+  --vd-border: #33395f;
+  --vd-field: #10142b;
+  --vd-accent: #7c5cff;
+  --vd-accent-pink: #ff5cc8;
+  --vd-accent-cyan: #52e4ff;
+  --vd-accent-ink: #ffffff;
+  --vd-glow-violet: #9b6cff;
+  --vd-success: #4fe0a8;
+  --vd-radius-xs: 4px;
+  --vd-radius-sm: 8px;
+  --vd-radius-md: 14px;
+  --vd-radius-lg: 22px;
+  --vd-radius-pill: 999px;
+  --vd-space-1: 4px;
+  --vd-space-2: 8px;
+  --vd-space-3: 12px;
+  --vd-space-4: 16px;
+  --vd-space-6: 24px;
+  --vd-space-8: 32px;
+  --vd-space-12: 48px;
+  --vd-space-16: 64px;
+  --vd-shadow-glow: 0 0 44px rgba(124, 92, 255, 0.38);
+  --vd-shadow-card: 0 18px 48px rgba(0, 0, 0, 0.36);
+  --vd-font-sans: "Lexend Variable", "Lexend", ui-sans-serif, system-ui, sans-serif;
+  --vd-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}

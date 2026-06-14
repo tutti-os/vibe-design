@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "vibe-design-system/v1",
+  "id": "anthropic",
+  "name": "Anthropic Web Reference",
+  "category": "Research product",
+  "description": "A warm editorial research-and-product system inspired by Anthropic public pages and Claude Design guidance, with parchment surfaces, ink typography, structured cards, and collaborative canvas patterns.",
+  "files": {
+    "design": "DESIGN.md",
+    "tokens": "tokens.css",
+    "components": "components.html"
+  },
+  "usage": "USAGE.md",
+  "importMode": "hybrid",
+  "i18n": {
+    "en": {
+      "name": "Anthropic Web Reference",
+      "category": "Research product",
+      "description": "A warm editorial research-and-product system inspired by Anthropic public pages and Claude Design guidance, with parchment surfaces, ink typography, structured cards, and collaborative canvas patterns."
+    },
+    "zh-CN": {
+      "name": "Anthropic 网页参考",
+      "category": "研究产品",
+      "description": "受 Anthropic 公开页面和 Claude Design 指南启发的温暖编辑式研究与产品系统，包含羊皮纸色表面、墨色排版、结构化卡片和协作画布模式。"
+    }
+  }
+}

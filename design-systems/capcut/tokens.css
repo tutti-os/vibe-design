@@ -1,0 +1,33 @@
+:root {
+  --vd-canvas: #f6f7fb;
+  --vd-panel: #ffffff;
+  --vd-ink: #11131a;
+  --vd-ink-soft: #363b4a;
+  --vd-muted: #747b8f;
+  --vd-border: #e2e5ee;
+  --vd-field: #eef1f8;
+  --vd-accent: #00c8b8;
+  --vd-accent-strong: #00f0d0;
+  --vd-accent-ink: #061b1c;
+  --vd-workspace: #11131a;
+  --vd-workspace-panel: #1b1f2a;
+  --vd-workspace-border: #313746;
+  --vd-timeline-track: #dfe4f2;
+  --vd-warning: #ffb020;
+  --vd-radius-xs: 4px;
+  --vd-radius-sm: 8px;
+  --vd-radius-md: 12px;
+  --vd-radius-lg: 18px;
+  --vd-radius-pill: 999px;
+  --vd-space-1: 4px;
+  --vd-space-2: 8px;
+  --vd-space-3: 12px;
+  --vd-space-4: 16px;
+  --vd-space-6: 24px;
+  --vd-space-8: 32px;
+  --vd-space-12: 48px;
+  --vd-shadow-card: 0 12px 28px rgba(17, 19, 26, 0.08);
+  --vd-shadow-workspace: 0 20px 50px rgba(17, 19, 26, 0.22);
+  --vd-font-sans: "Lexend Variable", "Lexend", ui-sans-serif, system-ui, sans-serif;
+  --vd-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}

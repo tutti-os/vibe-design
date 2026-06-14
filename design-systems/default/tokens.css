@@ -1,0 +1,13 @@
+:root {
+  --vd-canvas: #f7f8fb;
+  --vd-ink: #111827;
+  --vd-panel: #ffffff;
+  --vd-border: #d8dde8;
+  --vd-muted: #64748b;
+  --vd-accent: #2563eb;
+  --vd-accent-ink: #ffffff;
+  --vd-font-sans: "Lexend Variable", "Lexend", ui-sans-serif, system-ui, sans-serif;
+  --vd-radius-sm: 6px;
+  --vd-radius-md: 8px;
+  --vd-shadow-panel: 0 18px 48px rgba(15, 23, 42, 0.08);
+}
