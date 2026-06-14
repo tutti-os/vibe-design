@@ -1443,8 +1443,19 @@ button.user-attachment-file {
 }
 
 .queued-turn .user-attachment-file {
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   flex-shrink: 1;
+  overflow: hidden;
+}
+
+.queued-turn .user-attachment-file span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .queued-turn__chips {

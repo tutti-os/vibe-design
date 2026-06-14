@@ -68,7 +68,7 @@ const DESIGN_FILES_PREVIEW_MIN_WIDTH = 480;
 const DESIGN_FILES_SEPARATOR_WIDTH = 1;
 const DESIGN_FILES_COMPACT_WIDTH = 1200;
 const DESIGN_FILES_RESIZE_STEP = 24;
-const INTERACTIVE_PREVIEW_MIN_SCALE = 0.5;
+const INTERACTIVE_PREVIEW_MIN_SCALE = 0.1;
 const INTERACTIVE_PREVIEW_MAX_SCALE = 2;
 const INTERACTIVE_PREVIEW_SCALE_STEP = 0.1;
 const HTML_PREVIEW_COVER_CAPTURE_DELAY_MS = 1000;
@@ -231,6 +231,7 @@ export function CanvasWorkspace({
   const [commentFrameLayout, setCommentFrameLayout] = useState<CanvasPreviewFrameLayout | null>(null);
   const [interactionViewportBounds, setInteractionViewportBounds] = useState<CanvasInteractionViewportBounds | null>(null);
   const [interactivePreviewScale, setInteractivePreviewScale] = useState(1);
+  const [interactivePreviewScaleMode, setInteractivePreviewScaleMode] = useState<'auto' | 'manual'>('auto');
   const [previewSnapshotRequester, setPreviewSnapshotRequester] = useState<CanvasPreviewScreenshotRequester | null>(null);
   const [previewCoverCaptureRevision, setPreviewCoverCaptureRevision] = useState(0);
   const [selectedDesignFilePath, setSelectedDesignFilePath] = useState<string | null>(null);
@@ -363,6 +364,7 @@ export function CanvasWorkspace({
   React.useEffect(() => {
     setCommentFrameLayout(null);
     setInteractivePreviewScale(1);
+    setInteractivePreviewScaleMode('auto');
   }, [activeFile?.path]);
 
   React.useEffect(() => {
@@ -422,7 +424,7 @@ export function CanvasWorkspace({
 
   React.useLayoutEffect(() => {
     const viewport = interactionViewportRef.current;
-    if (!viewport || !isInteractivePreviewMode) {
+    if (!viewport || !usesManualPreviewLayout) {
       setInteractionViewportBounds(null);
       return;
     }
@@ -435,7 +437,22 @@ export function CanvasWorkspace({
     const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateViewportBounds);
     resizeObserver?.observe(viewport);
     return () => resizeObserver?.disconnect();
-  }, [isInteractivePreviewMode]);
+  }, [usesManualPreviewLayout]);
+
+  React.useEffect(() => {
+    if (!usesManualPreviewLayout || interactivePreviewScaleMode !== 'auto') {
+      return;
+    }
+
+    const nextScale = resolveInteractivePreviewAutoScale(activeManualFrameLayout, interactionViewportBounds);
+    setInteractivePreviewScale((currentScale) => (currentScale === nextScale ? currentScale : nextScale));
+  }, [
+    activeManualFrameLayout?.width,
+    activeManualFrameLayout?.height,
+    interactionViewportBounds?.width,
+    interactivePreviewScaleMode,
+    usesManualPreviewLayout,
+  ]);
 
   function clearCommentSession() {
     setActiveCommentTarget(null);
@@ -775,6 +792,7 @@ export function CanvasWorkspace({
   }
 
   function zoomInteractivePreview(direction: 1 | -1) {
+    setInteractivePreviewScaleMode('manual');
     setInteractivePreviewScale((currentScale) =>
       clampNumber(
         roundScale(currentScale + direction * INTERACTIVE_PREVIEW_SCALE_STEP),
@@ -785,7 +803,8 @@ export function CanvasWorkspace({
   }
 
   function resetInteractivePreviewZoom() {
-    setInteractivePreviewScale(1);
+    setInteractivePreviewScaleMode('auto');
+    setInteractivePreviewScale(resolveInteractivePreviewAutoScale(activeManualFrameLayout, interactionViewportBounds));
   }
 
   function handleInteractionViewportScroll(event: React.UIEvent<HTMLDivElement>) {
@@ -1046,7 +1065,7 @@ export function CanvasWorkspace({
                         size="icon-sm"
                         variant="chrome"
                         aria-label={t('workspace.actions.resetZoom')}
-                        disabled={interactivePreviewScale === 1}
+                        disabled={interactivePreviewScaleMode === 'auto'}
                         onClick={resetInteractivePreviewZoom}
                       >
                         <RestoreIcon size={14} />
@@ -1591,6 +1610,19 @@ function interactivePreviewContentStyle(
   };
 }
 
+function resolveInteractivePreviewAutoScale(
+  frameLayout: CanvasPreviewFrameLayout | null,
+  viewportBounds: CanvasInteractionViewportBounds | null,
+): number {
+  const frameWidth = frameLayout?.width ?? 1280;
+  const viewportWidth = viewportBounds?.width ?? frameWidth;
+  if (!Number.isFinite(frameWidth) || frameWidth <= 0 || !Number.isFinite(viewportWidth) || viewportWidth <= 0) {
+    return 1;
+  }
+
+  return clampNumber(floorScale(Math.min(1, viewportWidth / frameWidth)), INTERACTIVE_PREVIEW_MIN_SCALE, 1);
+}
+
 function modeTabTextStyle(active: boolean): React.CSSProperties | undefined {
   return active
     ? { backgroundColor: 'var(--project-input-bg)', color: 'var(--text-primary)' }
@@ -1614,6 +1646,10 @@ function toolbarPresenceStyle(entered: boolean, contentWidth: number | null): Re
 
 function roundScale(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function floorScale(value: number): number {
+  return Math.floor(value * 1000) / 1000;
 }
 
 function clampNumber(value: number, min: number, max: number): number {

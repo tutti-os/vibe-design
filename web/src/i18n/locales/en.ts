@@ -81,7 +81,7 @@ export const en = {
     empty: {
       description: 'Add a design style, screenshot, codebase, or Figma file. Generated files open here for preview and inspection.',
       projectContext: 'Project context',
-      projectDescription: 'Describe the first screen or change you want, and {{agentName}} will generate the project files here.',
+      projectDescription: 'Vibe Design turns ideas into designs you can see, discuss, and refine.',
       projectTitle: 'Ready to start creating',
       title: 'Start with context',
     },

@@ -2844,7 +2844,7 @@ describe('VibeDesignApp', () => {
       expect(container.textContent).not.toContain('Chat');
       expect(container.textContent).not.toContain('Comments');
       expect(container.textContent).toContain('Ready to start creating');
-      expect(container.textContent).toContain('Describe the first screen or change you want, and Agent will generate the project files here.');
+      expect(container.textContent).toContain('Vibe Design turns ideas into designs you can see, discuss, and refine.');
       expect(container.textContent).toContain('No files yet');
       expect(container.textContent).not.toContain('Start with context');
       expect(container.textContent).not.toContain('SaaS Analytics Dashboard');

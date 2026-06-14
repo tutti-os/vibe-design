@@ -83,7 +83,7 @@ export const zhCN = {
     empty: {
       description: '添加设计风格、截图、代码库或 Figma 文件。生成的文件会在这里打开，用于预览和检查。',
       projectContext: '项目上下文',
-      projectDescription: '描述你想创建的第一个界面或改动，{{agentName}} 会在这里生成项目文件。',
+      projectDescription: 'Vibe Design，让想法看得见。',
       projectTitle: '准备开始创建',
       title: '从上下文开始',
     },

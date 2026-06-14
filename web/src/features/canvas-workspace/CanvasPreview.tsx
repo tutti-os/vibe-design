@@ -728,7 +728,7 @@ export function resolveCanvasPreviewFrameSize(
   }
 
   return {
-    width: Math.max(CANVAS_PREVIEW_BASE_WIDTH, metrics.viewportWidth),
+    width: Math.max(CANVAS_PREVIEW_BASE_WIDTH, metrics.viewportWidth, metrics.scrollWidth),
     height: Math.max(CANVAS_PREVIEW_BASE_HEIGHT, metrics.viewportHeight, metrics.scrollHeight),
   };
 }

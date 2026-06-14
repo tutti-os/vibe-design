@@ -110,13 +110,22 @@ describe('chat-ui.css', () => {
     const contextRule = ruleBody('.queued-turn .user-skill-context');
     const chipsRule = ruleBody('.queued-turn .user-skill-context__chips');
     const fileChipRule = ruleBody('.queued-turn .user-attachment-file');
+    const fileChipTextRule = ruleBody('.queued-turn .user-attachment-file span');
 
     expect(summaryRule).toContain('flex: 1');
     expect(contextRule).toContain('min-width: 0');
     expect(contextRule).toContain('width: 100%');
     expect(chipsRule).toContain('flex: 1');
+    expect(fileChipRule).toContain('width: 100%');
+    expect(fileChipRule).toContain('max-width: 100%');
+    expect(fileChipRule).toContain('overflow: hidden');
     expect(fileChipRule).toContain('min-width: 0');
     expect(fileChipRule).toContain('flex-shrink: 1');
+    expect(fileChipTextRule).toContain('display: block');
+    expect(fileChipTextRule).toContain('min-width: 0');
+    expect(fileChipTextRule).toContain('overflow: hidden');
+    expect(fileChipTextRule).toContain('text-overflow: ellipsis');
+    expect(fileChipTextRule).toContain('white-space: nowrap');
   });
 
   it('right-aligns user image attachments within the message block', () => {

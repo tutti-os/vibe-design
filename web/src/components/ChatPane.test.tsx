@@ -517,7 +517,7 @@ describe('ChatPane', () => {
     try {
       expect(container.querySelector('[data-testid="project-chat-empty-icon"]')).not.toBeNull();
       expect(container.textContent).toContain('Ready to start creating');
-      expect(container.textContent).toContain('Describe the first screen or change you want, and Agent will generate the project files here.');
+      expect(container.textContent).toContain('Vibe Design turns ideas into designs you can see, discuss, and refine.');
       expect(container.textContent).not.toContain('Start with context');
       expect(container.textContent).not.toContain('SaaS Analytics Dashboard');
       expect(container.textContent).not.toContain('Mobile Banking Onboarding');
@@ -528,7 +528,7 @@ describe('ChatPane', () => {
     }
   });
 
-  it('uses the selected agent name in the project empty state', async () => {
+  it('uses the product philosophy copy in the project empty state', async () => {
     const snapshot: ChatTimelineSnapshot = {
       activeRunId: null,
       phase: 'idle',
@@ -569,8 +569,10 @@ describe('ChatPane', () => {
         fireEvent.click(claudeOption!);
       });
 
-      expect(container.textContent).toContain('Describe the first screen or change you want, and Claude Code will generate the project files here.');
-      expect(container.textContent).not.toContain('Codex will generate the project files here.');
+      const emptyHint = container.querySelector('.chat-empty-hint');
+      expect(emptyHint?.textContent).toBe('Vibe Design turns ideas into designs you can see, discuss, and refine.');
+      expect(emptyHint?.textContent).not.toContain('Claude Code');
+      expect(emptyHint?.textContent).not.toContain('Codex');
     } finally {
       cleanup(root, container);
     }

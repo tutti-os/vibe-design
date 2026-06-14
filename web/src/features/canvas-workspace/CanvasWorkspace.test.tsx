@@ -903,6 +903,54 @@ describe('CanvasWorkspace', () => {
     expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(1)');
   });
 
+  it('fits wide html previews horizontally by default in preview mode', async () => {
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.dataset.testid === 'canvas-preview-interaction-viewport') {
+        return {
+          x: 0,
+          y: 0,
+          width: 800,
+          height: 600,
+          top: 0,
+          right: 800,
+          bottom: 600,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      }
+
+      return {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        toJSON: () => ({}),
+      };
+    });
+
+    try {
+      render(<CanvasWorkspace files={files} />);
+
+      openDesignFile('landing.html');
+      dispatchCanvasPreviewMessage({ type: 'vd-preview-size', width: 1600, height: 800 });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1600px');
+        expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(0.5)');
+        expect(screen.getByTestId('canvas-preview-zoom-level').textContent).toBe('50%');
+      });
+      expect(Number.parseFloat(screen.getByTestId('canvas-preview-interaction-content').style.width)).toBeLessThanOrEqual(800);
+    } finally {
+      rectSpy.mockRestore();
+    }
+  });
+
   it('keeps URL-backed HTML content visible when switching from preview to comment and markup modes', async () => {
     render(
       <CanvasWorkspace
@@ -950,7 +998,7 @@ describe('CanvasWorkspace', () => {
       fireEvent.click(screen.getByRole('tab', { name: 'Mark up' }));
 
       await waitFor(() => {
-        expect(screen.getByTestId('canvas-comment-overlay').style.transform).toBe('translateX(-50%) scale(1)');
+        expect(screen.getByTestId('canvas-comment-overlay').style.transform).toBe('translateX(-50%) scale(0.5)');
       });
       expect(screen.getByTestId('canvas-preview-interaction-viewport').className).toContain('overflow-auto');
       expect(screen.getByTestId('canvas-comment-overlay').style.left).toBe('50%');
@@ -1040,8 +1088,8 @@ describe('CanvasWorkspace', () => {
 
       await waitFor(() => {
         const popoverHost = screen.getByTestId('canvas-comment-popover').parentElement;
-        expect(popoverHost?.style.left).toBe('calc(50% - 452px)');
-        expect(popoverHost?.style.top).toBe('198px');
+        expect(popoverHost?.style.left).toBe('calc(50% - 227px)');
+        expect(popoverHost?.style.top).toBe('102px');
       });
     } finally {
       rectSpy.mockRestore();

@@ -134,7 +134,7 @@ describe('CanvasPreview', () => {
     expect(srcdocFrame.style.transform).toBe('translateX(-50%) scale(1.25)');
   });
 
-  it('keeps fitted html previews at the desktop viewport while manual previews expand vertically', () => {
+  it('keeps fitted html previews at the desktop viewport while manual previews expand to the document size', () => {
     expect(
       resolveCanvasPreviewFrameSize({
         viewportWidth: 1280,
@@ -151,7 +151,7 @@ describe('CanvasPreview', () => {
         scrollWidth: 1440,
         scrollHeight: 1800,
       }, 'manual'),
-    ).toEqual({ width: 1280, height: 1800 });
+    ).toEqual({ width: 1440, height: 1800 });
   });
 
   it('keeps fitted previews at the desktop viewport size when srcdoc content is taller', async () => {
@@ -165,7 +165,7 @@ describe('CanvasPreview', () => {
     expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1280px');
   });
 
-  it('updates the manual iframe height from srcdoc size bridge messages without widening the canvas', async () => {
+  it('updates the manual iframe size from srcdoc size bridge messages', async () => {
     render(
       <CanvasPreview
         file={htmlFile('<main><h1 data-vd-id="hero">Hero</h1></main>')}
@@ -178,8 +178,8 @@ describe('CanvasPreview', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('canvas-preview-srcdoc').style.height).toBe('1040px');
+      expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1440px');
     });
-    expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1280px');
   });
 
   it('does not repeatedly emit identical frame layout through inline callbacks', async () => {

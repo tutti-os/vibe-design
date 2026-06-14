@@ -173,7 +173,6 @@ export function ChatPane({
   const normalizedProjectTitle = projectTitle?.trim() || null;
   const [localProjectTitle, setLocalProjectTitle] = React.useState<string | null>(normalizedProjectTitle);
   const [composerDraft, setComposerDraft] = React.useState('');
-  const [composerAgentName, setComposerAgentName] = React.useState('Agent');
   const [scrolledFromBottom, setScrolledFromBottom] = React.useState(false);
   const [previewImage, setPreviewImage] = React.useState<ImagePreviewState | null>(null);
   const [previewImageFitScale, setPreviewImageFitScale] = React.useState(IMAGE_PREVIEW_INITIAL_SCALE);
@@ -500,7 +499,7 @@ export function ChatPane({
           >
             {visibleSnapshot.messages.length === 0 ? (
               projectId ? (
-                <ProjectEmptyState agentName={agentDisplayName(activeConversationProvider, composerAgentName)} />
+                <ProjectEmptyState />
               ) : (
                 <EmptyState
                   onPickStarter={(prompt) => composerRef.current?.setDraft(prompt)}
@@ -578,7 +577,6 @@ export function ChatPane({
           onOpenDesignSystemPicker={onOpenDesignSystemPicker}
           onSelectDesignSystem={onSelectDesignSystem}
           onInstallAgent={onInstallAgent}
-          onAgentChange={(agentId, label) => setComposerAgentName(agentDisplayName(agentId, label))}
           onDraftChange={setComposerDraft}
           onSend={onSend}
           onStop={onStop}
@@ -1575,7 +1573,7 @@ function EmptyState({
   );
 }
 
-function ProjectEmptyState({ agentName }: { agentName: string }) {
+function ProjectEmptyState() {
   const { t } = useTranslation();
 
   return (
@@ -1585,16 +1583,10 @@ function ProjectEmptyState({ agentName }: { agentName: string }) {
           <DashboardIcon size={22} />
         </div>
         <div className="chat-empty-title">{t('chat.empty.projectTitle')}</div>
-        <div className="chat-empty-hint">{t('chat.empty.projectDescription', { agentName })}</div>
+        <div className="chat-empty-hint">{t('chat.empty.projectDescription')}</div>
       </div>
     </div>
   );
-}
-
-function agentDisplayName(agentId: 'codex' | 'claude' | null, fallback: string): string {
-  if (agentId === 'claude') return 'Claude Code';
-  if (agentId === 'codex') return 'Agent';
-  return fallback;
 }
 
 function CreateConversationTooltip({

@@ -7,6 +7,7 @@ export interface BuildDesignRuntimeSrcdocFile {
   path: string;
   contents?: string;
   mime: string;
+  url?: string;
 }
 
 export interface BuildDesignRuntimeSrcdocOptions {
@@ -22,7 +23,11 @@ export function buildDesignRuntimeSrcdoc(options: BuildDesignRuntimeSrcdocOption
   const entryHtml = options.entryFile.contents ?? '';
   const tweakSource = extractDesignTweakDefaults(options.files);
   const inlinedHtml = injectDesignRuntimeBridge(
-    inlineSameProjectScripts(entryHtml, options.entryFile, options.files),
+    rewriteSameProjectResourceUrls(
+      inlineSameProjectScripts(entryHtml, options.entryFile, options.files),
+      options.entryFile,
+      options.files,
+    ),
     options.entryFile.path,
     tweakSource,
   );
@@ -34,6 +39,56 @@ export function buildDesignRuntimeSrcdoc(options: BuildDesignRuntimeSrcdocOption
     commentBridge: options.commentBridge,
     snapshotBridge: options.snapshotBridge,
   });
+}
+
+function rewriteSameProjectResourceUrls(
+  html: string,
+  entryFile: BuildDesignRuntimeSrcdocFile,
+  files: BuildDesignRuntimeSrcdocFile[],
+): string {
+  if (typeof DOMParser === 'undefined') {
+    return html;
+  }
+
+  const parsedDocument = new DOMParser().parseFromString(html, 'text/html');
+  const filesByPath = buildFileLookup(files);
+  let didChangeResources = false;
+
+  const rewriteAttribute = (element: Element, attribute: string) => {
+    const source = element.getAttribute(attribute);
+    if (!source || !isSameProjectRelativeResourceSource(source)) {
+      return;
+    }
+
+    const resolvedPath = resolveProjectRelativePath(entryFile.path, source);
+    const sourceFile = filesByPath.get(resolvedPath);
+    if (!sourceFile?.url) {
+      return;
+    }
+
+    element.setAttribute(attribute, sourceFile.url);
+    didChangeResources = true;
+  };
+
+  Array.from(parsedDocument.querySelectorAll('[src]')).forEach((element) => {
+    if (element.localName.toLowerCase() === 'script') {
+      return;
+    }
+
+    rewriteAttribute(element, 'src');
+  });
+  Array.from(parsedDocument.querySelectorAll('[poster]')).forEach((element) => rewriteAttribute(element, 'poster'));
+  Array.from(parsedDocument.querySelectorAll('link[href]')).forEach((element) => rewriteAttribute(element, 'href'));
+
+  if (!didChangeResources) {
+    return html;
+  }
+
+  if (!isFullHtmlDocument(html)) {
+    return parsedDocument.body.innerHTML;
+  }
+
+  return `${doctypeForDocument(html)}${parsedDocument.documentElement.outerHTML}`;
 }
 
 function injectDesignRuntimeBridge(
@@ -109,12 +164,18 @@ function buildFileLookup(files: BuildDesignRuntimeSrcdocFile[]): Map<string, Bui
 
   files.forEach((file) => {
     lookup.set(normalizeProjectPath(file.path), file);
+    lookup.set(normalizeProjectPath(file.name), file);
+    lookup.set(normalizeProjectPath(`assets/${file.name}`), file);
   });
 
   return lookup;
 }
 
 function isSameProjectRelativeScriptSource(source: string): boolean {
+  return isSameProjectRelativeResourceSource(source);
+}
+
+function isSameProjectRelativeResourceSource(source: string): boolean {
   const trimmedSource = source.trim();
 
   if (

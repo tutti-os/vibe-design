@@ -37,6 +37,49 @@ const files = [
 ];
 
 describe('buildDesignRuntimeSrcdoc', () => {
+  it('rewrites same-project relative asset URLs to their project file URLs inside srcdoc', () => {
+    const doc = buildDesignRuntimeSrcdoc({
+      entryFile: {
+        name: 'login.html',
+        path: 'login.html',
+        mime: 'text/html',
+        contents: `<!doctype html><html><head>
+          <link rel="stylesheet" href="theme.css">
+        </head><body>
+          <img src="assets/hero.png" alt="Hero">
+        </body></html>`,
+      },
+      files: [
+        {
+          name: 'login.html',
+          path: 'login.html',
+          mime: 'text/html',
+          contents: '',
+          url: '/api/projects/project-1/files/login.html',
+        },
+        {
+          name: 'hero.png',
+          path: 'hero.png',
+          mime: 'image/png',
+          url: '/api/projects/project-1/files/hero.png',
+        },
+        {
+          name: 'theme.css',
+          path: 'theme.css',
+          mime: 'text/css',
+          contents: 'body { color: red; }',
+          url: '/api/projects/project-1/files/theme.css',
+        },
+      ],
+      editBridge: false,
+    });
+
+    const parsed = new DOMParser().parseFromString(doc, 'text/html');
+
+    expect(parsed.querySelector('img')?.getAttribute('src')).toBe('/api/projects/project-1/files/hero.png');
+    expect(parsed.querySelector('link')?.getAttribute('href')).toBe('/api/projects/project-1/files/theme.css');
+  });
+
   it('preserves plain fragments so preview wrapping adds the standard shell', () => {
     const fragmentEntryFile = {
       name: 'fragment.html',
