@@ -41,3 +41,6 @@ jobs:
       publish_catalog: ${{ inputs.publish_catalog }}
       catalog_only: ${{ inputs.catalog_only }}
       catalog_cloudfront_distribution_id: ${{ vars.TUTTI_APP_RELEASES_STAGING_CLOUDFRONT_DISTRIBUTION_ID || vars.TUTTI_APP_RELEASES_CLOUDFRONT_DISTRIBUTION_ID || '' }}
+      release_app_id: ${{ vars.TUTTI_RELEASE_APP_ID || '' }}
+    secrets:
+      release_app_private_key: ${{ secrets.TUTTI_RELEASE_APP_PRIVATE_KEY }}
