@@ -1656,9 +1656,8 @@ function resolveInteractivePreviewAutoScale(
   frameLayout: CanvasPreviewFrameLayout | null,
   viewportBounds: CanvasInteractionViewportBounds | null,
 ): number {
-  // Both preview and mark-up modes open fit-to-width so the frame fills the
-  // viewport horizontally instead of requiring horizontal scrolling. Content is
-  // only scaled down (never above 1), so narrow pages still render at 100%.
+  // Preview and mark-up use the same fit-to-width auto scale so switching modes
+  // does not change the canvas' apparent size.
   const frameWidth = frameLayout?.width ?? 1280;
   const viewportWidth = viewportBounds?.width ?? frameWidth;
   if (!Number.isFinite(frameWidth) || frameWidth <= 0 || !Number.isFinite(viewportWidth) || viewportWidth <= 0) {
@@ -2190,8 +2189,8 @@ interface CanvasInteractionViewportBounds {
 
 export function resolveHtmlDesignPreviewSize(metrics: HtmlDesignPreviewMetrics): HtmlDesignPreviewSize {
   return {
-    width: Math.max(HTML_DESIGN_PREVIEW_WIDTH, metrics.viewportWidth, metrics.scrollWidth),
-    height: Math.max(HTML_DESIGN_PREVIEW_HEIGHT, metrics.viewportHeight, metrics.scrollHeight),
+    width: Math.max(HTML_DESIGN_PREVIEW_WIDTH, metrics.viewportWidth),
+    height: Math.max(HTML_DESIGN_PREVIEW_HEIGHT, metrics.viewportHeight),
   };
 }
 
