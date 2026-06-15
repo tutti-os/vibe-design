@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { CanvasWorkspace, resolveHtmlDesignPreviewSize } from './CanvasWorkspace';
 import type { CanvasCommentAttachment, CanvasPreviewComment } from './canvas-comment/canvas-comment-types';
@@ -948,6 +948,94 @@ describe('CanvasWorkspace', () => {
         expect(Number.parseFloat(screen.getByTestId('canvas-preview-interaction-content').style.width)).toBe(800);
       });
     } finally {
+      rectSpy.mockRestore();
+    }
+  });
+
+  it('keeps the initially fitted preview zoom when the interaction viewport resizes', async () => {
+    let viewportWidth = 800;
+    const resizeObservers: Array<{
+      callback: ResizeObserverCallback;
+      targets: Element[];
+    }> = [];
+    const originalResizeObserver = globalThis.ResizeObserver;
+    class TestResizeObserver {
+      readonly targets: Element[] = [];
+
+      constructor(readonly callback: ResizeObserverCallback) {
+        resizeObservers.push({ callback, targets: this.targets });
+      }
+
+      observe(target: Element) {
+        this.targets.push(target);
+      }
+
+      disconnect() {
+        this.targets.length = 0;
+      }
+
+      unobserve(target: Element) {
+        const index = this.targets.indexOf(target);
+        if (index >= 0) {
+          this.targets.splice(index, 1);
+        }
+      }
+    }
+    globalThis.ResizeObserver = TestResizeObserver as typeof ResizeObserver;
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.dataset.testid === 'canvas-preview-interaction-viewport') {
+        return {
+          x: 0,
+          y: 0,
+          width: viewportWidth,
+          height: 600,
+          top: 0,
+          right: viewportWidth,
+          bottom: 600,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      }
+
+      return {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        toJSON: () => ({}),
+      };
+    });
+
+    try {
+      render(<CanvasWorkspace files={files} />);
+
+      openDesignFile('landing.html');
+
+      await waitFor(() => {
+        expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(0.625)');
+      });
+
+      viewportWidth = 640;
+      act(() => {
+        for (const observer of resizeObservers) {
+          if (observer.targets.some((target) => (target as HTMLElement).dataset.testid === 'canvas-preview-interaction-viewport')) {
+            observer.callback([], {} as ResizeObserver);
+          }
+        }
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(0.625)');
+        expect(screen.getByTestId('canvas-preview-zoom-level').textContent).toBe('63%');
+      });
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver;
       rectSpy.mockRestore();
     }
   });

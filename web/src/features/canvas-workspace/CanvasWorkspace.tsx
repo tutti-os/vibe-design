@@ -240,6 +240,7 @@ export function CanvasWorkspace({
   const interactionViewportRef = React.useRef<HTMLDivElement | null>(null);
   const tabStripRef = React.useRef<HTMLDivElement | null>(null);
   const activeTabRef = React.useRef<HTMLElement | null>(null);
+  const initializedInteractivePreviewAutoScaleKeyRef = React.useRef<string | null>(null);
   const savedHtmlPreviewScreenshotKeysRef = React.useRef<Map<string, 'pending' | 'saved'>>(new Map());
   const consumedAutoOpenFileRequestRef = React.useRef<string | null>(null);
   const activeTab = useMemo(
@@ -402,6 +403,7 @@ export function CanvasWorkspace({
   }, [selectedDesignFile, selectedDesignFilePath]);
 
   React.useEffect(() => {
+    initializedInteractivePreviewAutoScaleKeyRef.current = null;
     setCommentFrameLayout(null);
     setInteractivePreviewScale(1);
     setInteractivePreviewScaleMode('auto');
@@ -484,9 +486,19 @@ export function CanvasWorkspace({
       return;
     }
 
+    const autoScaleKey = interactivePreviewAutoScaleKey(activeFile?.path ?? null, activeManualFrameLayout);
+    if (!autoScaleKey || initializedInteractivePreviewAutoScaleKeyRef.current === autoScaleKey) {
+      return;
+    }
+    if (!interactionViewportBounds || interactionViewportBounds.width <= 0) {
+      return;
+    }
+
     const nextScale = resolveInteractivePreviewAutoScale(activeManualFrameLayout, interactionViewportBounds);
+    initializedInteractivePreviewAutoScaleKeyRef.current = autoScaleKey;
     setInteractivePreviewScale((currentScale) => (currentScale === nextScale ? currentScale : nextScale));
   }, [
+    activeFile?.path,
     activeManualFrameLayout?.width,
     activeManualFrameLayout?.height,
     interactionViewportBounds?.width,
@@ -843,6 +855,7 @@ export function CanvasWorkspace({
   }
 
   function resetInteractivePreviewZoom() {
+    initializedInteractivePreviewAutoScaleKeyRef.current = interactivePreviewAutoScaleKey(activeFile?.path ?? null, activeManualFrameLayout);
     setInteractivePreviewScaleMode('auto');
     setInteractivePreviewScale(resolveInteractivePreviewAutoScale(activeManualFrameLayout, interactionViewportBounds));
   }
@@ -1665,6 +1678,17 @@ function resolveInteractivePreviewAutoScale(
   }
 
   return clampNumber(floorScale(Math.min(1, viewportWidth / frameWidth)), INTERACTIVE_PREVIEW_MIN_SCALE, 1);
+}
+
+function interactivePreviewAutoScaleKey(
+  filePath: string | null,
+  frameLayout: CanvasPreviewFrameLayout | null,
+): string | null {
+  if (!filePath || !frameLayout) {
+    return null;
+  }
+
+  return `${filePath}:${Math.round(frameLayout.width)}:${Math.round(frameLayout.height)}`;
 }
 
 function modeTabTextStyle(active: boolean): React.CSSProperties | undefined {
