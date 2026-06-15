@@ -1,11 +1,9 @@
 import type { Express, Request, Response } from 'express';
-import { isSafeConversationId } from '../conversations.js';
 import type { RouteDeps } from '../server-context.js';
 import {
   deletePreviewCommentFromStore,
   isPreviewCommentStatus,
   listPreviewCommentsFromStore,
-  previewCommentConversationExistsInStore,
   upsertPreviewCommentInStore,
   updatePreviewCommentStatusInStore,
   type UpsertPreviewCommentInput,
@@ -13,25 +11,25 @@ import {
 import { isSafeProjectId } from './project-routes.js';
 
 type CommentRouteDeps = RouteDeps<'http' | 'paths'>;
-type ConversationParams = { id: string; conversationId: string };
-type CommentParams = ConversationParams & { commentId: string };
+type ProjectParams = { id: string };
+type CommentParams = ProjectParams & { commentId: string };
 
 export function registerCommentRoutes(app: Express, ctx: CommentRouteDeps): void {
   const { sendApiError } = ctx.http;
 
   app.get(
-    '/api/projects/:id/conversations/:conversationId/comments',
-    async (req: Request<ConversationParams>, res: Response): Promise<void> => {
-      const { id: projectId, conversationId } = req.params;
-      if (!isSafeProjectId(projectId) || !isSafeConversationId(conversationId)) {
+    '/api/projects/:id/comments',
+    async (req: Request<ProjectParams>, res: Response): Promise<void> => {
+      const { id: projectId } = req.params;
+      if (!isSafeProjectId(projectId)) {
         sendApiError(res, 400, 'BAD_REQUEST', 'comment path is invalid');
         return;
       }
 
       try {
-        const comments = listPreviewCommentsFromStore(ctx.paths.projectsDir, projectId, conversationId);
+        const comments = listPreviewCommentsFromStore(ctx.paths.projectsDir, projectId);
         if (!comments) {
-          sendApiError(res, 404, 'CONVERSATION_NOT_FOUND', 'conversation not found');
+          sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
           return;
         }
 
@@ -43,10 +41,10 @@ export function registerCommentRoutes(app: Express, ctx: CommentRouteDeps): void
   );
 
   app.post(
-    '/api/projects/:id/conversations/:conversationId/comments',
-    async (req: Request<ConversationParams, unknown, unknown>, res: Response): Promise<void> => {
-      const { id: projectId, conversationId } = req.params;
-      if (!isSafeProjectId(projectId) || !isSafeConversationId(conversationId)) {
+    '/api/projects/:id/comments',
+    async (req: Request<ProjectParams, unknown, unknown>, res: Response): Promise<void> => {
+      const { id: projectId } = req.params;
+      if (!isSafeProjectId(projectId)) {
         sendApiError(res, 400, 'BAD_REQUEST', 'comment path is invalid');
         return;
       }
@@ -58,7 +56,7 @@ export function registerCommentRoutes(app: Express, ctx: CommentRouteDeps): void
       }
 
       try {
-        res.json({ comment: upsertPreviewCommentInStore(ctx.paths.projectsDir, projectId, conversationId, input) });
+        res.json({ comment: upsertPreviewCommentInStore(ctx.paths.projectsDir, projectId, input) });
       } catch (error) {
         sendWriteError(ctx, res, error, 'preview comment write failed');
       }
@@ -66,10 +64,10 @@ export function registerCommentRoutes(app: Express, ctx: CommentRouteDeps): void
   );
 
   app.patch(
-    '/api/projects/:id/conversations/:conversationId/comments/:commentId',
+    '/api/projects/:id/comments/:commentId',
     async (req: Request<CommentParams, unknown, unknown>, res: Response): Promise<void> => {
-      const { id: projectId, conversationId, commentId } = req.params;
-      if (!isSafeProjectId(projectId) || !isSafeConversationId(conversationId) || !isSafeCommentId(commentId)) {
+      const { id: projectId, commentId } = req.params;
+      if (!isSafeProjectId(projectId) || !isSafeCommentId(commentId)) {
         sendApiError(res, 400, 'BAD_REQUEST', 'comment path is invalid');
         return;
       }
@@ -81,12 +79,7 @@ export function registerCommentRoutes(app: Express, ctx: CommentRouteDeps): void
       }
 
       try {
-        if (!previewCommentConversationExistsInStore(ctx.paths.projectsDir, projectId, conversationId)) {
-          sendApiError(res, 404, 'CONVERSATION_NOT_FOUND', 'conversation not found');
-          return;
-        }
-
-        const comment = updatePreviewCommentStatusInStore(ctx.paths.projectsDir, projectId, conversationId, commentId, status);
+        const comment = updatePreviewCommentStatusInStore(ctx.paths.projectsDir, projectId, commentId, status);
         if (!comment) {
           sendApiError(res, 404, 'COMMENT_NOT_FOUND', 'preview comment not found');
           return;
@@ -100,21 +93,16 @@ export function registerCommentRoutes(app: Express, ctx: CommentRouteDeps): void
   );
 
   app.delete(
-    '/api/projects/:id/conversations/:conversationId/comments/:commentId',
+    '/api/projects/:id/comments/:commentId',
     async (req: Request<CommentParams>, res: Response): Promise<void> => {
-      const { id: projectId, conversationId, commentId } = req.params;
-      if (!isSafeProjectId(projectId) || !isSafeConversationId(conversationId) || !isSafeCommentId(commentId)) {
+      const { id: projectId, commentId } = req.params;
+      if (!isSafeProjectId(projectId) || !isSafeCommentId(commentId)) {
         sendApiError(res, 400, 'BAD_REQUEST', 'comment path is invalid');
         return;
       }
 
       try {
-        if (!previewCommentConversationExistsInStore(ctx.paths.projectsDir, projectId, conversationId)) {
-          sendApiError(res, 404, 'CONVERSATION_NOT_FOUND', 'conversation not found');
-          return;
-        }
-
-        if (!deletePreviewCommentFromStore(ctx.paths.projectsDir, projectId, conversationId, commentId)) {
+        if (!deletePreviewCommentFromStore(ctx.paths.projectsDir, projectId, commentId)) {
           sendApiError(res, 404, 'COMMENT_NOT_FOUND', 'preview comment not found');
           return;
         }
@@ -154,8 +142,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function sendWriteError(ctx: CommentRouteDeps, res: Response, error: unknown, fallbackMessage: string): void {
   const message = error instanceof Error ? error.message : fallbackMessage;
-  if (message === 'conversation not found') {
-    ctx.http.sendApiError(res, 404, 'CONVERSATION_NOT_FOUND', message);
+  if (message === 'project not found') {
+    ctx.http.sendApiError(res, 404, 'PROJECT_NOT_FOUND', message);
     return;
   }
 

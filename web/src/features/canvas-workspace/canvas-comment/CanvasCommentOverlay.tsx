@@ -42,7 +42,7 @@ export function CanvasCommentOverlay({
   return (
     <div
       data-testid="canvas-comment-overlay"
-      className={`pointer-events-none absolute z-20 overflow-visible ${frameLayout ? '' : 'inset-0'}`}
+      className={`pointer-events-none absolute z-[60] overflow-hidden ${frameLayout ? '' : 'inset-0'}`}
       style={frameLayout ? frameLayoutStyle(frameLayout) : undefined}
       aria-hidden={overlayHidden}
     >
@@ -100,8 +100,10 @@ export function CanvasCommentOverlay({
               aria-hidden="true"
               data-testid="canvas-comment-saved-marker-preview"
               data-state={previewExpanded ? 'expanded' : 'collapsed'}
-              className={`pointer-events-none min-w-0 w-fit max-w-[320px] overflow-hidden rounded-md ${previewSpacingClass(openLeft)} ${previewRoundedClass(openLeft, singleLinePreview)} border border-[var(--border-1)] bg-[var(--background-fronted)] py-[5px] text-left text-[var(--text-primary)] opacity-0 shadow-[var(--project-shadow-raised)] transition-opacity duration-200 ease-out whitespace-normal break-words ${
-                previewExpanded ? 'opacity-100' : 'opacity-0'
+              className={`pointer-events-none min-w-0 overflow-hidden rounded-md bg-[var(--background-fronted)] text-left text-[var(--text-primary)] shadow-[var(--project-shadow-raised)] transition-opacity duration-200 ease-out whitespace-normal break-words ${
+                previewExpanded
+                  ? `w-fit max-w-[320px] ${previewSpacingClass(openLeft)} ${previewRoundedClass(openLeft, singleLinePreview)} border border-[var(--border-1)] py-[5px] opacity-100`
+                  : 'w-0 max-w-0 border-0 px-0 py-0 opacity-0'
               }`}
             >
               <span className="block max-h-16 overflow-hidden text-[11px] font-normal leading-4 text-[var(--text-secondary)]">

@@ -424,9 +424,9 @@ describe('chat-ui.css', () => {
     expect(sidebarRule).toContain('overflow: hidden');
     expect(availableSectionRule).toContain('flex: 1');
     expect(availableSectionRule).toContain('grid-template-rows: auto minmax(0, 1fr)');
-    expect(selectedCardRule).toContain('grid-template-columns: minmax(0, 1fr) 24px');
+    expect(selectedCardRule).toContain('grid-template-columns: minmax(0, 1fr) auto auto');
     expect(selectedCardRule).toContain('border-radius: var(--project-button-radius)');
-    expect(selectedCardRule).toContain('padding: 8px 4px 8px 12px');
+    expect(selectedCardRule).toContain('padding: 11px 4px 11px 12px');
     expect(selectedCardRule).toContain('box-shadow: var(--project-shadow-none)');
     expect(selectedEmptyRule).toContain('border-radius: var(--project-button-radius)');
     expect(selectedEmptyRule).not.toContain('border-radius: var(--project-radius-xl)');

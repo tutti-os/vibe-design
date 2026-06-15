@@ -428,7 +428,7 @@ describe('createServer', () => {
       size: '<section>Hero</section>'.length,
       mime: 'text/html',
     });
-    upsertPreviewCommentInStore(projectsDir, projectId, conversationId, {
+    upsertPreviewCommentInStore(projectsDir, projectId, {
       target: {
         filePath: 'assets/hero.html',
         targetId: 'hero-title',
@@ -478,7 +478,7 @@ describe('createServer', () => {
       file: { name: 'hero.html' },
     });
 
-    const comments = await postCli(port, 'comments', { 'project-id': projectId, 'conversation-id': conversationId });
+    const comments = await postCli(port, 'comments', { 'project-id': projectId });
     expect(comments.status).toBe(200);
     expect(comments.body.value).toMatchObject({ comments: [{ note: 'Make the headline sharper.', status: 'open' }] });
 

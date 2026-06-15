@@ -279,6 +279,29 @@ describe('AssistantMessage', () => {
     }
   });
 
+  it('shows an empty successful run instead of rendering a blank assistant turn', () => {
+    const message: ChatMessage = {
+      id: 'assistant-succeeded-empty',
+      role: 'assistant',
+      content: '',
+      runStatus: 'succeeded',
+    };
+
+    const { container, root } = renderComponent(
+      <I18nProvider initialLocale="zh-CN">
+        <AssistantMessage message={message} blocks={[]} streaming={false} />
+      </I18nProvider>,
+    );
+
+    try {
+      const status = container.querySelector('[aria-label="智能体运行状态"]');
+      expect(status).toBeInstanceOf(HTMLElement);
+      expect(status?.textContent).toContain('已完成');
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('renders every assistant block type and answers tool questions', async () => {
     const onAnswerToolQuestion = vi.fn();
     const message: ChatMessage = {

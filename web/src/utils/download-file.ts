@@ -16,6 +16,27 @@
  * save dialog (so callers can stay silent instead of showing a misleading error).
  * Rejects only on a real failure (network error, write error).
  */
+type BrowserFileSystemWritableFileStream = {
+  write(data: Blob | BufferSource | string): Promise<void>;
+  close(): Promise<void>;
+};
+
+type BrowserFileSystemFileHandle = {
+  createWritable(): Promise<BrowserFileSystemWritableFileStream>;
+};
+
+type BrowserSaveFilePickerOptions = {
+  suggestedName?: string;
+  types?: Array<{
+    description?: string;
+    accept: Record<string, string[]>;
+  }>;
+};
+
+type BrowserWindowWithFilePicker = Window & {
+  showSaveFilePicker?: (options?: BrowserSaveFilePickerOptions) => Promise<BrowserFileSystemFileHandle>;
+};
+
 export async function downloadFileFromUrl(url: string, filename: string): Promise<boolean> {
   const response = await fetch(url);
   if (!response.ok) {
@@ -33,13 +54,13 @@ export async function downloadFileFromUrl(url: string, filename: string): Promis
 }
 
 function supportsFileSystemAccess(): boolean {
-  return typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function';
+  return typeof window !== 'undefined' && typeof filePickerWindow().showSaveFilePicker === 'function';
 }
 
 async function saveBlobWithPicker(blob: Blob, filename: string): Promise<boolean> {
-  let handle: FileSystemFileHandle;
+  let handle: BrowserFileSystemFileHandle;
   try {
-    handle = await window.showSaveFilePicker!({
+    handle = await filePickerWindow().showSaveFilePicker!({
       suggestedName: filename,
       types: blob.type
         ? [{ accept: { [blob.type]: [] } }]
@@ -61,6 +82,10 @@ async function saveBlobWithPicker(blob: Blob, filename: string): Promise<boolean
     await writable.close();
   }
   return true;
+}
+
+function filePickerWindow(): BrowserWindowWithFilePicker {
+  return window as BrowserWindowWithFilePicker;
 }
 
 function saveBlobWithAnchor(blob: Blob, filename: string): void {

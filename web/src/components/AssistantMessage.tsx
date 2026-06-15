@@ -61,8 +61,8 @@ export function AssistantMessage({
   );
 }
 
-function isEmptyTerminalRun(status: ChatMessage['runStatus']): status is 'failed' | 'canceled' {
-  return status === 'failed' || status === 'canceled';
+function isEmptyTerminalRun(status: ChatMessage['runStatus']): status is 'succeeded' | 'failed' | 'canceled' {
+  return status === 'succeeded' || status === 'failed' || status === 'canceled';
 }
 
 function AgentWorkingIndicator() {
@@ -76,14 +76,20 @@ function AgentWorkingIndicator() {
   );
 }
 
-function AgentTerminalIndicator({ status }: { status: 'failed' | 'canceled' }) {
+function AgentTerminalIndicator({ status }: { status: 'succeeded' | 'failed' | 'canceled' }) {
   const { t } = useTranslation();
 
   return (
     <div className="chat-message__terminal" aria-label={t('chat.message.agentRunStatus')} role="status">
-      <span>{status === 'canceled' ? t('chat.message.canceled') : status}</span>
+      <span>{terminalRunLabel(status, t)}</span>
     </div>
   );
+}
+
+function terminalRunLabel(status: 'succeeded' | 'failed' | 'canceled', t: ReturnType<typeof useTranslation>['t']): string {
+  if (status === 'succeeded') return t('chat.message.completed');
+  if (status === 'canceled') return t('chat.message.canceled');
+  return status;
 }
 
 function AssistantBlock({

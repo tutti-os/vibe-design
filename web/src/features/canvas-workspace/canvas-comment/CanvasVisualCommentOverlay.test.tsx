@@ -6,6 +6,29 @@ import { CanvasVisualCommentOverlay } from './CanvasVisualCommentOverlay';
 import type { CanvasCommentAttachment, CanvasVisualCommentTarget } from './canvas-comment-types';
 
 describe('CanvasVisualCommentOverlay', () => {
+  it('clips only the visual mark surface while allowing the comment popup to remain visible', () => {
+    render(
+      <CanvasVisualCommentOverlay
+        filePath="landing.html"
+        frameLayout={{ width: 1280, height: 800, scale: 0.5, active: true }}
+        requestScreenshot={async () => ({
+          dataUrl: 'data:image/png;base64,c2NyZWVu',
+          width: 1280,
+          height: 800,
+        })}
+        uploadScreenshot={async () => 'screenshots/visual-ui.svg'}
+        onSend={vi.fn()}
+      />,
+    );
+
+    const overlay = screen.getByTestId('canvas-visual-comment-overlay');
+    const surface = screen.getByTestId('canvas-visual-comment-mark-surface');
+
+    expect(overlay.className).toContain('z-[70]');
+    expect(overlay.className).not.toContain('overflow-hidden');
+    expect(surface.className).toContain('overflow-hidden');
+  });
+
   it('waits for a completed visual mark before rendering the comment popup', () => {
     render(
       <CanvasVisualCommentOverlay

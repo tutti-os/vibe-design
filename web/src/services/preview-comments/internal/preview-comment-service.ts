@@ -13,9 +13,7 @@ export class PreviewCommentService implements IPreviewCommentService {
   };
 
   private readonly listeners = new Set<() => void>();
-  private activeConversationId: string | null = null;
   private loadSequence = 0;
-  private conversationEpoch = 0;
   private contentVersion = 0;
   private commentMutationSequence = 0;
   private readonly commentMutationVersions = new Map<string, number>();
@@ -39,32 +37,28 @@ export class PreviewCommentService implements IPreviewCommentService {
     };
   }
 
-  async load(conversationId: string): Promise<void> {
+  async load(): Promise<void> {
     const loadId = this.nextLoadId();
-    const switchedConversation = this.activeConversationId !== null && this.activeConversationId !== conversationId;
-    const epoch = this.switchConversation(conversationId);
     const contentVersion = this.bumpContentVersion();
     this.setSnapshot({
-      ...(switchedConversation ? { comments: [] } : {}),
       loading: true,
       error: null,
     });
 
     try {
-      const comments = await this.api.list(this.projectId, conversationId);
-      if (!this.isCurrentLoad(loadId, conversationId, epoch, contentVersion)) return;
+      const comments = await this.api.list(this.projectId);
+      if (!this.isCurrentLoad(loadId, contentVersion)) return;
       this.setSnapshot({ comments: [...comments], loading: false, error: null });
     } catch (error) {
-      if (!this.isCurrentLoad(loadId, conversationId, epoch, contentVersion)) return;
+      if (!this.isCurrentLoad(loadId, contentVersion)) return;
       this.setSnapshot({ loading: false, error: errorMessage(error, 'Could not list preview comments.') });
     }
   }
 
-  async upsert(conversationId: string, input: PreviewCommentUpsertInput): Promise<CanvasPreviewComment> {
-    const epoch = this.beginMutation(conversationId);
+  async upsert(input: PreviewCommentUpsertInput): Promise<CanvasPreviewComment> {
     const commentMutationTicket = this.beginUpsertMutation(input);
-    const comment = await this.api.upsert(this.projectId, conversationId, input);
-    if (!this.isCurrentMutation(conversationId, epoch) || !this.isCurrentUpsertMutation(commentMutationTicket, comment.id)) {
+    const comment = await this.api.upsert(this.projectId, input);
+    if (!this.isCurrentUpsertMutation(commentMutationTicket, comment.id)) {
       return comment;
     }
     this.markUpsertCommentMutation(comment.id, commentMutationTicket);
@@ -77,15 +71,10 @@ export class PreviewCommentService implements IPreviewCommentService {
     return comment;
   }
 
-  async patchStatus(
-    conversationId: string,
-    commentId: string,
-    status: CanvasCommentStatus,
-  ): Promise<CanvasPreviewComment> {
-    const epoch = this.beginMutation(conversationId);
+  async patchStatus(commentId: string, status: CanvasCommentStatus): Promise<CanvasPreviewComment> {
     const commentMutationVersion = this.beginCommentMutation(commentId);
-    const comment = await this.api.patchStatus(this.projectId, conversationId, commentId, status);
-    if (!this.isCurrentMutation(conversationId, epoch) || !this.isCurrentCommentMutation(commentId, commentMutationVersion)) {
+    const comment = await this.api.patchStatus(this.projectId, commentId, status);
+    if (!this.isCurrentCommentMutation(commentId, commentMutationVersion)) {
       return comment;
     }
     this.markLocalMutation();
@@ -99,11 +88,10 @@ export class PreviewCommentService implements IPreviewCommentService {
     return comment;
   }
 
-  async delete(conversationId: string, commentId: string): Promise<void> {
-    const epoch = this.beginMutation(conversationId);
+  async delete(commentId: string): Promise<void> {
     const commentMutationVersion = this.beginCommentMutation(commentId);
-    await this.api.delete(this.projectId, conversationId, commentId);
-    if (!this.isCurrentMutation(conversationId, epoch) || !this.isCurrentCommentMutation(commentId, commentMutationVersion)) return;
+    await this.api.delete(this.projectId, commentId);
+    if (!this.isCurrentCommentMutation(commentId, commentMutationVersion)) return;
     this.markLocalMutation();
     this.setSnapshot({
       comments: this.snapshot.comments.filter((comment) => comment.id !== commentId),
@@ -126,32 +114,8 @@ export class PreviewCommentService implements IPreviewCommentService {
     this.bumpContentVersion();
   }
 
-  private beginMutation(conversationId: string): number {
-    if (this.activeConversationId === null) {
-      return this.switchConversation(conversationId);
-    }
-    return this.conversationEpoch;
-  }
-
-  private switchConversation(conversationId: string): number {
-    if (this.activeConversationId !== conversationId) {
-      this.activeConversationId = conversationId;
-      this.conversationEpoch += 1;
-    }
-    return this.conversationEpoch;
-  }
-
-  private isCurrentLoad(loadId: number, conversationId: string, epoch: number, contentVersion: number): boolean {
-    return (
-      this.loadSequence === loadId &&
-      this.activeConversationId === conversationId &&
-      this.conversationEpoch === epoch &&
-      this.contentVersion === contentVersion
-    );
-  }
-
-  private isCurrentMutation(conversationId: string, epoch: number): boolean {
-    return this.activeConversationId === conversationId && this.conversationEpoch === epoch;
+  private isCurrentLoad(loadId: number, contentVersion: number): boolean {
+    return this.loadSequence === loadId && this.contentVersion === contentVersion;
   }
 
   private beginCommentMutation(commentId: string): number {

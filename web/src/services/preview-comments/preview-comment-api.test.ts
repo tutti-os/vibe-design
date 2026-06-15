@@ -7,14 +7,14 @@ describe('FetchPreviewCommentApi', () => {
     vi.unstubAllGlobals();
   });
 
-  it('lists comments from the encoded conversation endpoint', async () => {
-    const comment = previewComment({ projectId: 'project/1', conversationId: 'conversation 1' });
+  it('lists comments from the encoded project endpoint', async () => {
+    const comment = previewComment({ projectId: 'project/1' });
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ comments: [storedComment(comment)] }));
     vi.stubGlobal('fetch', fetch);
 
-    await expect(new FetchPreviewCommentApi().list('project/1', 'conversation 1')).resolves.toEqual([comment]);
+    await expect(new FetchPreviewCommentApi().list('project/1')).resolves.toEqual([comment]);
 
-    expect(fetch).toHaveBeenCalledWith('/api/projects/project%2F1/conversations/conversation%201/comments');
+    expect(fetch).toHaveBeenCalledWith('/api/projects/project%2F1/comments');
   });
 
   it('maps persisted visual comments without dropping visual metadata', async () => {
@@ -22,7 +22,7 @@ describe('FetchPreviewCommentApi', () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ comments: [storedComment(comment)] }));
     vi.stubGlobal('fetch', fetch);
 
-    await expect(new FetchPreviewCommentApi().list('project-1', 'conversation-1')).resolves.toEqual([comment]);
+    await expect(new FetchPreviewCommentApi().list('project-1')).resolves.toEqual([comment]);
   });
 
   it('maps persisted element comment screenshots without changing selection kind', async () => {
@@ -30,7 +30,7 @@ describe('FetchPreviewCommentApi', () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ comments: [storedComment(comment)] }));
     vi.stubGlobal('fetch', fetch);
 
-    await expect(new FetchPreviewCommentApi().list('project-1', 'conversation-1')).resolves.toEqual([comment]);
+    await expect(new FetchPreviewCommentApi().list('project-1')).resolves.toEqual([comment]);
   });
 
   it('serializes upsert bodies and reads the returned comment', async () => {
@@ -39,9 +39,9 @@ describe('FetchPreviewCommentApi', () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ comment: storedComment(comment) }));
     vi.stubGlobal('fetch', fetch);
 
-    await expect(new FetchPreviewCommentApi().upsert('project-1', 'conversation-1', input)).resolves.toEqual(comment);
+    await expect(new FetchPreviewCommentApi().upsert('project-1', input)).resolves.toEqual(comment);
 
-    expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/conversations/conversation-1/comments', {
+    expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/comments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -53,11 +53,11 @@ describe('FetchPreviewCommentApi', () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ comment: storedComment(comment) }));
     vi.stubGlobal('fetch', fetch);
 
-    await expect(new FetchPreviewCommentApi().patchStatus('project-1', 'conversation-1', 'comment:1', 'resolved')).resolves.toEqual(
+    await expect(new FetchPreviewCommentApi().patchStatus('project-1', 'comment:1', 'resolved')).resolves.toEqual(
       comment,
     );
 
-    expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/conversations/conversation-1/comments/comment%3A1', {
+    expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/comments/comment%3A1', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'resolved' }),
@@ -68,9 +68,9 @@ describe('FetchPreviewCommentApi', () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ ok: true }));
     vi.stubGlobal('fetch', fetch);
 
-    await expect(new FetchPreviewCommentApi().delete('project-1', 'conversation-1', 'comment:1')).resolves.toBeUndefined();
+    await expect(new FetchPreviewCommentApi().delete('project-1', 'comment:1')).resolves.toBeUndefined();
 
-    expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/conversations/conversation-1/comments/comment%3A1', {
+    expect(fetch).toHaveBeenCalledWith('/api/projects/project-1/comments/comment%3A1', {
       method: 'DELETE',
     });
   });
@@ -78,7 +78,7 @@ describe('FetchPreviewCommentApi', () => {
   it('rejects malformed successful delete payloads', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ok: false })));
 
-    await expect(new FetchPreviewCommentApi().delete('project-1', 'conversation-1', 'comment-1')).rejects.toThrow(
+    await expect(new FetchPreviewCommentApi().delete('project-1', 'comment-1')).rejects.toThrow(
       'Could not delete preview comment.',
     );
   });
@@ -86,16 +86,16 @@ describe('FetchPreviewCommentApi', () => {
   it('uses nested API error messages when requests fail', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => new Response(JSON.stringify({ error: { message: 'conversation not found' } }), { status: 404 })),
+      vi.fn(async () => new Response(JSON.stringify({ error: { message: 'project not found' } }), { status: 404 })),
     );
 
-    await expect(new FetchPreviewCommentApi().list('project-1', 'conversation-1')).rejects.toThrow('conversation not found');
+    await expect(new FetchPreviewCommentApi().list('project-1')).rejects.toThrow('project not found');
   });
 
   it('falls back to a friendly message when failed responses are not parseable', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('not json', { status: 500 })));
 
-    await expect(new FetchPreviewCommentApi().upsert('project-1', 'conversation-1', { target: {}, note: 'Note' })).rejects.toThrow(
+    await expect(new FetchPreviewCommentApi().upsert('project-1', { target: {}, note: 'Note' })).rejects.toThrow(
       'Could not save preview comment.',
     );
   });
@@ -103,7 +103,7 @@ describe('FetchPreviewCommentApi', () => {
   it('throws when a successful list payload is malformed', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ comments: [{ id: 'comment-1' }] })));
 
-    await expect(new FetchPreviewCommentApi().list('project-1', 'conversation-1')).rejects.toThrow('Could not list preview comments.');
+    await expect(new FetchPreviewCommentApi().list('project-1')).rejects.toThrow('Could not list preview comments.');
   });
 
   it('throws when a successful visual comment payload is missing markKind', async () => {
@@ -113,13 +113,13 @@ describe('FetchPreviewCommentApi', () => {
     }
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ comments: [malformed] })));
 
-    await expect(new FetchPreviewCommentApi().list('project-1', 'conversation-1')).rejects.toThrow('Could not list preview comments.');
+    await expect(new FetchPreviewCommentApi().list('project-1')).rejects.toThrow('Could not list preview comments.');
   });
 
   it('throws when a successful mutation payload is malformed', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ comment: { id: 'comment-1' } })));
 
-    await expect(new FetchPreviewCommentApi().patchStatus('project-1', 'conversation-1', 'comment-1', 'resolved')).rejects.toThrow(
+    await expect(new FetchPreviewCommentApi().patchStatus('project-1', 'comment-1', 'resolved')).rejects.toThrow(
       'Could not update preview comment status.',
     );
   });
@@ -129,7 +129,6 @@ function previewComment(overrides: Partial<CanvasPreviewComment> = {}): CanvasPr
   const comment: CanvasPreviewComment = {
     id: 'comment-1',
     projectId: 'project-1',
-    conversationId: 'conversation-1',
     filePath: 'index.html',
     targetId: 'hero-title',
     selector: '#hero-title',
@@ -150,7 +149,6 @@ function visualComment(overrides: Partial<CanvasPreviewComment> = {}): CanvasPre
   const comment: CanvasPreviewComment = {
     id: 'comment-visual',
     projectId: 'project-1',
-    conversationId: 'conversation-1',
     filePath: 'index.html',
     targetId: 'visual-mark-1',
     selector: 'body',
@@ -173,7 +171,6 @@ function storedComment(comment: CanvasPreviewComment): Record<string, unknown> {
   return {
     id: comment.id,
     projectId: comment.projectId,
-    conversationId: comment.conversationId,
     target: {
       filePath: comment.filePath,
       targetId: comment.targetId,

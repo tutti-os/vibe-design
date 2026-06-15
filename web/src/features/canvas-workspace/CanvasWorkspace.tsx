@@ -7,7 +7,7 @@ import { markdown } from '@codemirror/lang-markdown';
 import { EditorState, type Extension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
-import { MonitorSmartphone } from 'lucide-react';
+import { ChevronLeft, ChevronRight, MonitorSmartphone } from 'lucide-react';
 import { Badge, Button, toast } from '@tutti-os/ui-system/components';
 import {
   AddIcon,
@@ -240,6 +240,11 @@ export function CanvasWorkspace({
   const interactionViewportRef = React.useRef<HTMLDivElement | null>(null);
   const tabStripRef = React.useRef<HTMLDivElement | null>(null);
   const activeTabRef = React.useRef<HTMLElement | null>(null);
+  const [tabStripHovered, setTabStripHovered] = useState(false);
+  const [tabStripScrollState, setTabStripScrollState] = useState({
+    canScrollLeft: false,
+    canScrollRight: false,
+  });
   const savedHtmlPreviewScreenshotKeysRef = React.useRef<Map<string, 'pending' | 'saved'>>(new Map());
   const consumedAutoOpenFileRequestRef = React.useRef<string | null>(null);
   const activeTab = useMemo(
@@ -279,6 +284,42 @@ export function CanvasWorkspace({
   const handleManualPreviewFrameLayoutChange = React.useCallback((layout: CanvasPreviewFrameLayout) => {
     setCommentFrameLayout(layout);
   }, [activeMode]);
+  const updateTabStripScrollState = React.useCallback(() => {
+    const strip = tabStripRef.current;
+    if (!strip) {
+      setTabStripScrollState((current) =>
+        current.canScrollLeft || current.canScrollRight ? { canScrollLeft: false, canScrollRight: false } : current,
+      );
+      return;
+    }
+
+    const maxScrollLeft = strip.scrollWidth - strip.clientWidth;
+    const nextScrollState = {
+      canScrollLeft: maxScrollLeft > 1 && strip.scrollLeft > 1,
+      canScrollRight: maxScrollLeft > 1 && strip.scrollLeft < maxScrollLeft - 1,
+    };
+    setTabStripScrollState((current) =>
+      current.canScrollLeft === nextScrollState.canScrollLeft && current.canScrollRight === nextScrollState.canScrollRight
+        ? current
+        : nextScrollState,
+    );
+  }, []);
+  const scrollWorkspaceTabs = React.useCallback(
+    (direction: 'left' | 'right') => {
+      const strip = tabStripRef.current;
+      if (!strip) {
+        return;
+      }
+      const delta = Math.max(Math.round(strip.clientWidth * 0.75), 120);
+      strip.scrollLeft += direction === 'left' ? -delta : delta;
+      updateTabStripScrollState();
+    },
+    [updateTabStripScrollState],
+  );
+  const showTabStripScrollControls = React.useCallback(() => {
+    setTabStripHovered(true);
+    updateTabStripScrollState();
+  }, [updateTabStripScrollState]);
   const activeManualFrameLayout = usesManualPreviewLayout
     ? commentFrameLayout ?? { width: 1280, height: 800, scale: interactivePreviewScale, active: true }
     : null;
@@ -307,7 +348,27 @@ export function CanvasWorkspace({
     if (typeof activeTab?.scrollIntoView === 'function') {
       activeTab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     }
-  }, [tabsState.activeTabKey, tabsState.tabs.length]);
+    updateTabStripScrollState();
+  }, [tabsState.activeTabKey, tabsState.tabs.length, updateTabStripScrollState]);
+
+  React.useEffect(() => {
+    const strip = tabStripRef.current;
+    if (!strip) {
+      return undefined;
+    }
+
+    updateTabStripScrollState();
+    strip.addEventListener('scroll', updateTabStripScrollState);
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateTabStripScrollState);
+    resizeObserver?.observe(strip);
+    window.addEventListener('resize', updateTabStripScrollState);
+
+    return () => {
+      strip.removeEventListener('scroll', updateTabStripScrollState);
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', updateTabStripScrollState);
+    };
+  }, [tabsState.tabs.length, updateTabStripScrollState]);
 
   // Translate vertical mouse-wheel scrolling into horizontal scrolling so the
   // tab strip stays reachable with a regular mouse (not just a trackpad swipe).
@@ -739,7 +800,6 @@ export function CanvasWorkspace({
                 ...normalizedTarget,
                 id: comment.id,
                 projectId: comment.projectId,
-                conversationId: comment.conversationId,
                 note,
                 status: comment.status,
                 createdAt: comment.createdAt,
@@ -755,7 +815,6 @@ export function CanvasWorkspace({
         ...target,
         id,
         projectId: 'local-project',
-        conversationId: 'local-conversation',
         note,
         status: 'open',
         createdAt: now,
@@ -894,7 +953,6 @@ export function CanvasWorkspace({
         ...target,
         id,
         projectId: 'local-project',
-        conversationId: 'local-conversation',
         note,
         status: 'open',
         createdAt: now,
@@ -936,7 +994,15 @@ export function CanvasWorkspace({
 
   return (
     <section aria-label={workspaceTitle} className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--project-workspace-bg)] text-[12px]">
-      <div className="flex min-h-10 items-center gap-2 pl-2 pr-4">
+      <div
+        className="relative flex min-h-10 items-center gap-2 pl-2 pr-4"
+        onFocusCapture={showTabStripScrollControls}
+        onMouseEnter={showTabStripScrollControls}
+        onMouseLeave={() => setTabStripHovered(false)}
+        onMouseMove={showTabStripScrollControls}
+        onPointerEnter={showTabStripScrollControls}
+        onPointerMove={showTabStripScrollControls}
+      >
         <div ref={tabStripRef} role="tablist" aria-label={t('workspace.tabs')} className="vd-tab-strip flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
           <Button
             ref={isDesignFilesActive ? (activeTabRef as React.Ref<HTMLButtonElement>) : undefined}
@@ -1003,6 +1069,32 @@ export function CanvasWorkspace({
             );
           })}
         </div>
+        {tabStripHovered && tabStripScrollState.canScrollLeft ? (
+          <Button
+            aria-label={t('workspace.actions.scrollTabsLeft')}
+            className="absolute left-2 top-1/2 z-10 h-6 min-h-6 w-6 min-w-6 -translate-y-1/2 rounded-full border border-[var(--border-1)] bg-[var(--background-fronted)] p-0 text-[var(--text-secondary)] shadow-[var(--project-shadow-raised)] hover:bg-[var(--background)] hover:text-[var(--text-primary)]"
+            data-testid="workspace-tab-scroll-left"
+            size="icon-sm"
+            type="button"
+            variant="chrome"
+            onClick={() => scrollWorkspaceTabs('left')}
+          >
+            <ChevronLeft size={14} aria-hidden />
+          </Button>
+        ) : null}
+        {tabStripHovered && tabStripScrollState.canScrollRight ? (
+          <Button
+            aria-label={t('workspace.actions.scrollTabsRight')}
+            className="absolute right-4 top-1/2 z-10 h-6 min-h-6 w-6 min-w-6 -translate-y-1/2 rounded-full border border-[var(--border-1)] bg-[var(--background-fronted)] p-0 text-[var(--text-secondary)] shadow-[var(--project-shadow-raised)] hover:bg-[var(--background)] hover:text-[var(--text-primary)]"
+            data-testid="workspace-tab-scroll-right"
+            size="icon-sm"
+            type="button"
+            variant="chrome"
+            onClick={() => scrollWorkspaceTabs('right')}
+          >
+            <ChevronRight size={14} aria-hidden />
+          </Button>
+        ) : null}
       </div>
 
       {activeFile ? (
@@ -1176,7 +1268,7 @@ export function CanvasWorkspace({
                           onOpenSavedComment={handleOpenSavedComment}
                         />
                         {activeCommentTarget ? (
-                          <div className="absolute z-30" style={commentPopoverStyle(activeCommentTarget, activeManualFrameLayout, interactionViewportBounds)}>
+                          <div className="absolute z-[80]" style={commentPopoverStyle(activeCommentTarget, activeManualFrameLayout, interactionViewportBounds)}>
                             <CanvasCommentPopover
                               target={activeCommentTarget}
                               draft={commentDraft}
@@ -2312,21 +2404,21 @@ function HtmlDesignFilePreview({ file, files }: { file: WorkspaceFile; files: Wo
     <div
       ref={containerRef}
       data-testid="design-file-preview-fit"
-      className="relative flex h-full min-h-[420px] w-full items-center justify-center overflow-hidden bg-[var(--background-fronted)]"
+      className="relative h-full min-h-0 w-full overflow-hidden bg-[var(--background-fronted)]"
     >
       <iframe
         ref={iframeRef}
         data-testid="design-file-preview-srcdoc"
         title={t('workspace.designFilePreviewTitle', { name: file.name })}
-        className="absolute left-1/2 top-1/2 border-0 bg-white shadow-soft"
+        className="absolute left-0 top-0 border-0 bg-white shadow-soft"
         sandbox="allow-scripts allow-same-origin"
         srcDoc={srcDoc}
         onLoad={measureLoadedPreview}
         style={{
           width: previewSize.width,
           height: previewSize.height,
-          transform: `translate(-50%, -50%) scale(${scale})`,
-          transformOrigin: 'center',
+          transform: `scale(${scale})`,
+          transformOrigin: 'top left',
         }}
       />
     </div>
