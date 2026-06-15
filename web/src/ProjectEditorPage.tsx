@@ -391,9 +391,12 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
         designFiles.fileUrl(event.file.name),
         filesRef.current,
       );
+      const savedExistingFile = filesRef.current.some(
+        (file) => file.path === workspaceFile.path || file.name === event.file.name,
+      );
       const wasCanvasInitiatedSave = consumePendingCanvasSave(pendingCanvasSaveNamesRef.current, event.file.name);
       setFiles((currentFiles) => upsertWorkspaceFile(currentFiles, workspaceFile));
-      if (wasCanvasInitiatedSave) return;
+      if (wasCanvasInitiatedSave || savedExistingFile) return;
       requestCanvasOpen(workspaceFile.path);
     });
   }, [designFiles, refreshProjectFiles, requestCanvasOpen]);
