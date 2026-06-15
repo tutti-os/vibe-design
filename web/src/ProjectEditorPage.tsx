@@ -20,6 +20,7 @@ import { IChatTimelineService } from './services/chat-timeline/chat-timeline-ser
 import type { ChatTimelineSnapshot, GeneratedFileEntry } from './services/chat-timeline/chat-timeline-types';
 import type {
   ChatComposerAgentAvailability,
+  ChatComposerAgentModelCatalogEntry,
   ChatComposerDesignSystem,
   ChatComposerDesignSystemPickerState,
 } from './components/ChatComposer';
@@ -67,6 +68,7 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
   const [agentAvailability, setAgentAvailability] = React.useState<ChatComposerAgentAvailability[]>(
     () => initialData?.agentAvailability ?? [],
   );
+  const [agentModelCatalog, setAgentModelCatalog] = React.useState<ChatComposerAgentModelCatalogEntry[]>([]);
   const [stagedCommentAttachments, setStagedCommentAttachments] = React.useState<CanvasCommentAttachment[]>([]);
   const [commentPanelOpen, setCommentPanelOpen] = React.useState(false);
   const [autoOpenFileRequest, setAutoOpenFileRequest] = React.useState<{ path: string; revision: number } | null>(null);
@@ -445,6 +447,25 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
   }, [activeConversationId]);
 
   React.useEffect(() => {
+    let canceled = false;
+    void fetchAgentModelCatalog()
+      .then((catalog) => {
+        if (!canceled) {
+          setAgentModelCatalog(catalog);
+        }
+      })
+      .catch(() => {
+        if (!canceled) {
+          setAgentModelCatalog([]);
+        }
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
+  React.useEffect(() => {
     const loadedPreviewComments = loadedPreviewCommentsRef.current;
     if (loadedPreviewComments?.projectId === projectId && loadedPreviewComments.service === previewComments) {
       return;
@@ -495,6 +516,7 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
             projectId={projectId}
             projectTitle={projectTitle}
             agentAvailability={agentAvailability}
+            agentModelCatalog={agentModelCatalog}
             commentAttachments={stagedCommentAttachments}
             previewComments={previewCommentSnapshot.comments}
             commentPanelOpen={commentPanelOpen}
@@ -591,6 +613,48 @@ async function installClaudeCodeAgent(): Promise<ChatComposerAgentAvailability[]
   }
 
   return readAgentAvailability(data);
+}
+
+async function fetchAgentModelCatalog(): Promise<ChatComposerAgentModelCatalogEntry[]> {
+  const response = await fetch('/api/agents/models');
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    return [];
+  }
+
+  return readAgentModelCatalog(data);
+}
+
+function readAgentModelCatalog(data: unknown): ChatComposerAgentModelCatalogEntry[] {
+  const value = isRecord(data) ? data.agents : null;
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!isRecord(item) || !isAgentId(item.id) || typeof item.label !== 'string' || !Array.isArray(item.models)) {
+      return [];
+    }
+
+    const models = item.models.flatMap((model) => {
+      if (!isRecord(model) || typeof model.id !== 'string' || typeof model.label !== 'string') {
+        return [];
+      }
+      return [
+        {
+          id: model.id,
+          label: model.label,
+          ...(typeof model.description === 'string' && model.description.trim()
+            ? { description: model.description }
+            : {}),
+        },
+      ];
+    });
+
+    return [{ agentId: item.id, label: item.label, models }];
+  });
+}
+
+function isAgentId(value: unknown): value is 'codex' | 'claude' {
+  return value === 'codex' || value === 'claude';
 }
 
 function readAgentAvailability(data: unknown): ChatComposerAgentAvailability[] {
@@ -1078,6 +1142,7 @@ function ChatPanel({
   projectId,
   projectTitle,
   agentAvailability,
+  agentModelCatalog,
   activeDesignSystem,
   designSystems,
   designSystemPickerState,
@@ -1105,6 +1170,7 @@ function ChatPanel({
   projectId: string;
   projectTitle: string | null;
   agentAvailability: ChatComposerAgentAvailability[];
+  agentModelCatalog: ChatComposerAgentModelCatalogEntry[];
   activeDesignSystem: ChatComposerDesignSystem | null;
   designSystems: ChatComposerDesignSystem[];
   designSystemPickerState: ChatComposerDesignSystemPickerState;
@@ -1151,6 +1217,7 @@ function ChatPanel({
           contextSelect={(item) => context.selectResult(item)}
           contextRemove={(kind, id) => context.removeSelection(kind, id)}
           agentAvailability={agentAvailability}
+          agentModelCatalog={agentModelCatalog}
           activeDesignSystem={activeDesignSystem}
           designSystems={designSystems}
           designSystemPickerState={designSystemPickerState}

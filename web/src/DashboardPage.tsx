@@ -225,6 +225,8 @@ function DashboardSidebar({
   selectedDesignSystemId: string | null;
   onSetupDesignSystem: () => void;
 }) {
+  const { t } = useTranslation();
+
   return (
     <aside className="flex max-h-full min-h-0 w-full shrink-0 flex-col overflow-y-auto border-b border-[var(--border-1)] bg-[var(--background)] px-5 py-7 sm:px-6 lg:h-full lg:w-[360px] xl:w-[380px] lg:border-b-0 lg:border-r">
       <BrandHeader />
@@ -234,6 +236,12 @@ function DashboardSidebar({
         selectedDesignSystem={selectedDesignSystem}
         onSetupDesignSystem={onSetupDesignSystem}
       />
+      <p
+        className="mt-auto pt-8 text-xs leading-5 text-[var(--text-tertiary)]"
+        data-testid="dashboard-inspiration"
+      >
+        {t('dashboard.inspiration')}
+      </p>
     </aside>
   );
 }

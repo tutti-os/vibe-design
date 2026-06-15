@@ -5,10 +5,17 @@ export const codexAgentDef: RuntimeAgentDef = {
   label: 'Codex',
   capabilities: ['agent-acp-kit', 'streaming', 'tool-use'],
   models: [
-    { id: 'default', label: 'Default' },
+    {
+      id: 'default',
+      label: 'Default',
+      description: 'Use the default Codex model.',
+    },
+    {
+      id: 'codex:gpt-5.5',
+      label: 'GPT-5.5',
+      description: 'Frontier model for complex coding, research, and real-world work.',
+    },
     { id: 'codex:gpt-5.4', label: 'GPT-5.4' },
-    { id: 'codex:gpt-5.4-mini', label: 'GPT-5.4 Mini' },
     { id: 'codex:gpt-5', label: 'GPT-5' },
-    { id: 'codex:gpt-5-mini', label: 'GPT-5 Mini' },
   ],
 };

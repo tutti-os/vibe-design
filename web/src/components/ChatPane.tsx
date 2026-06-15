@@ -51,6 +51,7 @@ import { AssistantMessage } from './AssistantMessage';
 import {
   ChatComposer,
   type ChatComposerAgentAvailability,
+  type ChatComposerAgentModelCatalogEntry,
   type ChatComposerDesignSystem,
   type ChatComposerDesignSystemPickerState,
   type ChatComposerHandle,
@@ -85,6 +86,7 @@ export interface ChatPaneProps {
   previewComments?: CanvasPreviewComment[];
   commentPanelOpen?: boolean;
   agentAvailability?: ChatComposerAgentAvailability[];
+  agentModelCatalog?: ChatComposerAgentModelCatalogEntry[];
   queuedTurns?: QueuedTurnPreview[];
   startingRun?: boolean;
   onSend(input: {
@@ -92,6 +94,7 @@ export interface ChatPaneProps {
     files: File[];
     attachments?: ChatAttachment[];
     agentId?: string;
+    model?: string;
     commentAttachments?: CanvasCommentAttachment[];
   }): void | Promise<void>;
   onOpenDesignSystemPicker?(): void | Promise<void>;
@@ -133,6 +136,7 @@ export function ChatPane({
   previewComments = [],
   commentPanelOpen = false,
   agentAvailability = [],
+  agentModelCatalog = [],
   queuedTurns = [],
   startingRun = false,
   onSend,
@@ -569,6 +573,7 @@ export function ChatPane({
           }}
           commentAttachments={commentAttachments}
           agentAvailability={agentAvailability}
+          agentModelCatalog={agentModelCatalog}
           lockedAgentId={activeConversationProvider}
           activeDesignSystem={activeDesignSystem}
           designSystems={designSystems}

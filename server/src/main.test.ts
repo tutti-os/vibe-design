@@ -290,6 +290,62 @@ describe('createServer', () => {
     });
   });
 
+  it('lists model catalogs for runnable agents', async () => {
+    const port = await listenOnRandomPort(createTestServer({ runtimeDir: await createRuntimeDir() }));
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/agents/models`);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      agents: [
+        {
+          id: 'claude',
+          label: 'Claude Code',
+          models: [
+            {
+              id: 'default',
+              label: 'Default',
+              description: 'Sonnet 4.6 · Best for everyday tasks',
+            },
+            {
+              id: 'claude:sonnet',
+              label: 'Sonnet',
+              description: 'Sonnet 4.6 · Best for everyday tasks',
+            },
+            {
+              id: 'claude:opus',
+              label: 'Opus',
+              description: 'Opus 4.7 · Most capable for complex work · ~2x usage vs Sonnet',
+            },
+            {
+              id: 'claude:haiku',
+              label: 'Haiku',
+              description: 'Haiku 4.5 · Fastest for quick answers',
+            },
+          ],
+        },
+        {
+          id: 'codex',
+          label: 'Codex',
+          models: [
+            {
+              id: 'default',
+              label: 'Default',
+              description: 'Use the default Codex model.',
+            },
+            {
+              id: 'codex:gpt-5.5',
+              label: 'GPT-5.5',
+              description: 'Frontier model for complex coding, research, and real-world work.',
+            },
+            { id: 'codex:gpt-5.4', label: 'GPT-5.4' },
+            { id: 'codex:gpt-5', label: 'GPT-5' },
+          ],
+        },
+      ],
+    });
+  });
+
   it('reports an assistant message as running while its run is still live', async () => {
     const runtimeRoot = await createRuntimeDir();
     const projectId = 'project-live-run';
@@ -1140,6 +1196,7 @@ describe('createServer', () => {
         projectId: 'project-1',
         prompt: 'Build a small page',
         agentId: 'claude',
+        model: 'claude:opus',
         skillId: 'landing',
       }),
     });
@@ -1150,6 +1207,7 @@ describe('createServer', () => {
         projectId: 'project-1',
         prompt: 'Build a small page',
         agentId: 'claude',
+        model: 'claude:opus',
         skillId: 'landing',
       }),
     ]);

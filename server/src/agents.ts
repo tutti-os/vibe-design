@@ -1,6 +1,7 @@
 export interface ModelSummary {
   id: string;
   label: string;
+  description?: string;
 }
 
 export const DEFAULT_AGENT_ID = 'codex';

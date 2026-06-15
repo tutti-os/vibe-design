@@ -37,6 +37,7 @@ import { registerDesignSystemRoutes } from './routes/design-system-routes.js';
 import { ensureProject, isSafeProjectId, listProjectSummaries, registerProjectRoutes } from './routes/project-routes.js';
 import { registerSkillsRoutes } from './routes/skills-routes.js';
 import { createChatRunService } from './runs.js';
+import { agentRegistry } from './runtimes/index.js';
 import {
   listProjectFilesFromStore,
   type ProjectFileKind,
@@ -403,6 +404,20 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     await persistRunMessages(persistentBody, run);
     runs.stream(run, req, res);
     runs.start(run, (startedRun) => startRunFromRequest(startedRun, persistentBody));
+  });
+
+  app.get('/api/agents/models', (_req: Request, res: Response): void => {
+    res.json({
+      agents: agentRegistry.listAgentDefs().map((agent) => ({
+        id: agent.id,
+        label: agent.label,
+        models: agent.models.map((model) => ({
+          id: model.id,
+          label: model.label,
+          ...(model.description ? { description: model.description } : {}),
+        })),
+      })),
+    });
   });
 
   app.post('/api/agents/claude/install', async (_req: Request, res: Response): Promise<void> => {

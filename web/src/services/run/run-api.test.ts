@@ -76,6 +76,31 @@ describe('FetchRunApi', () => {
     });
   });
 
+  it('serializes the selected model when creating a run', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ runId: 'run-1' }));
+    vi.stubGlobal('fetch', fetch);
+
+    await expect(
+      new FetchRunApi().createRun({
+        projectId: 'project-1',
+        prompt: 'Use a specific model',
+        agentId: 'codex',
+        model: 'codex:gpt-5.4-mini',
+      }),
+    ).resolves.toEqual({ runId: 'run-1' });
+
+    const request = fetch.mock.calls[0]?.[1];
+    if (!request) {
+      throw new Error('expected createRun request options');
+    }
+    expect(JSON.parse(String(request.body))).toMatchObject({
+      projectId: 'project-1',
+      prompt: 'Use a specific model',
+      agentId: 'codex',
+      model: 'codex:gpt-5.4-mini',
+    });
+  });
+
   it('throws the nested API error message when creating a run fails', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       Response.json(

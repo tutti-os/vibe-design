@@ -43,6 +43,24 @@ function buttonByName(container: HTMLElement, name: string): HTMLButtonElement {
   return button;
 }
 
+function menuItemByName(name: string): HTMLElement {
+  const item = Array.from(
+    document.body.querySelectorAll(
+      '[data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-label"]',
+    ),
+  ).find((candidate) => candidate.textContent?.includes(name));
+  if (!(item instanceof HTMLElement)) throw new Error(`Missing menu item ${name}`);
+  return item;
+}
+
+async function openModelMenu(container: HTMLElement): Promise<void> {
+  const trigger = getByLabelText(container, 'Model provider');
+  await act(async () => {
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
+    fireEvent.click(trigger);
+  });
+}
+
 async function changeText(element: HTMLElement, value: string): Promise<void> {
   await act(async () => {
     element.textContent = value;
@@ -158,22 +176,17 @@ describe('ChatComposer', () => {
       expect((codexIcon as HTMLImageElement | null)?.getAttribute('src')).toContain('workspace-dock-agent-codex');
       expect(provider.querySelectorAll('[data-provider-icon]')).toHaveLength(1);
 
-      await act(async () => {
-        fireEvent.click(provider);
-      });
+      await openModelMenu(container);
 
-      const claudeOption = Array.from(document.body.querySelectorAll('[role="option"]')).find((option) =>
-        option.textContent?.includes('Claude Code'),
-      );
-      expect(claudeOption).not.toBeUndefined();
-      const claudeOptionIcon = claudeOption!.querySelector('[data-provider-icon="claude-code"]');
+      const claudeOption = menuItemByName('Claude Code');
+      const claudeOptionIcon = claudeOption.querySelector('[data-provider-icon="claude-code"]');
       expect(claudeOptionIcon).toBeInstanceOf(HTMLImageElement);
       expect((claudeOptionIcon as HTMLImageElement | null)?.getAttribute('src')).toContain(
         'workspace-dock-agent-claude-code',
       );
 
       await act(async () => {
-        fireEvent.click(claudeOption!);
+        fireEvent.click(claudeOption);
       });
 
       expect(provider.textContent).toContain('Claude Code');
@@ -191,6 +204,162 @@ describe('ChatComposer', () => {
       await flushAsyncWork();
 
       expect(onSend).toHaveBeenCalledWith({ draft: 'Use Claude', files: [], agentId: 'claude' });
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('lets the user select a Codex model and sends it with the turn', async () => {
+    const onSend = vi.fn();
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        agentModelCatalog={[
+          {
+            agentId: 'codex',
+            label: 'Codex',
+            models: [
+              { id: 'default', label: 'Default' },
+              {
+                id: 'codex:gpt-5.5',
+                label: 'GPT-5.5',
+                description: 'Frontier model for complex coding, research, and real-world work.',
+              },
+            ],
+          },
+        ]}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onSend={onSend}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      const provider = getByLabelText(container, 'Model provider');
+      expect(provider.textContent).toContain('Codex');
+      expect(provider.textContent).toContain('Default');
+      expect(container.querySelector('[aria-label="Model"]')).toBeNull();
+
+      await openModelMenu(container);
+
+      const gpt55Option = document.body.querySelector('[data-model-option-id="codex:gpt-5.5"]');
+      expect(gpt55Option).toBeInstanceOf(HTMLElement);
+      expect(gpt55Option?.closest('[data-provider-models="codex"]')).toBeInstanceOf(HTMLElement);
+      expect(gpt55Option?.textContent).toContain('Frontier model for complex coding');
+      expect(document.body.querySelector('[data-slot="dropdown-menu-sub-trigger"]')).toBeNull();
+
+      await act(async () => {
+        fireEvent.click(gpt55Option!);
+      });
+
+      expect(provider.textContent).toContain('GPT-5.5');
+
+      await changeText(getByLabelText(container, 'Message'), 'Use Codex mini');
+      await act(async () => {
+        getByLabelText(container, 'Send message').click();
+      });
+      await flushAsyncWork();
+
+      expect(onSend).toHaveBeenCalledWith({
+        draft: 'Use Codex mini',
+        files: [],
+        agentId: 'codex',
+        model: 'codex:gpt-5.5',
+      });
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('switches to Claude models and keeps future providers disabled as coming soon', async () => {
+    const onSend = vi.fn();
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        agentModelCatalog={[
+          {
+            agentId: 'codex',
+            label: 'Codex',
+            models: [{ id: 'default', label: 'Default' }],
+          },
+          {
+            agentId: 'claude',
+            label: 'Claude Code',
+            models: [
+              { id: 'default', label: 'Default' },
+              {
+                id: 'claude:opus',
+                label: 'Opus',
+                description: 'Opus 4.7 · Most capable for complex work · ~2x usage vs Sonnet',
+              },
+            ],
+          },
+        ]}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onSend={onSend}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      const provider = getByLabelText(container, 'Model provider');
+      expect(provider.textContent).toContain('Codex');
+      expect(provider.textContent).toContain('Default');
+      await openModelMenu(container);
+
+      const tuttiOption = document.body.querySelector('[data-provider-option="tutti"]');
+      expect(tuttiOption).toBeInstanceOf(HTMLElement);
+      expect(tuttiOption!.getAttribute('aria-disabled')).toBe('true');
+      expect(tuttiOption!.getAttribute('title')).toBe('Coming soon');
+      const tuttiIcon = tuttiOption!.querySelector('[data-provider-icon="tutti"]');
+      expect(tuttiIcon).toBeInstanceOf(HTMLImageElement);
+      expect((tuttiIcon as HTMLImageElement | null)?.getAttribute('src')).toContain('manage-agent-tutti.png');
+      const hermesIcon = document.body.querySelector('[data-provider-option="hermes"] [data-provider-icon="hermes"]');
+      expect(hermesIcon).toBeInstanceOf(HTMLImageElement);
+      expect((hermesIcon as HTMLImageElement | null)?.getAttribute('src')).toContain('hermes-rounded.png');
+      const openclawIcon = document.body.querySelector('[data-provider-option="openclaw"] [data-provider-icon="openclaw"]');
+      expect(openclawIcon).toBeInstanceOf(HTMLImageElement);
+      expect((openclawIcon as HTMLImageElement | null)?.getAttribute('src')).toContain('openclaw-rounded.png');
+
+      const comingSoonTrigger = tuttiOption!.closest('[data-slot="tooltip-trigger"]') ?? tuttiOption;
+      expect(comingSoonTrigger).not.toBeNull();
+      await act(async () => {
+        fireEvent.pointerMove(comingSoonTrigger!);
+      });
+      await waitFor(() => {
+        expect(document.body.textContent).toContain('Coming soon');
+      });
+
+      const opusOption = document.body.querySelector('[data-model-option-id="claude:opus"]');
+      expect(opusOption).toBeInstanceOf(HTMLElement);
+      expect(opusOption?.closest('[data-provider-models="claude-code"]')).toBeInstanceOf(HTMLElement);
+      expect(opusOption?.textContent).toContain('Opus 4.7');
+      await act(async () => {
+        fireEvent.click(opusOption!);
+      });
+      expect(provider.textContent).toContain('Claude Code');
+      expect(provider.textContent).toContain('Opus');
+
+      await changeText(getByLabelText(container, 'Message'), 'Use Claude opus');
+      await act(async () => {
+        getByLabelText(container, 'Send message').click();
+      });
+      await flushAsyncWork();
+
+      expect(onSend).toHaveBeenCalledWith({
+        draft: 'Use Claude opus',
+        files: [],
+        agentId: 'claude',
+        model: 'claude:opus',
+      });
     } finally {
       cleanup(root, container);
     }
@@ -219,18 +388,13 @@ describe('ChatComposer', () => {
       const provider = getByLabelText(container, 'Model provider');
       expect(provider.textContent).toContain('Codex');
 
-      await act(async () => {
-        fireEvent.click(provider);
-      });
+      await openModelMenu(container);
 
-      const claudeOption = Array.from(document.body.querySelectorAll('[role="option"]')).find((option) =>
-        option.textContent?.includes('Claude Code'),
-      );
-      expect(claudeOption).not.toBeUndefined();
-      expect(claudeOption!.getAttribute('aria-disabled')).toBe('true');
+      const claudeOption = menuItemByName('Claude Code');
+      expect(claudeOption.getAttribute('aria-disabled')).toBe('true');
 
       await act(async () => {
-        fireEvent.click(claudeOption!);
+        fireEvent.click(claudeOption);
       });
 
       expect(provider.textContent).toContain('Codex');
@@ -267,9 +431,7 @@ describe('ChatComposer', () => {
     );
 
     try {
-      await act(async () => {
-        fireEvent.click(getByLabelText(container, 'Model provider'));
-      });
+      await openModelMenu(container);
 
       const installButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
         button.textContent?.includes('Install'),
@@ -311,21 +473,14 @@ describe('ChatComposer', () => {
       expect(provider.getAttribute('aria-disabled')).not.toBe('true');
       expect(provider.querySelector('[data-provider-icon="claude-code"]')).toBeInstanceOf(HTMLImageElement);
 
-      await act(async () => {
-        fireEvent.click(provider);
-      });
+      await openModelMenu(container);
 
-      const codexOption = Array.from(document.body.querySelectorAll('[role="option"]')).find((option) =>
-        option.textContent?.includes('Codex'),
-      );
-      const claudeOption = Array.from(document.body.querySelectorAll('[role="option"]')).find((option) =>
-        option.textContent?.includes('Claude Code'),
-      );
-      expect(codexOption).not.toBeUndefined();
-      expect(codexOption!.getAttribute('aria-disabled')).toBe('true');
-      expect(codexOption!.getAttribute('title')).toBeNull();
+      const codexOption = menuItemByName('Codex');
+      const claudeOption = menuItemByName('Claude Code');
+      expect(codexOption.getAttribute('aria-disabled')).toBe('true');
+      expect(codexOption.getAttribute('title')).toBeNull();
       expect(document.body.textContent).not.toContain('Switching models is not supported in the same conversation yet');
-      const lockedOptionTooltipTrigger = codexOption!.closest('[data-slot="tooltip-trigger"]');
+      const lockedOptionTooltipTrigger = codexOption.closest('[data-slot="tooltip-trigger"]');
       expect(lockedOptionTooltipTrigger).not.toBeNull();
       await act(async () => {
         fireEvent.pointerMove(lockedOptionTooltipTrigger!);
@@ -333,8 +488,7 @@ describe('ChatComposer', () => {
       await waitFor(() => {
         expect(document.body.textContent).toContain('Switching models is not supported in the same conversation yet');
       });
-      expect(claudeOption).not.toBeUndefined();
-      expect(claudeOption!.getAttribute('aria-disabled')).not.toBe('true');
+      expect(claudeOption.getAttribute('aria-disabled')).not.toBe('true');
 
       await changeText(getByLabelText(container, 'Message'), 'Continue with Claude');
       await act(async () => {

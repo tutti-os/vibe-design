@@ -6,6 +6,7 @@ export interface SendTurnInput {
   files: File[];
   attachments?: ChatAttachment[];
   agentId?: string;
+  model?: string;
   commentAttachments?: CanvasCommentAttachment[];
 }
 
@@ -13,6 +14,7 @@ export interface QueuedTurnPreview {
   id: string;
   content: string;
   prompt?: string;
+  model?: string;
   conversationId: string | null;
   attachments: ChatAttachment[];
   commentAttachments: CanvasCommentAttachment[];
