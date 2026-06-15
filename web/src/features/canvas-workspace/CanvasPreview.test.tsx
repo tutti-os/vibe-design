@@ -134,7 +134,7 @@ describe('CanvasPreview', () => {
     expect(srcdocFrame.style.transform).toBe('translateX(-50%) scale(1.25)');
   });
 
-  it('locks fitted and viewport previews to the desktop viewport while document mode expands', () => {
+  it('locks fitted previews and keeps manual preview height stable while document mode expands', () => {
     expect(
       resolveCanvasPreviewFrameSize({
         viewportWidth: 1280,
@@ -144,9 +144,8 @@ describe('CanvasPreview', () => {
       }, 'fit'),
     ).toEqual({ width: 1280, height: 800 });
 
-    // viewport mode (manual preview) locks both axes to the design viewport so
-    // viewport-relative pages cannot feed their measured size back into the
-    // iframe viewport.
+    // viewport mode (manual preview) locks the iframe to the design viewport
+    // so measured document dimensions cannot feed back into responsive layouts.
     expect(
       resolveCanvasPreviewFrameSize({
         viewportWidth: 1280,
@@ -166,15 +165,26 @@ describe('CanvasPreview', () => {
     ).toEqual({ width: 1440, height: 1800 });
   });
 
-  it('clamps document mode so a runaway viewport-relative page cannot inflate the frame without bound', () => {
+  it('removes inflated viewport feedback from document mode measurements', () => {
     expect(
       resolveCanvasPreviewFrameSize({
-        viewportWidth: 1280,
-        viewportHeight: 800,
-        scrollWidth: 50000,
-        scrollHeight: 999999,
+        viewportWidth: 8192,
+        viewportHeight: 16384,
+        scrollWidth: 8192,
+        scrollHeight: 16384,
       }, 'document'),
-    ).toEqual({ width: 8192, height: 16384 });
+    ).toEqual({ width: 1280, height: 800 });
+  });
+
+  it('keeps real document overflow when removing document mode viewport feedback', () => {
+    expect(
+      resolveCanvasPreviewFrameSize({
+        viewportWidth: 3000,
+        viewportHeight: 3000,
+        scrollWidth: 3600,
+        scrollHeight: 4200,
+      }, 'document'),
+    ).toEqual({ width: 1880, height: 2000 });
   });
 
   it('keeps fitted previews at the desktop viewport size when srcdoc content is taller', async () => {
@@ -188,7 +198,7 @@ describe('CanvasPreview', () => {
     expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1280px');
   });
 
-  it('keeps manual previews locked to the design viewport when srcdoc reports a larger document', async () => {
+  it('keeps manual previews at the stable design viewport size', async () => {
     render(
       <CanvasPreview
         file={htmlFile('<main><h1 data-vd-id="hero">Hero</h1></main>')}
@@ -197,10 +207,30 @@ describe('CanvasPreview', () => {
       />,
     );
 
-    // A page sized with viewport-relative or oversized content can report a
-    // larger document; the manual preview must ignore it so the iframe viewport
-    // stays stable instead of inflating on every measurement.
-    dispatchSrcdocMessage({ type: 'vd-preview-size', width: 8192, height: 1040 });
+    dispatchSrcdocMessage({ type: 'vd-preview-size', width: 1440, height: 1040 });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1280px');
+      expect(screen.getByTestId('canvas-preview-srcdoc').style.height).toBe('800px');
+    });
+  });
+
+  it('ignores inflated height feedback from srcdoc size messages in manual preview mode', async () => {
+    render(
+      <CanvasPreview
+        file={htmlFile('<main><h1 data-vd-id="hero">Hero</h1></main>')}
+        scaleMode="manual"
+        manualScale={1}
+      />,
+    );
+
+    dispatchSrcdocMessage({
+      type: 'vd-preview-size',
+      viewportWidth: 8192,
+      viewportHeight: 16384,
+      width: 8192,
+      height: 16384,
+    });
 
     await waitFor(() => {
       expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1280px');
@@ -208,7 +238,77 @@ describe('CanvasPreview', () => {
     expect(screen.getByTestId('canvas-preview-srcdoc').style.height).toBe('800px');
   });
 
-  it('expands the comment-mode iframe to the document size so comment anchors stay aligned', async () => {
+  it('keeps manual preview height stable when later measurements hit the safety clamp', async () => {
+    render(
+      <CanvasPreview
+        file={htmlFile('<main><h1 data-vd-id="hero">Hero</h1></main>')}
+        scaleMode="manual"
+        manualScale={1}
+      />,
+    );
+
+    dispatchSrcdocMessage({ type: 'vd-preview-size', width: 1440, height: 1040 });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1280px');
+      expect(screen.getByTestId('canvas-preview-srcdoc').style.height).toBe('800px');
+    });
+
+    dispatchSrcdocMessage({
+      type: 'vd-preview-size',
+      viewportWidth: 1280,
+      viewportHeight: 800,
+      width: 8192,
+      height: 16384,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1280px');
+      expect(screen.getByTestId('canvas-preview-srcdoc').style.height).toBe('800px');
+    });
+  });
+
+  it('does not use parent document measurement for srcdoc manual previews', async () => {
+    const root = document.createElement('html');
+    const body = document.createElement('body');
+    for (const element of [root, body]) {
+      Object.defineProperties(element, {
+        scrollWidth: { configurable: true, value: 8192 },
+        scrollHeight: { configurable: true, value: 16384 },
+        offsetWidth: { configurable: true, value: 8192 },
+        offsetHeight: { configurable: true, value: 16384 },
+      });
+    }
+    const fakeDocument = {
+      documentElement: root,
+      body,
+      defaultView: undefined,
+    } as unknown as Document;
+    const contentDocumentSpy = vi
+      .spyOn(HTMLIFrameElement.prototype, 'contentDocument', 'get')
+      .mockReturnValue(fakeDocument);
+
+    try {
+      render(
+        <CanvasPreview
+          file={htmlFile('<main><h1 data-vd-id="hero">Hero</h1></main>')}
+          scaleMode="manual"
+          manualScale={1}
+        />,
+      );
+
+      fireEvent.load(screen.getByTestId('canvas-preview-srcdoc'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1280px');
+        expect(screen.getByTestId('canvas-preview-srcdoc').style.height).toBe('800px');
+      });
+    } finally {
+      contentDocumentSpy.mockRestore();
+    }
+  });
+
+  it('uses the same stable manual preview sizing in comment mode', async () => {
     render(
       <CanvasPreview
         file={htmlFile('<main><h1 data-vd-id="hero">Hero</h1></main>')}
@@ -221,8 +321,39 @@ describe('CanvasPreview', () => {
     dispatchSrcdocMessage({ type: 'vd-preview-size', width: 1440, height: 1040 });
 
     await waitFor(() => {
-      expect(screen.getByTestId('canvas-preview-srcdoc').style.height).toBe('1040px');
-      expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1440px');
+      expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1280px');
+      expect(screen.getByTestId('canvas-preview-srcdoc').style.height).toBe('800px');
+    });
+
+    dispatchSrcdocMessage({
+      type: 'vd-preview-size',
+      viewportWidth: 8192,
+      viewportHeight: 16384,
+      width: 8192,
+      height: 16384,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1280px');
+    });
+    expect(screen.getByTestId('canvas-preview-srcdoc').style.height).toBe('800px');
+  });
+
+  it('keeps the comment-mode iframe height at the stable viewport size', async () => {
+    render(
+      <CanvasPreview
+        file={htmlFile('<main><h1 data-vd-id="hero">Hero</h1></main>')}
+        scaleMode="manual"
+        commentMode
+        manualScale={1}
+      />,
+    );
+
+    dispatchSrcdocMessage({ type: 'vd-preview-size', width: 1440, height: 1040 });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1280px');
+      expect(screen.getByTestId('canvas-preview-srcdoc').style.height).toBe('800px');
     });
   });
 

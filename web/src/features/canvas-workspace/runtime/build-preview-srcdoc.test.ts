@@ -82,9 +82,13 @@ describe('buildPreviewSrcdoc', () => {
     const doc = buildPreviewSrcdoc('<main><h1 data-vd-id="hero">Hero</h1></main>', {
       editBridge: false,
       sizeBridge: true,
+      scrollbarBridge: true,
     });
 
     expect(doc).toContain('data-vd-preview-scrollbar');
+    expect(doc).toContain('--vd-preview-scrollbar-scale');
+    expect(doc).toContain('width: calc(12px / var(--vd-preview-scrollbar-scale))');
+    expect(doc).toContain('min-height: calc(34px / var(--vd-preview-scrollbar-scale))');
     expect(doc).toContain('scrollbar-width: none');
     expect(doc).toContain('html::-webkit-scrollbar');
     expect(doc).toContain('window.scrollTo({ top: nextScroll');
@@ -100,6 +104,20 @@ describe('buildPreviewSrcdoc', () => {
       doc.indexOf('<script data-vd-preview-size-bridge'),
     );
     expect(doc.indexOf('<script data-vd-preview-scrollbar')).toBeLessThan(doc.indexOf('</body>'));
+  });
+
+  it('keeps preview size measurement without injecting the iframe scrollbar', () => {
+    const doc = buildPreviewSrcdoc('<main><h1 data-vd-id="hero">Hero</h1></main>', {
+      editBridge: false,
+      sizeBridge: true,
+    });
+
+    expect(doc).toContain('data-vd-preview-size-bridge');
+    expect(doc).toContain('vd-preview-size');
+    expect(doc).not.toContain('<style data-vd-preview-scrollbar');
+    expect(doc).not.toContain('<script data-vd-preview-scrollbar');
+    expect(doc).not.toContain('scrollbar-width: none');
+    expect(doc).not.toContain('window.scrollTo({ top: nextScroll');
   });
 
   it('does not inject the manual preview scrollbar when size measurements are disabled', () => {
@@ -202,6 +220,7 @@ describe('buildPreviewSrcdoc', () => {
     const doc = buildPreviewSrcdoc('<main><h1>Hero</h1></main>', {
       editBridge: true,
       sizeBridge: true,
+      scrollbarBridge: true,
       commentBridge: true,
       snapshotBridge: true,
     });

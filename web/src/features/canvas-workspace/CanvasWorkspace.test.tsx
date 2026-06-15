@@ -407,8 +407,9 @@ describe('CanvasWorkspace', () => {
 
     expect(screen.getByTestId('design-file-detail').className).toContain('grid-rows-[minmax(0,auto)_auto]');
     expect(screen.getByTestId('design-file-detail').className).toContain('gap-6');
-    expect(screen.getByTestId('design-file-preview-frame').className).toContain('h-[clamp(320px,58vh,560px)]');
-    expect(screen.getByTestId('design-file-preview-frame').className).toContain('max-h-[560px]');
+    expect(screen.getByTestId('design-file-preview-frame').className).toContain('aspect-[8/5]');
+    expect(screen.getByTestId('design-file-preview-frame').className).not.toContain('h-[clamp(320px,58vh,560px)]');
+    expect(screen.getByTestId('design-file-preview-frame').className).not.toContain('max-h-[560px]');
     expect(screen.getByTestId('design-file-preview-frame').className).toContain('shadow-none');
     expect(screen.getByTestId('design-file-preview-frame').className).not.toContain('shadow-[var(--project-shadow-floating)]');
     expect(screen.getByTestId('design-file-preview-fit').className).toContain('overflow-hidden');
@@ -499,7 +500,7 @@ describe('CanvasWorkspace', () => {
     ).toEqual({ width: 1280, height: 800 });
   });
 
-  it('locks html preview size to the desktop viewport when measured content is larger', () => {
+  it('keeps html design file previews locked to the desktop viewport for long or wide pages', () => {
     expect(
       resolveHtmlDesignPreviewSize({
         viewportWidth: 1280,
@@ -623,6 +624,27 @@ describe('CanvasWorkspace', () => {
     expect((markUpTab as HTMLButtonElement).style.color).toBe('var(--text-secondary)');
     expect(screen.queryByLabelText('Canvas inspector')).toBeNull();
     expect(screen.getByTestId('canvas-preview-srcdoc')).toBeTruthy();
+  });
+
+  it('uses the scale-aware preview scrollbar when active html file surfaces keep a stable iframe height', () => {
+    render(<CanvasWorkspace files={files} />);
+
+    openDesignFile('landing.html');
+
+    let srcdoc = screen.getByTestId('canvas-preview-srcdoc').getAttribute('srcdoc') ?? '';
+    expect(srcdoc).toContain('data-vd-preview-size-bridge');
+    expect(srcdoc).toContain('<style data-vd-preview-scrollbar');
+    expect(srcdoc).toContain('--vd-preview-scrollbar-scale');
+    expect(srcdoc).toContain('<script data-vd-preview-scrollbar');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Mark up' }));
+
+    srcdoc = screen.getByTestId('canvas-preview-srcdoc').getAttribute('srcdoc') ?? '';
+    expect(srcdoc).toContain('data-vd-preview-size-bridge');
+    expect(srcdoc).toContain('vd-comment-mode');
+    expect(srcdoc).toContain('<style data-vd-preview-scrollbar');
+    expect(srcdoc).toContain('--vd-preview-scrollbar-scale');
+    expect(srcdoc).toContain('<script data-vd-preview-scrollbar');
   });
 
   it('captures and uploads an html preview cover once for an unchanged file', async () => {
@@ -903,7 +925,7 @@ describe('CanvasWorkspace', () => {
     expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(1)');
   });
 
-  it('opens desktop html previews fit-to-width by default in preview mode', async () => {
+  it('opens html previews with a stable design viewport while fitting the frame to the viewport width', async () => {
     const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
       this: HTMLElement,
     ) {
@@ -941,7 +963,7 @@ describe('CanvasWorkspace', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1280px');
-        // The 1280px frame is scaled down to fit the 800px viewport width (0.625).
+        // The stable design viewport is scaled down to fit the 800px viewport width (0.625).
         expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(0.625)');
         expect(screen.getByTestId('canvas-preview-zoom-level').textContent).toBe('63%');
         // Fit-to-width keeps the scaled frame within the viewport, so no horizontal scroll.
@@ -952,7 +974,53 @@ describe('CanvasWorkspace', () => {
     }
   });
 
-  it('keeps the initially fitted preview zoom when the interaction viewport resizes', async () => {
+  it('vertically centers manual html previews when the scaled frame is shorter than the viewport', async () => {
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.dataset.testid === 'canvas-preview-interaction-viewport') {
+        return {
+          x: 0,
+          y: 0,
+          width: 1280,
+          height: 1000,
+          top: 0,
+          right: 1280,
+          bottom: 1000,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      }
+
+      return {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        toJSON: () => ({}),
+      };
+    });
+
+    try {
+      render(<CanvasWorkspace files={files} />);
+
+      openDesignFile('landing.html');
+
+      await waitFor(() => {
+        const previewContent = screen.getByTestId('canvas-preview-interaction-content');
+        expect(previewContent.style.marginTop).toBe('100px');
+        expect(previewContent.style.marginBottom).toBe('100px');
+      });
+    } finally {
+      rectSpy.mockRestore();
+    }
+  });
+
+  it('refits automatic html preview zoom when the interaction viewport resizes', async () => {
     let viewportWidth = 800;
     const resizeObservers: Array<{
       callback: ResizeObserverCallback;
@@ -1019,9 +1087,10 @@ describe('CanvasWorkspace', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(0.625)');
+        expect(Number.parseFloat(screen.getByTestId('canvas-preview-interaction-content').style.width)).toBe(800);
       });
 
-      viewportWidth = 640;
+      viewportWidth = 960;
       act(() => {
         for (const observer of resizeObservers) {
           if (observer.targets.some((target) => (target as HTMLElement).dataset.testid === 'canvas-preview-interaction-viewport')) {
@@ -1031,8 +1100,9 @@ describe('CanvasWorkspace', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(0.625)');
-        expect(screen.getByTestId('canvas-preview-zoom-level').textContent).toBe('63%');
+        expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(0.75)');
+        expect(screen.getByTestId('canvas-preview-zoom-level').textContent).toBe('75%');
+        expect(Number.parseFloat(screen.getByTestId('canvas-preview-interaction-content').style.width)).toBe(960);
       });
     } finally {
       globalThis.ResizeObserver = originalResizeObserver;
@@ -1095,6 +1165,7 @@ describe('CanvasWorkspace', () => {
       expect(screen.getByTestId('canvas-comment-overlay').style.width).toBe('1280px');
       expect(screen.getByTestId('canvas-comment-overlay').style.height).toBe('800px');
       expect(screen.getByTestId('canvas-comment-overlay').style.transformOrigin).toBe('top center');
+      expect(screen.getByTestId('canvas-comment-overlay').className).toContain('z-20');
     } finally {
       rectSpy.mockRestore();
     }

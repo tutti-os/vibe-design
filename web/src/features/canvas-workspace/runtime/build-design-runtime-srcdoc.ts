@@ -15,6 +15,7 @@ export interface BuildDesignRuntimeSrcdocOptions {
   files: BuildDesignRuntimeSrcdocFile[];
   editBridge: boolean;
   sizeBridge?: boolean;
+  scrollbarBridge?: boolean;
   commentBridge?: boolean;
   snapshotBridge?: boolean;
 }
@@ -35,6 +36,7 @@ export function buildDesignRuntimeSrcdoc(options: BuildDesignRuntimeSrcdocOption
   return buildPreviewSrcdoc(inlinedHtml, {
     editBridge: options.editBridge,
     sizeBridge: options.sizeBridge,
+    scrollbarBridge: options.scrollbarBridge,
     navigationBasePath: options.entryFile.path,
     commentBridge: options.commentBridge,
     snapshotBridge: options.snapshotBridge,

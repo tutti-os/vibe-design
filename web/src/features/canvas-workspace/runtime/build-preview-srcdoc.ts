@@ -4,6 +4,7 @@ import { CANVAS_EDIT_SOURCE_PATH_ATTR, buildCanvasEditBridge, isCanvasEditHostNo
 export interface BuildPreviewSrcdocOptions {
   editBridge: boolean;
   sizeBridge?: boolean;
+  scrollbarBridge?: boolean;
   navigationBasePath?: string;
   commentBridge?: boolean;
   snapshotBridge?: boolean;
@@ -18,8 +19,11 @@ export function buildPreviewSrcdoc(html: string, options: BuildPreviewSrcdocOpti
   }
 
   if (options.sizeBridge) {
-    documentHtml = injectBeforeHeadEnd(documentHtml, canvasPreviewScrollbarStyle());
     documentHtml = injectBeforeBodyEnd(documentHtml, canvasPreviewSizeBridge());
+  }
+
+  if (options.scrollbarBridge) {
+    documentHtml = injectBeforeHeadEnd(documentHtml, canvasPreviewScrollbarStyle());
     documentHtml = injectBeforeBodyEnd(documentHtml, canvasPreviewScrollbarBridge());
   }
 
@@ -69,6 +73,10 @@ function canvasEditBridgeStyle(): string {
 
 function canvasPreviewScrollbarStyle(): string {
   return `<style data-vd-preview-scrollbar>
+    :root {
+      --vd-preview-scrollbar-scale: 1;
+    }
+
     html {
       scrollbar-width: none;
       -ms-overflow-style: none;
@@ -83,10 +91,10 @@ function canvasPreviewScrollbarStyle(): string {
 
     [data-vd-preview-scrollbar="track"] {
       position: fixed;
-      top: 6px;
-      right: 5px;
-      bottom: 6px;
-      width: 12px;
+      top: calc(6px / var(--vd-preview-scrollbar-scale));
+      right: calc(5px / var(--vd-preview-scrollbar-scale));
+      bottom: calc(6px / var(--vd-preview-scrollbar-scale));
+      width: calc(12px / var(--vd-preview-scrollbar-scale));
       z-index: 2147483000;
       pointer-events: none;
       opacity: 0;
@@ -100,21 +108,21 @@ function canvasPreviewScrollbarStyle(): string {
 
     [data-vd-preview-scrollbar="thumb"] {
       position: absolute;
-      right: 2px;
+      right: calc(2px / var(--vd-preview-scrollbar-scale));
       top: 0;
-      width: 7px;
-      min-height: 34px;
+      width: calc(7px / var(--vd-preview-scrollbar-scale));
+      min-height: calc(34px / var(--vd-preview-scrollbar-scale));
       border-radius: 999px;
       background: rgba(69, 66, 59, 0.28);
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38);
+      box-shadow: inset 0 0 0 calc(1px / var(--vd-preview-scrollbar-scale)) rgba(255, 255, 255, 0.38);
       cursor: grab;
       transition: background 120ms ease, width 120ms ease, right 120ms ease;
     }
 
     [data-vd-preview-scrollbar="track"]:hover [data-vd-preview-scrollbar="thumb"],
     [data-vd-preview-scrollbar="thumb"][data-dragging="true"] {
-      right: 1px;
-      width: 9px;
+      right: calc(1px / var(--vd-preview-scrollbar-scale));
+      width: calc(9px / var(--vd-preview-scrollbar-scale));
       background: rgba(69, 66, 59, 0.42);
     }
 
@@ -158,7 +166,13 @@ function canvasPreviewSizeBridge(): string {
       height = Math.max(height, Math.ceil(rect.bottom + window.scrollY));
     }
 
-    window.parent.postMessage({ type: 'vd-preview-size', width: width, height: height }, '*');
+    window.parent.postMessage({
+      type: 'vd-preview-size',
+      viewportWidth: window.innerWidth || 0,
+      viewportHeight: window.innerHeight || 0,
+      width: width,
+      height: height
+    }, '*');
   }
 
   function scheduleMeasure() {
