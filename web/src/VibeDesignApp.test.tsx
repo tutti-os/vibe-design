@@ -1425,6 +1425,7 @@ describe('VibeDesignApp', () => {
       const projectBrowser = container.querySelector('main > div > section');
       const searchRow = container.querySelector<HTMLElement>('[data-testid="dashboard-search-row"]');
       const projectGrid = container.querySelector<HTMLElement>('[data-testid="dashboard-project-grid"]');
+      const inspiration = container.querySelector<HTMLElement>('[data-testid="dashboard-inspiration"]');
       const brandIcon = container.querySelector('img[data-testid="brand-icon"][src="/icon.png"]');
       const designSystemDescription = [...container.querySelectorAll<HTMLElement>('p')].find((element) =>
         element.textContent?.includes('Choose an official design style'),
@@ -1433,6 +1434,8 @@ describe('VibeDesignApp', () => {
       expect(projectName).not.toBeNull();
       expect(search).not.toBeNull();
       expect(createButton).not.toBeNull();
+      expect(inspiration?.textContent).toContain('Inspired by Open Design');
+      expect(inspiration?.className).toContain('mt-auto');
       expect(brandIcon).not.toBeNull();
       expect(container.querySelector('[data-testid="project-empty-placeholder-icon"]')).not.toBeNull();
       expect(designSystemDescription?.className).toContain('font-normal');

@@ -32,6 +32,7 @@ export interface StoredQueuedTurn {
   content: string;
   prompt: string;
   agentId?: string;
+  model?: string;
   attachments: ChatAttachment[];
   commentAttachments: CanvasCommentAttachment[];
   conversationId: string | null;
@@ -114,6 +115,7 @@ export class ChatSessionService implements IChatSessionService {
       content,
       prompt,
       agentId: lockedProvider ?? input.agentId,
+      ...(input.model ? { model: input.model } : {}),
       attachments,
       commentAttachments,
       conversationId,
@@ -159,6 +161,7 @@ export class ChatSessionService implements IChatSessionService {
           projectId: this.dependencies.project.getProjectId(),
           ...(turn.conversationId ? { conversationId: turn.conversationId } : {}),
           ...(turn.agentId ? { agentId: turn.agentId } : {}),
+          ...(turn.model ? { model: turn.model } : {}),
           prompt: turn.prompt,
           ...(turn.attachments.length > 0 ? { attachments: turn.attachments } : {}),
           ...(turn.commentAttachments.length > 0 ? { commentAttachments: turn.commentAttachments } : {}),
@@ -397,6 +400,7 @@ interface PreparedTurn {
   content: string;
   prompt: string;
   agentId?: string;
+  model?: string;
   attachments: ChatAttachment[];
   commentAttachments: CanvasCommentAttachment[];
   conversationId: string | null;
@@ -487,6 +491,7 @@ function queuedTurnPreview(turn: QueuedPreparedTurn): QueuedTurnPreview {
     attachments: structuredClone(turn.attachments),
     commentAttachments: structuredClone(turn.commentAttachments),
     ...(prompt ? { prompt } : {}),
+    ...(turn.model ? { model: turn.model } : {}),
     ...(turn.messageContext ? { messageContext: structuredClone(turn.messageContext) } : {}),
   };
 }
@@ -547,6 +552,7 @@ function storedQueuedTurn(turn: StoredQueuedTurn): StoredQueuedTurn {
     content: turn.content,
     prompt: turn.prompt,
     ...(turn.agentId ? { agentId: turn.agentId } : {}),
+    ...(turn.model ? { model: turn.model } : {}),
     attachments: structuredClone(turn.attachments),
     commentAttachments: structuredClone(turn.commentAttachments),
     conversationId: turn.conversationId,
@@ -586,6 +592,7 @@ function normalizeStoredQueuedTurn(value: unknown): QueuedPreparedTurn | null {
     content: candidate.content,
     prompt: candidate.prompt,
     ...(typeof candidate.agentId === 'string' && candidate.agentId ? { agentId: candidate.agentId } : {}),
+    ...(typeof candidate.model === 'string' && candidate.model ? { model: candidate.model } : {}),
     attachments: structuredClone(candidate.attachments) as ChatAttachment[],
     commentAttachments: structuredClone(candidate.commentAttachments) as CanvasCommentAttachment[],
     conversationId,

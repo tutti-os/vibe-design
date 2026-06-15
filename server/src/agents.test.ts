@@ -12,11 +12,18 @@ describe('runtime descriptors', () => {
       label: 'Codex',
       capabilities: ['agent-acp-kit', 'streaming', 'tool-use'],
       models: [
-        { id: 'default', label: 'Default' },
+        {
+          id: 'default',
+          label: 'Default',
+          description: 'Use the default Codex model.',
+        },
+        {
+          id: 'codex:gpt-5.5',
+          label: 'GPT-5.5',
+          description: 'Frontier model for complex coding, research, and real-world work.',
+        },
         { id: 'codex:gpt-5.4', label: 'GPT-5.4' },
-        { id: 'codex:gpt-5.4-mini', label: 'GPT-5.4 Mini' },
         { id: 'codex:gpt-5', label: 'GPT-5' },
-        { id: 'codex:gpt-5-mini', label: 'GPT-5 Mini' },
       ],
     });
     expect(claudeAgentDef).toEqual({
@@ -24,10 +31,26 @@ describe('runtime descriptors', () => {
       label: 'Claude Code',
       capabilities: ['agent-acp-kit', 'streaming', 'tool-use'],
       models: [
-        { id: 'default', label: 'Default' },
-        { id: 'claude:sonnet', label: 'Sonnet (alias)' },
-        { id: 'claude:opus', label: 'Opus (alias)' },
-        { id: 'claude:haiku', label: 'Haiku (alias)' },
+        {
+          id: 'default',
+          label: 'Default',
+          description: 'Sonnet 4.6 · Best for everyday tasks',
+        },
+        {
+          id: 'claude:sonnet',
+          label: 'Sonnet',
+          description: 'Sonnet 4.6 · Best for everyday tasks',
+        },
+        {
+          id: 'claude:opus',
+          label: 'Opus',
+          description: 'Opus 4.7 · Most capable for complex work · ~2x usage vs Sonnet',
+        },
+        {
+          id: 'claude:haiku',
+          label: 'Haiku',
+          description: 'Haiku 4.5 · Fastest for quick answers',
+        },
       ],
     });
   });
@@ -43,8 +66,8 @@ describe('createAgentRegistry', () => {
 
   it('sanitizes known, custom, and empty models', () => {
     const registry = createAgentRegistry([codexAgentDef]);
-    expect(registry.isKnownModel('codex', 'codex:gpt-5.4')).toBe(true);
-    expect(registry.sanitizeCustomModel('codex', '  codex:gpt-5.4  ')).toBe('codex:gpt-5.4');
+    expect(registry.isKnownModel('codex', 'codex:gpt-5.5')).toBe(true);
+    expect(registry.sanitizeCustomModel('codex', '  codex:gpt-5.5  ')).toBe('codex:gpt-5.5');
     expect(registry.sanitizeCustomModel('codex', '')).toBe('default');
   });
 

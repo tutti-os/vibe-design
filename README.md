@@ -11,6 +11,8 @@
 
 Vibe Design is an AI-assisted design prototyping workspace. Start from a single prompt, ground the generation in a real design system, preview the live result on an interactive canvas, mark up exactly what needs to change, and send that visual feedback straight back to a local coding agent (Codex or Claude Code). Projects, conversations, files, and comments all persist — so a prototype keeps improving across many rounds instead of resetting every time.
 
+Inspired by Open Design, Vibe Design keeps the creation loop open, inspectable, and grounded in real project artifacts.
+
 ## Why Vibe Design
 
 - **From prompt to runnable prototype** — Describe a screen and get real HTML and assets you can open and click, not a static mockup.

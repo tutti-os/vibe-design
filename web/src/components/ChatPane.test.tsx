@@ -559,10 +559,14 @@ describe('ChatPane', () => {
     );
 
     try {
-      await act(async () => getByLabelText(container, 'Model provider').click());
-      const claudeOption = Array.from(document.body.querySelectorAll('[role="option"]')).find((option) =>
-        option.textContent?.includes('Claude Code'),
-      );
+      const modelProvider = getByLabelText(container, 'Model provider');
+      await act(async () => {
+        fireEvent.pointerDown(modelProvider, { button: 0, ctrlKey: false });
+        fireEvent.click(modelProvider);
+      });
+      const claudeOption = Array.from(
+        document.body.querySelectorAll('[data-slot="dropdown-menu-item"], [data-slot="dropdown-menu-sub-trigger"]'),
+      ).find((option) => option.textContent?.includes('Claude Code'));
       expect(claudeOption).not.toBeUndefined();
       await act(async () => {
         fireEvent.click(claudeOption!);

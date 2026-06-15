@@ -4,6 +4,7 @@ export interface CreateRunInput {
   projectId: string;
   conversationId?: string;
   agentId?: string;
+  model?: string;
   prompt: string;
   attachments?: ChatAttachment[];
   commentAttachments?: CanvasCommentAttachment[];

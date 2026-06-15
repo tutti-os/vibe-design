@@ -349,35 +349,59 @@ describe('chat-ui.css', () => {
   });
 
   it('sizes model provider icons large enough to read in the composer selector', () => {
-    const triggerRule = ruleBody('.composer-model-select');
-    const triggerIconRule = ruleBody('.composer-model-select > svg:last-child');
-    const contentItemRule = ruleBody(".composer-model-select-content [data-slot='select-item'],\n.composer-model-select-item");
-    const disabledItemRule = ruleBody(".composer-model-select-item[data-disabled],\n.composer-model-select-content [data-slot='select-item'][data-disabled]");
-    const disabledItemIconRule = ruleBody(".composer-model-select-item[data-disabled] .composer-model-provider-icon,\n.composer-model-select-content [data-slot='select-item'][data-disabled] .composer-model-provider-icon");
+    const triggerRule = ruleBody('.composer-model-menu-trigger');
+    const triggerProviderRule = ruleBody('.composer-model-menu-trigger-provider');
+    const triggerModelRule = ruleBody('.composer-model-menu-trigger-model');
+    const triggerIconRule = ruleBody('.composer-model-menu-chevron');
+    const contentRule = ruleBody('.composer-model-menu-content');
+    const providerLabelRule = ruleBody('.composer-model-provider-label');
+    const providerModelsRule = ruleBody('.composer-model-provider-models');
+    const modelItemRule = ruleBody('.composer-model-menu-item--model');
+    const optionTextRule = ruleBody('.composer-model-menu-option-text');
+    const optionDescriptionRule = ruleBodies('.composer-model-menu-option-description').at(-1) ?? '';
+    const contentItemRule = ruleBody(".composer-model-menu-content [data-slot='dropdown-menu-item'],\n.composer-model-menu-item");
+    const disabledItemRule = ruleBody(".composer-model-menu-item[data-disabled],\n.composer-model-menu-content [data-slot='dropdown-menu-item'][data-disabled]");
+    const disabledItemIconRule = ruleBody(".composer-model-menu-item[data-disabled] .composer-model-provider-icon,\n.composer-model-menu-content [data-slot='dropdown-menu-item'][data-disabled] .composer-model-provider-icon");
     const providerIconRule = ruleBody('.composer-model-provider-icon');
-    const tooltipTriggerRule = ruleBody('.composer-model-select-tooltip-trigger');
+    const tooltipTriggerRule = ruleBody('.composer-model-menu-tooltip-trigger');
 
+    expect(triggerRule).toContain('display: inline-flex');
+    expect(triggerRule).toContain('width: 178px');
+    expect(triggerRule).toContain('max-width: 52vw');
     expect(triggerRule).toContain('padding-inline: 4px');
+    expect(triggerProviderRule).toContain('max-width: 72px');
+    expect(triggerModelRule).toContain('text-overflow: ellipsis');
     expect(triggerIconRule).toContain('color: var(--text-placeholder)');
     expect(triggerIconRule).toContain('opacity: 1');
+    expect(contentRule).toContain('min-width: 280px');
+    expect(contentRule).toContain('max-width: min(380px, calc(100vw - 24px))');
+    expect(providerLabelRule).toContain('font-weight: var(--project-font-weight-semibold)');
+    expect(providerModelsRule).toContain('display: grid');
+    expect(modelItemRule).toContain('padding-left: 24px');
+    expect(modelItemRule).toContain('align-items: flex-start');
+    expect(optionTextRule).toContain('display: grid');
+    expect(optionDescriptionRule).toContain('white-space: normal');
+    expect(optionDescriptionRule).toContain('color: var(--text-secondary)');
+    expect(chatCss).not.toContain('.composer-model-menu-subcontent');
     expect(contentItemRule).toContain('padding-left: 4px');
     expect(contentItemRule).toContain('padding-right: 4px');
     expect(tooltipTriggerRule).toContain('display: block');
     expect(tooltipTriggerRule).toContain('width: 100%');
     expect(providerIconRule).toContain('width: 20px');
     expect(providerIconRule).toContain('height: 20px');
+    expect(chatCss).not.toContain('.composer-model-provider-icon--svg');
     expect(disabledItemRule).toContain('cursor: not-allowed');
     expect(disabledItemRule).toContain('color: var(--text-disabled)');
     expect(disabledItemIconRule).toContain('filter: grayscale(1)');
-    expect(chatCss).not.toContain('.composer-model-select:disabled .composer-model-provider-icon');
-    expect(chatCss).not.toContain(".composer-model-select[aria-disabled='true'] .composer-model-provider-icon");
+    expect(chatCss).not.toContain('.composer-model-menu-trigger:disabled .composer-model-provider-icon');
+    expect(chatCss).not.toContain(".composer-model-menu-trigger[aria-disabled='true'] .composer-model-provider-icon");
   });
 
   it('does not grey out the composer model selector trigger when model switching is locked', () => {
-    expect(chatCss).not.toContain('.composer-model-select:disabled .composer-model-provider-icon');
-    expect(chatCss).not.toContain(".composer-model-select[aria-disabled='true'] .composer-model-provider-icon");
-    expect(chatCss).not.toContain('.composer-model-select:disabled > svg:last-child');
-    expect(chatCss).not.toContain(".composer-model-select[aria-disabled='true'] > svg:last-child");
+    expect(chatCss).not.toContain('.composer-model-menu-trigger:disabled .composer-model-provider-icon');
+    expect(chatCss).not.toContain(".composer-model-menu-trigger[aria-disabled='true'] .composer-model-provider-icon");
+    expect(chatCss).not.toContain('.composer-model-menu-trigger:disabled > svg:last-child');
+    expect(chatCss).not.toContain(".composer-model-menu-trigger[aria-disabled='true'] > svg:last-child");
   });
 
   it('floats mention results above the composer input without changing input height', () => {

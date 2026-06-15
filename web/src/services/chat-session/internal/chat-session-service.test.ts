@@ -84,6 +84,23 @@ describe('ChatSessionService', () => {
     });
   });
 
+  it('passes the selected model into createRun', async () => {
+    const { service, run } = createService();
+
+    await service.sendTurn({
+      draft: 'Use Codex mini',
+      files: [],
+      agentId: 'codex',
+      model: 'codex:gpt-5.4-mini',
+    });
+
+    expect(firstCreateRunInput(run)).toMatchObject({
+      agentId: 'codex',
+      model: 'codex:gpt-5.4-mini',
+      prompt: 'Use Codex mini',
+    });
+  });
+
   it('can show a short user message while sending a fuller run prompt', async () => {
     const { service, timeline, run } = createService();
 
@@ -909,7 +926,12 @@ describe('ChatSessionService', () => {
     const firstEntry = createService({ queuedTurnStore });
 
     await firstEntry.service.sendTurn({ draft: 'First turn', files: [] });
-    await firstEntry.service.sendTurn({ draft: 'Second turn', files: [] });
+    await firstEntry.service.sendTurn({
+      draft: 'Second turn',
+      files: [],
+      agentId: 'codex',
+      model: 'codex:gpt-5.4-mini',
+    });
 
     expect(firstEntry.run.createRun).toHaveBeenCalledTimes(1);
     expect(firstEntry.service.getSnapshot().queuedTurns.map((turn) => turn.content)).toEqual(['Second turn']);
@@ -921,6 +943,7 @@ describe('ChatSessionService', () => {
     expect(secondEntry.run.createRun).toHaveBeenCalledTimes(1);
     expect(firstCreateRunInput(secondEntry.run)).toMatchObject({
       conversationId: 'conversation-1',
+      model: 'codex:gpt-5.4-mini',
       prompt: 'Second turn',
     });
     expect(queuedTurnStore.save).toHaveBeenLastCalledWith('demo-project', []);
