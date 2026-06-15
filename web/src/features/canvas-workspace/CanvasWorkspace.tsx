@@ -150,7 +150,7 @@ function ToolbarPresence({
       className={cn('grid shrink-0 overflow-hidden', className)}
       style={toolbarPresenceStyle(entered, contentWidth)}
     >
-      <div ref={contentRef} className="flex min-w-max items-center overflow-hidden">
+      <div ref={contentRef} className="flex w-max min-w-max justify-self-start items-center overflow-hidden">
         {children}
       </div>
     </div>
