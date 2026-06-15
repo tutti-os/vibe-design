@@ -499,7 +499,7 @@ describe('CanvasWorkspace', () => {
     ).toEqual({ width: 1280, height: 800 });
   });
 
-  it('expands html previews to the full document size for long or wide pages', () => {
+  it('locks html preview size to the desktop viewport when measured content is larger', () => {
     expect(
       resolveHtmlDesignPreviewSize({
         viewportWidth: 1280,
@@ -507,7 +507,7 @@ describe('CanvasWorkspace', () => {
         scrollWidth: 1440,
         scrollHeight: 2400,
       }),
-    ).toEqual({ width: 1440, height: 2400 });
+    ).toEqual({ width: 1280, height: 800 });
   });
 
   it('opens a matching file when an auto-open request arrives', () => {
@@ -903,7 +903,7 @@ describe('CanvasWorkspace', () => {
     expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(1)');
   });
 
-  it('opens wide html previews fit-to-width by default in preview mode', async () => {
+  it('opens desktop html previews fit-to-width by default in preview mode', async () => {
     const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
       this: HTMLElement,
     ) {
@@ -938,13 +938,12 @@ describe('CanvasWorkspace', () => {
       render(<CanvasWorkspace files={files} />);
 
       openDesignFile('landing.html');
-      dispatchCanvasPreviewMessage({ type: 'vd-preview-size', width: 1600, height: 800 });
 
       await waitFor(() => {
-        expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1600px');
-        // The 1600px frame is scaled down to fit the 800px viewport width (0.5).
-        expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(0.5)');
-        expect(screen.getByTestId('canvas-preview-zoom-level').textContent).toBe('50%');
+        expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1280px');
+        // The 1280px frame is scaled down to fit the 800px viewport width (0.625).
+        expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(0.625)');
+        expect(screen.getByTestId('canvas-preview-zoom-level').textContent).toBe('63%');
         // Fit-to-width keeps the scaled frame within the viewport, so no horizontal scroll.
         expect(Number.parseFloat(screen.getByTestId('canvas-preview-interaction-content').style.width)).toBe(800);
       });

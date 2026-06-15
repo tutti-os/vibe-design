@@ -757,16 +757,11 @@ export function resolveCanvasPreviewFrameSize(
   }
 
   if (sizingMode === 'viewport') {
-    // Manual preview: keep fit-to-width for wide pages, but lock the height to
-    // the viewport. Ignoring the document scroll height is what breaks the
-    // feedback loop — otherwise a 100vh page inflates the iframe, which makes
-    // 100vh taller, which inflates the iframe again. Overflow scrolls inside
-    // the frame instead.
+    // Manual preview: lock the iframe to the design viewport. Ignoring document
+    // scroll size breaks viewport-relative feedback loops on both axes; overflow
+    // scrolls inside the frame instead.
     return {
-      width: Math.min(
-        CANVAS_PREVIEW_MAX_DOCUMENT_WIDTH,
-        Math.max(CANVAS_PREVIEW_BASE_WIDTH, metrics.viewportWidth, metrics.scrollWidth),
-      ),
+      width: Math.max(CANVAS_PREVIEW_BASE_WIDTH, metrics.viewportWidth),
       height: Math.max(CANVAS_PREVIEW_BASE_HEIGHT, metrics.viewportHeight),
     };
   }

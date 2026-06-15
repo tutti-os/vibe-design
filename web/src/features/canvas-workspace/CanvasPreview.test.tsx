@@ -144,8 +144,8 @@ describe('CanvasPreview', () => {
       }, 'fit'),
     ).toEqual({ width: 1280, height: 800 });
 
-    // viewport mode (manual preview) keeps fit-to-width for wide pages but
-    // locks the height, so a 100vh page cannot feed its height back into the
+    // viewport mode (manual preview) locks both axes to the design viewport so
+    // viewport-relative pages cannot feed their measured size back into the
     // iframe viewport.
     expect(
       resolveCanvasPreviewFrameSize({
@@ -154,7 +154,7 @@ describe('CanvasPreview', () => {
         scrollWidth: 1440,
         scrollHeight: 1800,
       }, 'viewport'),
-    ).toEqual({ width: 1440, height: 800 });
+    ).toEqual({ width: 1280, height: 800 });
 
     expect(
       resolveCanvasPreviewFrameSize({
@@ -188,7 +188,7 @@ describe('CanvasPreview', () => {
     expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1280px');
   });
 
-  it('keeps manual previews locked to the design viewport when srcdoc reports a taller document', async () => {
+  it('keeps manual previews locked to the design viewport when srcdoc reports a larger document', async () => {
     render(
       <CanvasPreview
         file={htmlFile('<main><h1 data-vd-id="hero">Hero</h1></main>')}
@@ -197,14 +197,13 @@ describe('CanvasPreview', () => {
       />,
     );
 
-    // A page sized with min-height: 100vh reports a tall document; the manual
-    // preview must ignore the height so the iframe (and therefore 100vh) stays
-    // stable instead of inflating on every measurement. Width still tracks the
-    // document so wide pages remain fit-to-width.
-    dispatchSrcdocMessage({ type: 'vd-preview-size', width: 1440, height: 1040 });
+    // A page sized with viewport-relative or oversized content can report a
+    // larger document; the manual preview must ignore it so the iframe viewport
+    // stays stable instead of inflating on every measurement.
+    dispatchSrcdocMessage({ type: 'vd-preview-size', width: 8192, height: 1040 });
 
     await waitFor(() => {
-      expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1440px');
+      expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1280px');
     });
     expect(screen.getByTestId('canvas-preview-srcdoc').style.height).toBe('800px');
   });
