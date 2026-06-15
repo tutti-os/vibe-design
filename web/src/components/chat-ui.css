@@ -2085,6 +2085,17 @@ button.user-attachment-file {
   font-weight: var(--project-font-weight-semibold);
 }
 
+.composer-send--stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.composer-send--stop:not(:disabled):hover {
+  background: var(--danger-strong, #c0392b);
+  border-color: var(--danger-strong, #c0392b);
+}
+
 .composer-send-loading-icon {
   display: inline-flex;
   animation: chat-running-spin 0.9s linear infinite;

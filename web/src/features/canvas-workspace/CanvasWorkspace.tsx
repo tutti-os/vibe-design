@@ -59,6 +59,7 @@ import {
   setModeForTab,
 } from './workspace-mode';
 import { type TranslateFn, useTranslation } from '../../i18n';
+import { downloadFileFromUrl } from '../../utils/download-file';
 
 export const DESIGN_FILES_TAB = '__design_files__';
 
@@ -237,6 +238,8 @@ export function CanvasWorkspace({
   const [selectedDesignFilePath, setSelectedDesignFilePath] = useState<string | null>(null);
   const [showDesignFilesWhenEmpty, setShowDesignFilesWhenEmpty] = useState(false);
   const interactionViewportRef = React.useRef<HTMLDivElement | null>(null);
+  const tabStripRef = React.useRef<HTMLDivElement | null>(null);
+  const activeTabRef = React.useRef<HTMLElement | null>(null);
   const savedHtmlPreviewScreenshotKeysRef = React.useRef<Map<string, 'pending' | 'saved'>>(new Map());
   const consumedAutoOpenFileRequestRef = React.useRef<string | null>(null);
   const activeTab = useMemo(
@@ -297,6 +300,43 @@ export function CanvasWorkspace({
   React.useEffect(() => {
     onTabsStateChange?.(tabsState);
   }, [onTabsStateChange, tabsState]);
+
+  // Keep the active tab visible when many tabs overflow the strip horizontally.
+  React.useEffect(() => {
+    const activeTab = activeTabRef.current;
+    if (typeof activeTab?.scrollIntoView === 'function') {
+      activeTab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  }, [tabsState.activeTabKey, tabsState.tabs.length]);
+
+  // Translate vertical mouse-wheel scrolling into horizontal scrolling so the
+  // tab strip stays reachable with a regular mouse (not just a trackpad swipe).
+  React.useEffect(() => {
+    const strip = tabStripRef.current;
+    if (!strip) {
+      return undefined;
+    }
+    const handleWheel = (event: WheelEvent) => {
+      if (event.shiftKey) {
+        return;
+      }
+      const canScroll = strip.scrollWidth > strip.clientWidth;
+      if (!canScroll) {
+        return;
+      }
+      // Only hijack vertical-dominant gestures; let native horizontal
+      // (trackpad) scrolling pass through untouched.
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
+        return;
+      }
+      strip.scrollLeft += event.deltaY;
+      event.preventDefault();
+    };
+    strip.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      strip.removeEventListener('wheel', handleWheel);
+    };
+  }, []);
 
   React.useEffect(() => {
     onCommentModeChange?.(Boolean(isCommentMode));
@@ -444,7 +484,7 @@ export function CanvasWorkspace({
       return;
     }
 
-    const nextScale = resolveInteractivePreviewAutoScale(activeManualFrameLayout, interactionViewportBounds);
+    const nextScale = resolveInteractivePreviewAutoScale(activeManualFrameLayout, interactionViewportBounds, isCommentMode);
     setInteractivePreviewScale((currentScale) => (currentScale === nextScale ? currentScale : nextScale));
   }, [
     activeManualFrameLayout?.width,
@@ -452,6 +492,7 @@ export function CanvasWorkspace({
     interactionViewportBounds?.width,
     interactivePreviewScaleMode,
     usesManualPreviewLayout,
+    isCommentMode,
   ]);
 
   function clearCommentSession() {
@@ -804,7 +845,7 @@ export function CanvasWorkspace({
 
   function resetInteractivePreviewZoom() {
     setInteractivePreviewScaleMode('auto');
-    setInteractivePreviewScale(resolveInteractivePreviewAutoScale(activeManualFrameLayout, interactionViewportBounds));
+    setInteractivePreviewScale(resolveInteractivePreviewAutoScale(activeManualFrameLayout, interactionViewportBounds, isCommentMode));
   }
 
   function handleInteractionViewportScroll(event: React.UIEvent<HTMLDivElement>) {
@@ -892,8 +933,9 @@ export function CanvasWorkspace({
   return (
     <section aria-label={workspaceTitle} className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[var(--project-workspace-bg)] text-[12px]">
       <div className="flex min-h-10 items-center gap-2 pl-2 pr-4">
-        <div role="tablist" aria-label={t('workspace.tabs')} className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        <div ref={tabStripRef} role="tablist" aria-label={t('workspace.tabs')} className="vd-tab-strip flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
           <Button
+            ref={isDesignFilesActive ? (activeTabRef as React.Ref<HTMLButtonElement>) : undefined}
             role="tab"
             aria-selected={isDesignFilesActive}
             className={cn(
@@ -916,6 +958,7 @@ export function CanvasWorkspace({
             return (
               <span
                 key={tab.key}
+                ref={selected ? (activeTabRef as React.Ref<HTMLSpanElement>) : undefined}
                 data-testid={`workspace-file-tab-${tab.path}`}
                 className={cn(
                   'group flex h-7 min-h-7 max-w-60 shrink-0 items-center overflow-hidden rounded-md border border-transparent shadow-none',
@@ -1613,7 +1656,13 @@ function interactivePreviewContentStyle(
 function resolveInteractivePreviewAutoScale(
   frameLayout: CanvasPreviewFrameLayout | null,
   viewportBounds: CanvasInteractionViewportBounds | null,
+  fitToWidth = true,
 ): number {
+  // Preview mode opens at 100%; only comment mode shrinks the frame to fit the viewport width.
+  if (!fitToWidth) {
+    return 1;
+  }
+
   const frameWidth = frameLayout?.width ?? 1280;
   const viewportWidth = viewportBounds?.width ?? frameWidth;
   if (!Number.isFinite(frameWidth) || frameWidth <= 0 || !Number.isFinite(viewportWidth) || viewportWidth <= 0) {
@@ -1928,7 +1977,12 @@ function DesignFileDetail({
                 href={selectedFile.url}
                 download={selectedFile.name}
                 aria-label={t('artifacts.downloadAria', { title: selectedFile.name })}
-                onClick={() => toast.success(t('artifacts.downloadStarted', { title: selectedFile.name }))}
+                onClick={(event) => {
+                  event.preventDefault();
+                  void downloadFileFromUrl(selectedFile.url!, selectedFile.name)
+                    .then(() => toast.success(t('artifacts.downloadStarted', { title: selectedFile.name })))
+                    .catch(() => toast.error(t('artifacts.downloadFailed', { title: selectedFile.name })));
+                }}
               >
                 <DownloadIcon size={14} />
                 {t('artifacts.download')}
@@ -2002,7 +2056,6 @@ function CodeDesignFilePreview({ file }: { file: WorkspaceFile }) {
           basicSetup,
           EditorState.readOnly.of(true),
           EditorView.editable.of(false),
-          EditorView.lineWrapping,
           codeMirrorPreviewTheme,
           ...codeMirrorLanguageExtensions(file),
         ],

@@ -105,6 +105,22 @@ If the provider cannot emit a structured AskUserQuestion tool call, emit exactly
 
 This is a strict rendering contract. Every question must be represented either as structured AskUserQuestion input or as the inline \`<question-form>\` fallback so the host can render one single-select answer group per question.`;
 
+const CLAUDE_INLINE_QUESTION_FORM_OVERRIDE = `
+
+---
+
+## Claude Code ask channel — inline question-form only
+
+You are running as headless Claude Code (\`claude -p\`, non-interactive). The interactive \`AskUserQuestion\` tool has no surface here: when you call it, the host receives an empty tool input and renders a blank "Waiting for input" card with no questions. That is a broken ask.
+
+Therefore, for every user-input request — discovery brief, direction picker, follow-up decision, missing output requirement, target platform/size, or any clarifying choice — you MUST emit exactly one inline \`<question-form>\` block as text and then stop. This is mandatory, not a fallback.
+
+- Do NOT call, invoke, or emit the \`AskUserQuestion\`, \`ask_user_question\`, or \`request_user_input\` tool. It will not work in this runtime.
+- The \`<question-form>\` block must contain at least one \`<question>\` child. Never emit an empty or childless question form.
+- Shape: \`<question-form id="discovery" title="Quick brief"><question type="select" id="output_type" title="What are we making?" options="landing_page:Landing page|dashboard:Dashboard" /></question-form>\`.
+- One \`<question>\` per decision, \`type="select"\`, options encoded as \`value:Label|value:Label\`. Keep the prose line above it free of any option text.
+- After emitting the question-form block, stop the turn and wait for the user's answer.`;
+
 const SKIP_DISCOVERY_BRIEF_OVERRIDE = `# Automated project mode — skip discovery form
 
 The project already supplied enough structured context. Do not emit the initial discovery form unless a required decision cannot be inferred.`;
@@ -144,20 +160,43 @@ const PROJECT_WORKSPACE_OUTPUT_CONTRACT = (workspaceDir: string): string => `
 
 ---
 
-## Project workspace and file outputs
+## CRITICAL: File delivery protocol — read this before creating ANY file
 
 Current project workspace: ${workspaceDir}
 
-- Write project deliverables into the current project workspace using relative paths such as \`DESIGN.md\`, \`landing-page.html\`, or \`assets/reference.svg\`.
-- Do not use \`/workspace\`, placeholder absolute paths, or paths outside the current project workspace.
-- If you list a file as delivered, it must first be written as a real file in the project workspace or emitted as a complete artifact block that the host can materialize.
-- For non-HTML file deliverables, emit a \`vibe-file\` block that the host can parse and write:
-  <vibe-file path="DESIGN.md" mime="text/markdown">
-  # Design Brief
-  ...
-  </vibe-file>
-- For design brief tasks that ask for \`DESIGN.md\`, emit a \`vibe-file\` block for \`DESIGN.md\` before summarizing it.
-- Do not wrap \`vibe-file\` blocks in markdown fences.`;
+Vibe Design records a deliverable in the project's **design files** list ONLY when you emit it through one of the two host text-block channels below. A file produced by ANY other method — a patch tool, a shell redirect, an editor write-to-disk — is INVISIBLE to the product even though it lands on disk: the user sees the run "succeed" but the design files list stays EMPTY. This is the single most important rule of this environment. Do not violate it for any reason.
+
+### The ONLY two ways to deliver a file
+
+1. HTML pages / prototypes — emit exactly one artifact block (the host live-previews AND saves it):
+   <artifact identifier="kebab-slug" type="text/html" title="Human title">
+   <!doctype html>
+   ...complete HTML document...
+   </artifact>
+
+2. Every NON-HTML file (\`DESIGN.md\`, \`styles.css\`, \`app.js\`, \`icon.svg\`, \`data.json\`, \`notes.txt\`, ...) — emit a vibe-file block:
+   <vibe-file path="DESIGN.md" mime="text/markdown">
+   ...complete file content...
+   </vibe-file>
+
+Rules for both blocks:
+- Emit the COMPLETE file content every time — including when changing an existing file, re-emit the whole updated file. There is NO partial, incremental, or patch update.
+- Use a FLAT file name (\`landing-page.html\`, \`DESIGN.md\`, \`styles.css\`). Do NOT use subdirectories, \`/workspace\`, absolute paths, or \`..\` — the host stores design files in one flat folder keyed by name, so nested paths are dropped.
+- Set a correct \`mime\` / \`type\` (text/html, text/css, text/javascript, image/svg+xml, text/markdown, application/json, text/plain).
+- Never wrap an artifact or vibe-file block in markdown code fences. Stop right after the closing tag.
+- For a requested \`DESIGN.md\`, emit its vibe-file block BEFORE you summarize it in prose.
+
+### NEVER do these — the host CANNOT capture them and the file will not appear
+
+- NEVER use \`apply_patch\`, \`patch\`, or any diff/patch mechanism to create or edit a deliverable.
+- NEVER write or edit deliverable files through the shell (\`cat > file\`, \`tee\`, \`>\`, \`>>\`, \`echo >\`, \`printf >\`, \`sed -i\`, heredocs, etc.).
+- NEVER use a code-editor or filesystem write tool to scaffold files on disk.
+
+If you feel the urge to run a patch tool or a shell write to produce a file, STOP and emit an artifact or vibe-file block instead.
+
+### Honesty
+
+Only state that a file was created, saved, or delivered if its artifact or vibe-file block actually appears in THIS response. "I created X" is false until \`<artifact ... title="X">\` or \`<vibe-file path="X">\` has been emitted.`;
 
 const CODEX_IMAGEGEN_OVERRIDE = `
 
@@ -288,9 +327,7 @@ export function composeSystemPrompt(input: ComposeInput): string {
   }
 
   if (input.agentId === 'claude') {
-    parts.push(
-      '\n\n---\n\n## Clarifying questions\n\nWhen a follow-up decision has two to four finite options, ask it through `AskUserQuestion` as a concise choice instead of a long open-ended list.',
-    );
+    parts.push(CLAUDE_INLINE_QUESTION_FORM_OVERRIDE);
   }
 
   if (hasText(input.projectWorkspaceDir)) {

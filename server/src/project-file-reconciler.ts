@@ -1,4 +1,5 @@
-import { copyFile, mkdir, readdir, stat } from 'node:fs/promises';
+import type { Stats } from 'node:fs';
+import { copyFile, mkdir, readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { getProjectFileFromStore, upsertProjectFileInStore, type ProjectFileKind } from './sqlite-store.js';
 
@@ -56,18 +57,24 @@ async function reconcileProjectRootFiles(
     }
 
     const assetPath = path.join(assetsDir, entry.name);
-    const existingFile = getProjectFileFromStore(projectsDir, projectId, entry.name);
     const existingAssetStats = await stat(assetPath).catch(() => null);
-    if (!existingAssetStats?.isFile()) {
-      await mkdir(assetsDir, { recursive: true });
-      await copyFile(sourcePath, assetPath);
-    }
 
-    if (existingFile) {
-      continue;
-    }
+    // Keep the served asset copy in sync with the project-root source file.
+    // The agent edits one copy in the workspace (the project root, or the
+    // assets/ copy it was handed as context); whichever was touched most
+    // recently is the source of truth and the other copy is refreshed from it.
+    // Without this, an Edit to an already-materialized file never reaches the
+    // preview — which reads from assets/ — so the agent reports success while
+    // the rendered file stays unchanged.
+    const assetStats = await syncProjectRootAndAsset(
+      sourcePath,
+      sourceStats,
+      assetPath,
+      existingAssetStats,
+      assetsDir,
+    );
 
-    const indexedSize = existingAssetStats?.isFile() ? existingAssetStats.size : sourceStats.size;
+    const indexedSize = assetStats?.isFile() ? assetStats.size : sourceStats.size;
     upsertProjectFileInStore(projectsDir, projectId, {
       name: entry.name,
       path: projectAssetRelativePath(entry.name),
@@ -76,6 +83,48 @@ async function reconcileProjectRootFiles(
       kind: getFileKind(entry.name),
     });
   }
+}
+
+// Reconcile the project-root source file and its served assets/ copy. When the
+// asset is missing it is created from the root. When both exist and their
+// contents diverge, the more recently modified file wins and is copied over the
+// other so the preview, the store, and the next agent run all read the same
+// bytes. Returns the stats of the asset copy after syncing.
+async function syncProjectRootAndAsset(
+  sourcePath: string,
+  sourceStats: Stats,
+  assetPath: string,
+  existingAssetStats: Stats | null,
+  assetsDir: string,
+): Promise<Stats | null> {
+  if (!existingAssetStats?.isFile()) {
+    await mkdir(assetsDir, { recursive: true });
+    await copyFile(sourcePath, assetPath);
+    return stat(assetPath).catch(() => null);
+  }
+
+  if (await filesHaveSameContent(sourcePath, assetPath)) {
+    return existingAssetStats;
+  }
+
+  if (sourceStats.mtimeMs >= existingAssetStats.mtimeMs) {
+    await copyFile(sourcePath, assetPath);
+    return stat(assetPath).catch(() => null);
+  }
+
+  await copyFile(assetPath, sourcePath);
+  return existingAssetStats;
+}
+
+async function filesHaveSameContent(left: string, right: string): Promise<boolean> {
+  const [leftBuffer, rightBuffer] = await Promise.all([
+    readFile(left).catch(() => null),
+    readFile(right).catch(() => null),
+  ]);
+  if (!leftBuffer || !rightBuffer) {
+    return false;
+  }
+  return leftBuffer.equals(rightBuffer);
 }
 
 function projectAssetRelativePath(name: string): string {

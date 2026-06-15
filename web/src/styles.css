@@ -15,6 +15,16 @@
   --font-sans: "Lexend Variable", "Lexend", ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Horizontally scrollable file tab strip: keep scrolling but hide the scrollbar
+   so it never clips the tab row when many preview tabs overflow. */
+.vd-tab-strip {
+  scrollbar-width: none;
+}
+
+.vd-tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
 :root {
   --vd-font-sans: "Lexend Variable", "Lexend", ui-sans-serif, system-ui, sans-serif;
   --vd-font-serif: "DM Serif Text", ui-serif, Georgia, serif;

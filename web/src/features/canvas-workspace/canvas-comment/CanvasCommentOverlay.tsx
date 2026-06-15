@@ -67,19 +67,22 @@ export function CanvasCommentOverlay({
         const previewExpanded = comment.id === expandedPreviewCommentId;
         const previewText = comment.note.trim();
         const singleLinePreview = isSingleLinePreviewText(previewText);
+        const frameWidth = frameLayout ? frameLayout.width : null;
+        const openLeft = shouldOpenPreviewLeft(comment, targetScale, frameWidth);
         return (
           <Button
             key={comment.id}
             type="button"
             data-testid="canvas-comment-saved-marker"
+            data-preview-side={openLeft ? 'left' : 'right'}
             aria-label={`Open saved comment for ${comment.label}`}
             aria-pressed={selected}
             size="icon-xs"
             variant="secondary"
-            className={`group/comment-marker pointer-events-auto absolute items-start justify-start overflow-hidden border-0 bg-transparent p-0 text-[var(--text-primary)] shadow-none transition-[width,background-color,border-color,color,box-shadow] duration-200 ease-out hover:bg-transparent active:bg-transparent ${previewExpanded ? 'h-auto min-h-7 w-fit max-w-[320px] rounded-lg' : 'h-7 w-7 rounded-full'} ${
+            className={`group/comment-marker pointer-events-auto absolute items-start overflow-hidden border-0 bg-transparent p-0 text-[var(--text-primary)] shadow-none transition-[width,background-color,border-color,color,box-shadow] duration-200 ease-out hover:bg-transparent active:bg-transparent ${openLeft ? 'flex-row-reverse justify-end' : 'justify-start'} ${previewExpanded ? 'h-auto min-h-7 w-fit max-w-[320px] rounded-lg' : 'h-7 w-7 rounded-full'} ${
               selected ? 'ring-2 ring-[var(--primary)] ring-offset-2 ring-offset-[var(--background-fronted)]' : ''
             }`}
-            style={markerStyle(comment, targetScale)}
+            style={markerStyle(comment, targetScale, openLeft, frameWidth)}
             onMouseEnter={() => setExpandedPreviewCommentId(comment.id)}
             onMouseLeave={() => collapsePreview(comment.id)}
             onFocus={() => setExpandedPreviewCommentId(comment.id)}
@@ -97,7 +100,7 @@ export function CanvasCommentOverlay({
               aria-hidden="true"
               data-testid="canvas-comment-saved-marker-preview"
               data-state={previewExpanded ? 'expanded' : 'collapsed'}
-              className={`pointer-events-none -ml-7 min-w-0 w-fit max-w-[320px] overflow-hidden rounded-md ${singleLinePreview ? 'rounded-l-full' : 'rounded-l-md'} border border-[var(--border-1)] bg-[var(--background-fronted)] py-[5px] pl-10 pr-3 text-left text-[var(--text-primary)] opacity-0 shadow-[var(--project-shadow-raised)] transition-opacity duration-200 ease-out whitespace-normal break-words ${
+              className={`pointer-events-none min-w-0 w-fit max-w-[320px] overflow-hidden rounded-md ${previewSpacingClass(openLeft)} ${previewRoundedClass(openLeft, singleLinePreview)} border border-[var(--border-1)] bg-[var(--background-fronted)] py-[5px] text-left text-[var(--text-primary)] opacity-0 shadow-[var(--project-shadow-raised)] transition-opacity duration-200 ease-out whitespace-normal break-words ${
                 previewExpanded ? 'opacity-100' : 'opacity-0'
               }`}
             >
@@ -158,10 +161,51 @@ function targetBoxStyle(target: CanvasCommentTargetSnapshot, scale: number): Rea
   };
 }
 
-function markerStyle(comment: CanvasPreviewComment, scale: number): React.CSSProperties {
+// The preview pill expands away from the marker icon. When the commented
+// element sits near the right edge of the frame, opening rightward clamps the
+// `w-fit` pill against the container edge, collapsing it to a sliver that wraps
+// CJK text one glyph per line. In that case anchor by the right edge instead so
+// the pill grows leftward into the available space.
+const COMMENT_PREVIEW_MIN_SPACE = 240;
+
+function shouldOpenPreviewLeft(
+  comment: CanvasPreviewComment,
+  scale: number,
+  frameWidth: number | null,
+): boolean {
+  if (frameWidth == null) return false;
+  const anchorX = (comment.position.x + comment.position.width) * scale;
+  const spaceRight = frameWidth * scale - anchorX;
+  return spaceRight < COMMENT_PREVIEW_MIN_SPACE && anchorX > spaceRight;
+}
+
+function previewSpacingClass(openLeft: boolean): string {
+  return openLeft ? '-mr-7 pr-10 pl-3' : '-ml-7 pl-10 pr-3';
+}
+
+function previewRoundedClass(openLeft: boolean, singleLine: boolean): string {
+  if (openLeft) return singleLine ? 'rounded-r-full' : 'rounded-r-md';
+  return singleLine ? 'rounded-l-full' : 'rounded-l-md';
+}
+
+function markerStyle(
+  comment: CanvasPreviewComment,
+  scale: number,
+  openLeft: boolean,
+  frameWidth: number | null,
+): React.CSSProperties {
+  const top = comment.position.y * scale;
+  const anchorX = (comment.position.x + comment.position.width) * scale;
+  if (openLeft && frameWidth != null) {
+    return {
+      right: frameWidth * scale - anchorX,
+      top,
+      transform: 'translate(14px, -14px)',
+    };
+  }
   return {
-    left: (comment.position.x + comment.position.width) * scale,
-    top: comment.position.y * scale,
+    left: anchorX,
+    top,
     transform: 'translate(-14px, -14px)',
   };
 }
