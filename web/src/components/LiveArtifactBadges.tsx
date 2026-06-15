@@ -42,7 +42,11 @@ export function LiveArtifactBadges({ artifacts, onOpenLiveArtifact }: LiveArtifa
                   onClick={(event) => {
                     event.preventDefault();
                     void downloadFileFromUrl(artifact.preview.url!, artifact.title)
-                      .then(() => toast.success(t('artifacts.downloadStarted', { title: artifact.title })))
+                      .then((saved) => {
+                        if (saved) {
+                          toast.success(t('artifacts.downloadStarted', { title: artifact.title }));
+                        }
+                      })
                       .catch(() => toast.error(t('artifacts.downloadFailed', { title: artifact.title })));
                   }}
                 >

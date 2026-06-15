@@ -134,7 +134,7 @@ describe('CanvasPreview', () => {
     expect(srcdocFrame.style.transform).toBe('translateX(-50%) scale(1.25)');
   });
 
-  it('keeps fitted html previews at the desktop viewport while manual previews expand to the document size', () => {
+  it('locks fitted and viewport previews to the desktop viewport while document mode expands', () => {
     expect(
       resolveCanvasPreviewFrameSize({
         viewportWidth: 1280,
@@ -144,14 +144,37 @@ describe('CanvasPreview', () => {
       }, 'fit'),
     ).toEqual({ width: 1280, height: 800 });
 
+    // viewport mode (manual preview) keeps fit-to-width for wide pages but
+    // locks the height, so a 100vh page cannot feed its height back into the
+    // iframe viewport.
     expect(
       resolveCanvasPreviewFrameSize({
         viewportWidth: 1280,
         viewportHeight: 800,
         scrollWidth: 1440,
         scrollHeight: 1800,
-      }, 'manual'),
+      }, 'viewport'),
+    ).toEqual({ width: 1440, height: 800 });
+
+    expect(
+      resolveCanvasPreviewFrameSize({
+        viewportWidth: 1280,
+        viewportHeight: 800,
+        scrollWidth: 1440,
+        scrollHeight: 1800,
+      }, 'document'),
     ).toEqual({ width: 1440, height: 1800 });
+  });
+
+  it('clamps document mode so a runaway viewport-relative page cannot inflate the frame without bound', () => {
+    expect(
+      resolveCanvasPreviewFrameSize({
+        viewportWidth: 1280,
+        viewportHeight: 800,
+        scrollWidth: 50000,
+        scrollHeight: 999999,
+      }, 'document'),
+    ).toEqual({ width: 8192, height: 16384 });
   });
 
   it('keeps fitted previews at the desktop viewport size when srcdoc content is taller', async () => {
@@ -165,11 +188,33 @@ describe('CanvasPreview', () => {
     expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1280px');
   });
 
-  it('updates the manual iframe size from srcdoc size bridge messages', async () => {
+  it('keeps manual previews locked to the design viewport when srcdoc reports a taller document', async () => {
     render(
       <CanvasPreview
         file={htmlFile('<main><h1 data-vd-id="hero">Hero</h1></main>')}
         scaleMode="manual"
+        manualScale={1}
+      />,
+    );
+
+    // A page sized with min-height: 100vh reports a tall document; the manual
+    // preview must ignore the height so the iframe (and therefore 100vh) stays
+    // stable instead of inflating on every measurement. Width still tracks the
+    // document so wide pages remain fit-to-width.
+    dispatchSrcdocMessage({ type: 'vd-preview-size', width: 1440, height: 1040 });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1440px');
+    });
+    expect(screen.getByTestId('canvas-preview-srcdoc').style.height).toBe('800px');
+  });
+
+  it('expands the comment-mode iframe to the document size so comment anchors stay aligned', async () => {
+    render(
+      <CanvasPreview
+        file={htmlFile('<main><h1 data-vd-id="hero">Hero</h1></main>')}
+        scaleMode="manual"
+        commentMode
         manualScale={1}
       />,
     );
