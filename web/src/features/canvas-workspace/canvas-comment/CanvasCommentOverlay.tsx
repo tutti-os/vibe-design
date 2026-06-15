@@ -42,7 +42,7 @@ export function CanvasCommentOverlay({
   return (
     <div
       data-testid="canvas-comment-overlay"
-      className={`pointer-events-none absolute z-10 overflow-visible ${frameLayout ? '' : 'inset-0'}`}
+      className={`pointer-events-none absolute z-20 overflow-visible ${frameLayout ? '' : 'inset-0'}`}
       style={frameLayout ? frameLayoutStyle(frameLayout) : undefined}
       aria-hidden={overlayHidden}
     >
@@ -79,10 +79,10 @@ export function CanvasCommentOverlay({
             aria-pressed={selected}
             size="icon-xs"
             variant="secondary"
-            className={`group/comment-marker pointer-events-auto absolute items-start overflow-hidden border-0 bg-transparent p-0 text-[var(--text-primary)] shadow-none transition-[width,background-color,border-color,color,box-shadow] duration-200 ease-out hover:bg-transparent active:bg-transparent ${openLeft ? 'flex-row-reverse justify-end' : 'justify-start'} ${previewExpanded ? 'h-auto min-h-7 w-fit max-w-[320px] rounded-lg' : 'h-7 w-7 rounded-full'} ${
+            className={`group/comment-marker pointer-events-auto absolute z-20 items-start overflow-hidden border-0 bg-transparent p-0 text-[var(--text-primary)] shadow-none transition-[width,background-color,border-color,color,box-shadow] duration-200 ease-out hover:bg-transparent active:bg-transparent ${openLeft ? 'flex-row-reverse justify-end' : 'justify-start'} ${previewExpanded ? 'h-auto min-h-7 w-fit max-w-[320px] rounded-lg' : 'h-7 w-7 rounded-full'} ${
               selected ? 'ring-2 ring-[var(--primary)] ring-offset-2 ring-offset-[var(--background-fronted)]' : ''
             }`}
-            style={markerStyle(comment, targetScale, openLeft, frameWidth)}
+            style={markerStyle(comment, targetScale, openLeft, frameLayout)}
             onMouseEnter={() => setExpandedPreviewCommentId(comment.id)}
             onMouseLeave={() => collapsePreview(comment.id)}
             onFocus={() => setExpandedPreviewCommentId(comment.id)}
@@ -192,13 +192,16 @@ function markerStyle(
   comment: CanvasPreviewComment,
   scale: number,
   openLeft: boolean,
-  frameWidth: number | null,
+  frameLayout: CanvasCommentOverlayFrameLayout | null,
 ): React.CSSProperties {
-  const top = comment.position.y * scale;
-  const anchorX = (comment.position.x + comment.position.width) * scale;
+  const markerRadius = 14;
+  const frameWidth = frameLayout ? frameLayout.width * scale : null;
+  const frameHeight = frameLayout ? frameLayout.height * scale : null;
+  const top = clampMarkerCenter(comment.position.y * scale, frameHeight, markerRadius);
+  const anchorX = clampMarkerCenter((comment.position.x + comment.position.width) * scale, frameWidth, markerRadius);
   if (openLeft && frameWidth != null) {
     return {
-      right: frameWidth * scale - anchorX,
+      right: frameWidth - anchorX,
       top,
       transform: 'translate(14px, -14px)',
     };
@@ -208,4 +211,17 @@ function markerStyle(
     top,
     transform: 'translate(-14px, -14px)',
   };
+}
+
+function clampMarkerCenter(value: number, frameSize: number | null, markerRadius: number): number {
+  if (frameSize == null) {
+    return value;
+  }
+
+  return clampNumber(value, markerRadius, Math.max(markerRadius, frameSize - markerRadius));
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
 }

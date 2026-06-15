@@ -111,7 +111,9 @@ export function buildMessageBlocks(events: AgentEvent[]): MessageBlock[] {
     appendToolGroupBlock(blocks, event, resultByToolId.get(event.id), runningToolIds.has(event.id));
   }
 
-  const normalizedBlocks = compactMessageBlocks(expandQuestionFormTextBlocks(expandReasoningTextBlocks(blocks)));
+  const normalizedBlocks = compactMessageBlocks(
+    suppressRepeatedQuestionFormLeadText(expandQuestionFormTextBlocks(expandReasoningTextBlocks(blocks))),
+  );
   for (const event of events) {
     if (event.type === 'generated_file') {
       addGeneratedFile(generatedFilesByName, {
@@ -226,6 +228,32 @@ function expandQuestionFormTextBlocks(blocks: MessageBlock[]): MessageBlock[] {
       return [{ kind: 'question-form', form: segment.form }];
     });
   });
+}
+
+function suppressRepeatedQuestionFormLeadText(blocks: MessageBlock[]): MessageBlock[] {
+  const filtered: MessageBlock[] = [];
+  const seenText = new Set<string>();
+
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    if (!block || block.kind !== 'text') {
+      filtered.push(block);
+      continue;
+    }
+
+    const normalized = normalizeFallbackText(block.content);
+    const leadsQuestionForm = blocks[index + 1]?.kind === 'question-form';
+    if (normalized.length > 0 && leadsQuestionForm && seenText.has(normalized)) {
+      continue;
+    }
+
+    filtered.push(block);
+    if (normalized.length > 0) {
+      seenText.add(normalized);
+    }
+  }
+
+  return filtered;
 }
 
 function expandReasoningTextBlocks(blocks: MessageBlock[]): MessageBlock[] {

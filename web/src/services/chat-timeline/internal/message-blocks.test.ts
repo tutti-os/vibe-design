@@ -369,6 +369,25 @@ describe('buildMessageBlocks', () => {
     ]);
   });
 
+  it('suppresses repeated prose immediately before an inline question form', () => {
+    const repeatedProse = '这条输入只有 `213123`，我需要确认它要作为内容、编号，还是你想让我执行某个任务。';
+    const events: AgentEvent[] = [
+      { type: 'text_delta', delta: repeatedProse },
+      { type: 'tool_use', id: 'question-tool', name: 'request_user_input', input: { questions: [] } },
+      {
+        type: 'text_delta',
+        delta: `${repeatedProse}\n<question-form id="clarify" title="确认意图"><question type="select" id="intent" title="你希望我如何处理？" options="content:作为内容使用|lookup:作为编号查询" /></question-form>`,
+      },
+    ];
+
+    const blocks = buildMessageBlocks(events);
+
+    expect(blocks.filter((block) => block.kind === 'text')).toEqual([
+      { kind: 'text', content: repeatedProse, markdown: true },
+    ]);
+    expect(blocks.at(-1)?.kind).toBe('question-form');
+  });
+
   it('keeps HTML artifact markup and content out of assistant text blocks', () => {
     const events: AgentEvent[] = [
       {

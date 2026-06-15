@@ -484,9 +484,14 @@ export function CanvasWorkspace({
       return;
     }
 
+    if (!interactionViewportBounds || interactionViewportBounds.width <= 0) {
+      return;
+    }
+
     const nextScale = resolveInteractivePreviewAutoScale(activeManualFrameLayout, interactionViewportBounds);
     setInteractivePreviewScale((currentScale) => (currentScale === nextScale ? currentScale : nextScale));
   }, [
+    activeFile?.path,
     activeManualFrameLayout?.width,
     activeManualFrameLayout?.height,
     interactionViewportBounds?.width,
@@ -1129,7 +1134,12 @@ export function CanvasWorkspace({
                 <div
                   data-testid="canvas-preview-interaction-content"
                   className={usesManualPreviewLayout ? 'relative mx-auto' : 'relative h-full'}
-                  style={interactivePreviewContentStyle(activeManualFrameLayout, interactivePreviewScale, usesManualPreviewLayout)}
+                  style={interactivePreviewContentStyle(
+                    activeManualFrameLayout,
+                    interactivePreviewScale,
+                    usesManualPreviewLayout,
+                    interactionViewportBounds,
+                  )}
                 >
                     <CanvasPreview
                       file={activeFile}
@@ -1640,15 +1650,21 @@ function interactivePreviewContentStyle(
   frameLayout: CanvasPreviewFrameLayout | null,
   scale: number,
   active: boolean,
+  viewportBounds: CanvasInteractionViewportBounds | null,
 ): React.CSSProperties | undefined {
   if (!active) return undefined;
 
   const width = Math.max(1, Math.round((frameLayout?.width ?? 1280) * scale));
   const height = Math.max(1, Math.round((frameLayout?.height ?? 800) * scale));
+  const verticalMargin = viewportBounds
+    ? Math.max(0, Math.round((viewportBounds.height - height) / 2))
+    : 0;
 
   return {
     width,
     height,
+    marginTop: verticalMargin,
+    marginBottom: verticalMargin,
   };
 }
 
@@ -1948,7 +1964,7 @@ function DesignFileDetail({
       <div className="flex min-h-0 items-center justify-center">
         <div
           data-testid="design-file-preview-frame"
-          className="mx-auto h-[clamp(320px,58vh,560px)] max-h-[560px] min-h-[320px] w-full max-w-[820px] overflow-hidden rounded-[var(--project-radius-lg)] border border-[var(--border-1)] bg-[var(--background-fronted)] shadow-none"
+          className="mx-auto aspect-[8/5] w-full max-w-[820px] overflow-hidden rounded-[var(--project-radius-lg)] border border-[var(--border-1)] bg-[var(--background-fronted)] shadow-none"
         >
           <DesignFilePreview file={selectedFile} files={files} />
         </div>
@@ -2211,6 +2227,7 @@ function HtmlDesignFilePreview({ file, files }: { file: WorkspaceFile; files: Wo
         files,
         editBridge: false,
         sizeBridge: true,
+        scrollbarBridge: true,
       }),
     [file, files],
   );

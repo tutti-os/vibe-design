@@ -23,7 +23,7 @@ const CANVAS_PREVIEW_MAX_DOCUMENT_HEIGHT = 16384;
 // How the preview frame derives its size:
 // - 'fit'      desktop viewport, scaled to fit the container (read-only fit view)
 // - 'viewport' locked to the design viewport; overflow scrolls inside the frame
-//              (manual preview — keeps 100vh stable, no size feedback loop)
+//              (manual preview keeps responsive/100vh layouts stable)
 // - 'document' expands to the full document size, clamped (comment mode needs
 //              every element laid out at a stable document coordinate)
 export type CanvasPreviewFrameSizingMode = 'fit' | 'viewport' | 'document';
@@ -199,12 +199,12 @@ export function CanvasPreview({
   const acceptsSnapshotRequests = isHtmlPreview && (showUrlFrame || acceptsSnapshotBridgeMessages);
   const normalizedManualScale = Number.isFinite(manualScale) && manualScale > 0 ? manualScale : 1;
   const scale = scaleMode === 'manual' ? normalizedManualScale : fitScale;
-  // Manual previews lock to the design viewport (overflow scrolls inside the
-  // frame). Comment mode is the exception: it must keep every element laid out
-  // at a stable document coordinate so comment anchors line up, so it expands
-  // to the full document size instead.
+  // Preview and mark-up share a stable manual viewport. The outer workspace
+  // owns scaling, while page overflow remains inside the iframe; this prevents
+  // viewport-sized layouts (100vh, vertical centering, fixed layers) from
+  // feeding their measured size back into the iframe viewport.
   const frameSizingMode: CanvasPreviewFrameSizingMode =
-    scaleMode === 'fit' ? 'fit' : commentMode ? 'document' : 'viewport';
+    scaleMode === 'fit' ? 'fit' : 'viewport';
   const frameTop = scaleMode === 'fit'
     ? Math.max(0, (fitViewportHeight - previewSize.height * scale) / 2)
     : 0;
@@ -216,6 +216,7 @@ export function CanvasPreview({
         ),
         editBridge: editMode,
         sizeBridge: true,
+        scrollbarBridge: true,
         commentBridge: commentMode,
         snapshotBridge: acceptsSnapshotBridgeMessages,
       })
@@ -327,6 +328,10 @@ export function CanvasPreview({
   }, [acceptsSnapshotRequests, onSnapshotRequesterChange, requestPreviewSnapshot]);
 
   useEffect(() => {
+    applyPreviewScrollbarScale(srcdocFrameRef.current, scale);
+  }, [scale, srcDoc]);
+
+  useEffect(() => {
     const nextLayout: CanvasPreviewFrameLayout = {
       width: previewSize.width,
       height: previewSize.height,
@@ -360,7 +365,7 @@ export function CanvasPreview({
       }
 
       if (isCanvasPreviewSizeMessage(message)) {
-        applySrcdocPreviewSize(message.width, message.height);
+        applySrcdocPreviewSize(message);
         return;
       }
 
@@ -487,17 +492,19 @@ export function CanvasPreview({
     scaleMode,
   ]);
 
-  function applySrcdocPreviewSize(width: number, height: number) {
+  function applySrcdocPreviewSize(message: CanvasPreviewSizeMessage) {
+    const { width, height } = message;
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
       return;
     }
 
     const nextSize = resolveCanvasPreviewFrameSize({
-      viewportWidth: CANVAS_PREVIEW_BASE_WIDTH,
-      viewportHeight: CANVAS_PREVIEW_BASE_HEIGHT,
+      viewportWidth: finitePositiveOrDefault(message.viewportWidth, CANVAS_PREVIEW_BASE_WIDTH),
+      viewportHeight: finitePositiveOrDefault(message.viewportHeight, CANVAS_PREVIEW_BASE_HEIGHT),
       scrollWidth: width,
       scrollHeight: height,
     }, frameSizingMode);
+
     setPreviewSize((currentSize) =>
       currentSize.width === nextSize.width && currentSize.height === nextSize.height
         ? currentSize
@@ -722,7 +729,7 @@ export function CanvasPreview({
           sandbox="allow-scripts allow-same-origin"
           srcDoc={srcDoc}
           onLoad={() => {
-            measureLoadedPreview(srcdocFrameRef.current, !showUrlFrame);
+            applyPreviewScrollbarScale(srcdocFrameRef.current, scale);
             replaySrcdocCommands();
             replayCommentCommands();
             replayDesignTweakCommand();
@@ -744,25 +751,30 @@ export function resolveCanvasPreviewFrameSize(
   if (sizingMode === 'document') {
     // Expand to the full document, but clamp so a viewport-relative page
     // (min-height: 100vh, etc.) cannot inflate the iframe without bound.
+    const documentWidth = resolveDocumentPreviewAxisSize(
+      CANVAS_PREVIEW_BASE_WIDTH,
+      metrics.viewportWidth,
+      metrics.scrollWidth,
+    );
+    const documentHeight = resolveDocumentPreviewAxisSize(
+      CANVAS_PREVIEW_BASE_HEIGHT,
+      metrics.viewportHeight,
+      metrics.scrollHeight,
+    );
+
     return {
-      width: Math.min(
-        CANVAS_PREVIEW_MAX_DOCUMENT_WIDTH,
-        Math.max(CANVAS_PREVIEW_BASE_WIDTH, metrics.viewportWidth, metrics.scrollWidth),
-      ),
-      height: Math.min(
-        CANVAS_PREVIEW_MAX_DOCUMENT_HEIGHT,
-        Math.max(CANVAS_PREVIEW_BASE_HEIGHT, metrics.viewportHeight, metrics.scrollHeight),
-      ),
+      width: Math.min(CANVAS_PREVIEW_MAX_DOCUMENT_WIDTH, documentWidth),
+      height: Math.min(CANVAS_PREVIEW_MAX_DOCUMENT_HEIGHT, documentHeight),
     };
   }
 
   if (sizingMode === 'viewport') {
-    // Manual preview: lock the iframe to the design viewport. Ignoring document
-    // scroll size breaks viewport-relative feedback loops on both axes; overflow
-    // scrolls inside the frame instead.
+    // Manual preview keeps the iframe viewport stable. Feeding measured
+    // document dimensions back into the iframe would make responsive and 100vh
+    // layouts reflow differently between measurement passes.
     return {
-      width: Math.max(CANVAS_PREVIEW_BASE_WIDTH, metrics.viewportWidth),
-      height: Math.max(CANVAS_PREVIEW_BASE_HEIGHT, metrics.viewportHeight),
+      width: CANVAS_PREVIEW_BASE_WIDTH,
+      height: CANVAS_PREVIEW_BASE_HEIGHT,
     };
   }
 
@@ -771,6 +783,17 @@ export function resolveCanvasPreviewFrameSize(
     width: Math.max(CANVAS_PREVIEW_BASE_WIDTH, metrics.viewportWidth),
     height: Math.max(CANVAS_PREVIEW_BASE_HEIGHT, metrics.viewportHeight),
   };
+}
+
+function resolveDocumentPreviewAxisSize(baseSize: number, viewportSize: number, scrollSize: number): number {
+  const normalizedViewport = Number.isFinite(viewportSize) && viewportSize > 0 ? viewportSize : baseSize;
+  const normalizedScroll = Number.isFinite(scrollSize) && scrollSize > 0 ? scrollSize : baseSize;
+
+  if (normalizedViewport <= baseSize) {
+    return Math.max(baseSize, normalizedViewport, normalizedScroll);
+  }
+
+  return Math.max(baseSize, baseSize + Math.max(0, normalizedScroll - normalizedViewport));
 }
 
 function measureCanvasPreviewDocument(document: Document, sizingMode: CanvasPreviewFrameSizingMode): CanvasPreviewFrameSize {
@@ -812,6 +835,20 @@ function getPreviewFrameDocument(frame: HTMLIFrameElement | null): Document | nu
   } catch {
     return null;
   }
+}
+
+function finitePositiveOrDefault(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function applyPreviewScrollbarScale(frame: HTMLIFrameElement | null, scale: number): void {
+  const document = getPreviewFrameDocument(frame);
+  if (!document?.documentElement) {
+    return;
+  }
+
+  const normalizedScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+  document.documentElement.style.setProperty('--vd-preview-scrollbar-scale', String(normalizedScale));
 }
 
 function isActiveSrcdocMessageSource(event: MessageEvent, activeWindow: Window | null | undefined): boolean {
@@ -871,9 +908,17 @@ function isPointArray(value: unknown): value is CanvasCommentPoint[] {
   return Array.isArray(value) && value.every(isFinitePoint);
 }
 
+interface CanvasPreviewSizeMessage extends Record<string, unknown> {
+  type: 'vd-preview-size';
+  width: number;
+  height: number;
+  viewportWidth?: number;
+  viewportHeight?: number;
+}
+
 function isCanvasPreviewSizeMessage(
   message: Record<string, unknown> & { type?: unknown },
-): message is { type: 'vd-preview-size'; width: number; height: number } {
+): message is CanvasPreviewSizeMessage {
   return message.type === 'vd-preview-size' && Number.isFinite(message.width) && Number.isFinite(message.height);
 }
 
