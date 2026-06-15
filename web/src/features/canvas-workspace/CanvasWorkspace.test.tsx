@@ -836,6 +836,21 @@ describe('CanvasWorkspace', () => {
     expect(within(surfaceModeTabs).queryByRole('tab', { name: 'Comments 0' })).toBeNull();
   });
 
+  it('shrink-wraps animated surface mode tabs so shorter labels do not leave reserved space', () => {
+    render(<CanvasWorkspace files={files} previewComments={[]} />);
+
+    openDesignFile('landing.html');
+
+    const surfaceModeTabs = screen.getByRole('tablist', { name: 'File surface mode' });
+    const markUpPresence = within(surfaceModeTabs).getByRole('tab', { name: 'Mark up' }).parentElement;
+    const commentsPresence = within(surfaceModeTabs).getByRole('tab', { name: 'Comments' }).parentElement;
+
+    expect(markUpPresence?.classList.contains('w-max')).toBe(true);
+    expect(markUpPresence?.classList.contains('justify-self-start')).toBe(true);
+    expect(commentsPresence?.classList.contains('w-max')).toBe(true);
+    expect(commentsPresence?.classList.contains('justify-self-start')).toBe(true);
+  });
+
   it('opens the left comments panel from a top-level comments tab', () => {
     const onOpenPreviewCommentsPanel = vi.fn();
 
