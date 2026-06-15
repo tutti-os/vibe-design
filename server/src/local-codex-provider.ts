@@ -1,5 +1,3 @@
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import {
   createCodexProvider,
   type AgentEvent,
@@ -11,15 +9,6 @@ import {
 type CodexAdapter = LocalAgentProviderAdapter<'local-agent', 'codex'>;
 type CodexRawStream = Parameters<CodexAdapter['parseEvents']>[0];
 
-// The user's global Codex home. We point every run here so Codex loads the
-// canonical user-level config.toml. agent-acp-kit otherwise launches Codex from a
-// per-run scratch CODEX_HOME; running outside ~/.codex makes Codex treat the real
-// ~/.codex/config.toml as a "project-local" layer and strip security-sensitive
-// keys (model_provider, model_providers, notify), emitting a warning we surface as
-// a fatal codex_error. Sharing the global home also lands rollouts in
-// ~/.codex/sessions so resume keeps working.
-const GLOBAL_CODEX_HOME = join(homedir(), '.codex');
-
 const DISABLED_CODEX_TOOL_FEATURES = [
   'browser_use',
   'browser_use_external',
@@ -27,14 +16,7 @@ const DISABLED_CODEX_TOOL_FEATURES = [
   'in_app_browser',
 ] as const;
 
-// agent-acp-kit normally injects `features.multi_agent = false` into its per-run
-// scratch config. Now that Codex reads the global ~/.codex instead, re-assert it
-// as a CLI override so a user's `multi_agent = true` can't spawn sub-agents the
-// JSONL transport isn't built to parse.
-const CODEX_CONFIG_OVERRIDE_ARGS = ['-c', 'features.multi_agent=false'] as const;
-
 const CODEX_USER_CONFIG_ISOLATION_ARGS = [
-  ...CODEX_CONFIG_OVERRIDE_ARGS,
   ...DISABLED_CODEX_TOOL_FEATURES.flatMap((feature) => ['--disable', feature]),
 ] as const;
 
@@ -66,17 +48,9 @@ export function createVibeCodexProvider(): LocalAgentProviderPlugin<'local-agent
 }
 
 function isolateCodexLaunchPlan(plan: ProviderLaunchPlan): ProviderLaunchPlan {
-  return pinCodexHomeToGlobal({
-    ...plan,
-    args: insertCodexIsolationArgs(plan.args),
-  });
-}
-
-function pinCodexHomeToGlobal(plan: ProviderLaunchPlan): ProviderLaunchPlan {
   return {
     ...plan,
-    env: { ...plan.env, CODEX_HOME: GLOBAL_CODEX_HOME },
-    ...(plan.fallbackPlan ? { fallbackPlan: pinCodexHomeToGlobal(plan.fallbackPlan) } : {}),
+    args: insertCodexIsolationArgs(plan.args),
   };
 }
 
