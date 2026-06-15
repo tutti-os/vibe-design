@@ -1,5 +1,38 @@
 import { describe, expect, it } from 'vitest';
-import { parseClaudeAuthStatus, parseVibeClaudeStreamEvent } from './local-claude-provider.js';
+import { createVibeClaudeProvider, parseClaudeAuthStatus, parseVibeClaudeStreamEvent } from './local-claude-provider.js';
+
+describe('createVibeClaudeProvider', () => {
+  it('launches Claude Code with default tools and MCP disabled', async () => {
+    const provider = createVibeClaudeProvider();
+    const plan = await provider.buildLaunchPlan({
+      runId: 'run-1',
+      cwd: '/tmp/vibe-project',
+      prompt: 'Build a page',
+      model: 'claude:sonnet',
+      extraAllowedDirs: ['/tmp/shared-assets'],
+    });
+
+    expect(plan.args).toEqual(expect.arrayContaining([
+      '--tools',
+      '',
+      '--mcp-config',
+      '{}',
+      '--strict-mcp-config',
+      '--setting-sources',
+      'local',
+      '--disable-slash-commands',
+      '--no-chrome',
+      '--permission-mode',
+      'default',
+      '--model',
+      'sonnet',
+      '--add-dir',
+      '/tmp/shared-assets',
+    ]));
+    expect(plan.args).not.toEqual(expect.arrayContaining(['--permission-mode', 'bypassPermissions']));
+    expect(plan.args).not.toContain('--dangerously-skip-permissions');
+  });
+});
 
 describe('parseVibeClaudeStreamEvent', () => {
   it('extracts text from current Claude stream-json assistant messages', () => {

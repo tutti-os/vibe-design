@@ -186,7 +186,21 @@ function buildClaudeLaunchPlan(params: AgentRunParams<'local-agent', 'claude'>):
   // `claude`, making it abort as a "nested session". Strip it before spawning.
   scrubNestedClaudeSessionEnv();
 
-  const args = ['-p', '--output-format', 'stream-json', '--verbose'];
+  const args = [
+    '-p',
+    '--output-format',
+    'stream-json',
+    '--verbose',
+    '--tools',
+    '',
+    '--mcp-config',
+    '{}',
+    '--strict-mcp-config',
+    '--setting-sources',
+    'local',
+    '--disable-slash-commands',
+    '--no-chrome',
+  ];
   const model = normalizeClaudeModel(params.model);
   if (model && model !== 'default') {
     args.push('--model', model);
@@ -201,7 +215,7 @@ function buildClaudeLaunchPlan(params: AgentRunParams<'local-agent', 'claude'>):
     if (dir) args.push('--add-dir', dir);
   }
 
-  args.push('--permission-mode', 'bypassPermissions');
+  args.push('--permission-mode', 'default');
   return {
     args,
     command: resolveClaudeCommand(),

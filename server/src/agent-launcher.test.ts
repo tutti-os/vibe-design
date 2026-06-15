@@ -60,7 +60,7 @@ function createRecordingRuntime(
 }
 
 describe('startAgentRun', () => {
-  it('lets agent-acp-kit use a run-scoped Codex home with browser/computer-use capabilities disabled', async () => {
+  it('lets agent-acp-kit use a run-scoped Codex home with default tools and MCP disabled', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-codex-home-'));
     const sourceHome = join(root, 'source-home');
     await mkdir(sourceHome, { recursive: true });
@@ -69,6 +69,11 @@ describe('startAgentRun', () => {
       'model = "gpt-5.4"',
       'base_url = "https://example.test/v1"',
       'service_tier = "default"',
+      '',
+      '[mcp_servers.filesystem]',
+      'type = "stdio"',
+      'command = "node"',
+      'args = ["filesystem-server.js"]',
       '',
     ].join('\n'));
 
@@ -83,22 +88,52 @@ describe('startAgentRun', () => {
         cwd: '/tmp/vibe-project',
         env: { CODEX_HOME: sourceHome },
         prompt: 'Build a page',
+        mcpServers: [
+          {
+            type: 'stdio',
+            name: 'vibe-design',
+            command: 'node',
+            args: ['server.js'],
+            env: [{ key: 'TOKEN', value: 'secret' }],
+          },
+        ],
       });
 
       expect(plan.args).not.toContain('--ignore-user-config');
+      expect(plan.args).not.toContain('--dangerously-bypass-approvals-and-sandbox');
+      expect(plan.args).toEqual(expect.arrayContaining(['--sandbox', 'read-only']));
+      expect(plan.args).toEqual(expect.arrayContaining(['--ask-for-approval', 'never']));
       expect(plan.args).toContain('--disable');
       expect(plan.args).toEqual(expect.arrayContaining([
+        'apps',
+        'apply_patch_streaming_events',
         'browser_use',
         'browser_use_external',
         'computer_use',
+        'enable_mcp_apps',
+        'goals',
+        'image_generation',
         'in_app_browser',
+        'multi_agent',
+        'plugins',
+        'shell_tool',
+        'shell_snapshot',
+        'standalone_web_search',
+        'tool_suggest',
+        'tool_call_mcp_elicitation',
+        'unified_exec',
+        'workspace_dependencies',
       ]));
       expect(plan.args).not.toEqual(expect.arrayContaining(['-c', 'features.multi_agent=false']));
+      expect(plan).not.toHaveProperty('mcpServers');
       expect(plan.env?.CODEX_HOME).toBeTruthy();
       expect(plan.env?.CODEX_HOME).not.toBe(sourceHome);
       const runConfig = await readFile(join(plan.env!.CODEX_HOME!, 'config.toml'), 'utf8');
       expect(runConfig).toContain('base_url = "https://example.test/v1"');
       expect(runConfig).not.toContain('service_tier = "default"');
+      expect(runConfig).not.toContain('[mcp_servers.');
+      expect(runConfig).not.toContain('filesystem-server.js');
+      expect(runConfig).not.toContain('server.js');
     } finally {
       for await (const _event of adapter!.parseEvents((async function* () {})())) {
         // Drain the adapter stream so its run-scoped cleanup runs.
