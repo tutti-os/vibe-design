@@ -2508,6 +2508,60 @@ describe('VibeDesignApp', () => {
     }
   });
 
+  it('keeps the active canvas tab when an existing inactive file is saved externally', async () => {
+    const designFileService = createTestDesignFileService();
+    const flow = createVibeDesignFlow({
+      route: { kind: 'project', projectId: 'external-save-focus-project' },
+      designFileService,
+      projectEditor: {
+        project: {
+          id: 'external-save-focus-project',
+          tabsState: {
+            tabs: [
+              { kind: 'file', key: 'file:first.html', path: 'first.html', name: 'first.html' },
+              { kind: 'file', key: 'file:second.html', path: 'second.html', name: 'second.html' },
+            ],
+            activeTabKey: 'file:second.html',
+          },
+        },
+        files: [
+          {
+            name: 'first.html',
+            path: 'first.html',
+            kind: 'html',
+            mime: 'text/html',
+            contents: '<main><h1>First</h1></main>',
+          },
+          {
+            name: 'second.html',
+            path: 'second.html',
+            kind: 'html',
+            mime: 'text/html',
+            contents: '<main><h1>Second</h1></main>',
+          },
+        ],
+        conversations: [{ id: 'conversation-1', title: 'Project updates', createdAt: 1, updatedAt: 1 }],
+        activeConversationId: 'conversation-1',
+        messages: [],
+      },
+    });
+
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      expect(tabButtonByText(container, 'second.html').getAttribute('aria-selected')).toBe('true');
+
+      await act(async () => {
+        await designFileService.saveFileContent('first.html', '<main><h1>First updated</h1></main>');
+      });
+
+      expect(tabButtonByText(container, 'second.html').getAttribute('aria-selected')).toBe('true');
+      expect(tabButtonByText(container, 'first.html').getAttribute('aria-selected')).toBe('false');
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('wires preview comments to the active project conversation', async () => {
     const previewCommentService = createPreviewCommentService({
       comments: [previewComment({ status: 'open' })],
