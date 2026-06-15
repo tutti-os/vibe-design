@@ -903,7 +903,7 @@ describe('CanvasWorkspace', () => {
     expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(1)');
   });
 
-  it('opens wide html previews at 100% scale by default in preview mode', async () => {
+  it('opens wide html previews fit-to-width by default in preview mode', async () => {
     const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
       this: HTMLElement,
     ) {
@@ -942,10 +942,11 @@ describe('CanvasWorkspace', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1600px');
-        expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(1)');
-        expect(screen.getByTestId('canvas-preview-zoom-level').textContent).toBe('100%');
-        // At 100% the wide frame overflows the 800px viewport and becomes horizontally scrollable.
-        expect(Number.parseFloat(screen.getByTestId('canvas-preview-interaction-content').style.width)).toBe(1600);
+        // The 1600px frame is scaled down to fit the 800px viewport width (0.5).
+        expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(0.5)');
+        expect(screen.getByTestId('canvas-preview-zoom-level').textContent).toBe('50%');
+        // Fit-to-width keeps the scaled frame within the viewport, so no horizontal scroll.
+        expect(Number.parseFloat(screen.getByTestId('canvas-preview-interaction-content').style.width)).toBe(800);
       });
     } finally {
       rectSpy.mockRestore();

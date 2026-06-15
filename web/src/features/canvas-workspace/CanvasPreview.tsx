@@ -12,6 +12,21 @@ import { useTranslation } from '../../i18n';
 
 const CANVAS_PREVIEW_BASE_WIDTH = 1280;
 const CANVAS_PREVIEW_BASE_HEIGHT = 800;
+// Upper bounds for the document-expanding (comment) sizing mode. They are a
+// safety net only: a page whose height tracks the viewport (e.g. min-height:
+// 100vh) feeds its own measured height back into the iframe viewport, so
+// without a ceiling the frame would grow every measurement pass and never
+// settle. Real long pages stay well under these limits.
+const CANVAS_PREVIEW_MAX_DOCUMENT_WIDTH = 8192;
+const CANVAS_PREVIEW_MAX_DOCUMENT_HEIGHT = 16384;
+
+// How the preview frame derives its size:
+// - 'fit'      desktop viewport, scaled to fit the container (read-only fit view)
+// - 'viewport' locked to the design viewport; overflow scrolls inside the frame
+//              (manual preview — keeps 100vh stable, no size feedback loop)
+// - 'document' expands to the full document size, clamped (comment mode needs
+//              every element laid out at a stable document coordinate)
+export type CanvasPreviewFrameSizingMode = 'fit' | 'viewport' | 'document';
 const SNAPSHOT_BRIDGE_OWNED_SELECTOR = [
   '[data-vd-preview-size-bridge]',
   '[data-vd-preview-scrollbar]',
@@ -184,6 +199,12 @@ export function CanvasPreview({
   const acceptsSnapshotRequests = isHtmlPreview && (showUrlFrame || acceptsSnapshotBridgeMessages);
   const normalizedManualScale = Number.isFinite(manualScale) && manualScale > 0 ? manualScale : 1;
   const scale = scaleMode === 'manual' ? normalizedManualScale : fitScale;
+  // Manual previews lock to the design viewport (overflow scrolls inside the
+  // frame). Comment mode is the exception: it must keep every element laid out
+  // at a stable document coordinate so comment anchors line up, so it expands
+  // to the full document size instead.
+  const frameSizingMode: CanvasPreviewFrameSizingMode =
+    scaleMode === 'fit' ? 'fit' : commentMode ? 'document' : 'viewport';
   const frameTop = scaleMode === 'fit'
     ? Math.max(0, (fitViewportHeight - previewSize.height * scale) / 2)
     : 0;
@@ -476,7 +497,7 @@ export function CanvasPreview({
       viewportHeight: CANVAS_PREVIEW_BASE_HEIGHT,
       scrollWidth: width,
       scrollHeight: height,
-    }, scaleMode);
+    }, frameSizingMode);
     setPreviewSize((currentSize) =>
       currentSize.width === nextSize.width && currentSize.height === nextSize.height
         ? currentSize
@@ -640,7 +661,7 @@ export function CanvasPreview({
     if (!document) return;
 
     const applyMeasuredSize = () => {
-      const nextSize = measureCanvasPreviewDocument(document, scaleMode);
+      const nextSize = measureCanvasPreviewDocument(document, frameSizingMode);
       setPreviewSize((currentSize) =>
         currentSize.width === nextSize.width && currentSize.height === nextSize.height
           ? currentSize
@@ -718,22 +739,46 @@ export function CanvasPreview({
 
 export function resolveCanvasPreviewFrameSize(
   metrics: CanvasPreviewFrameMetrics,
-  scaleMode: CanvasPreviewProps['scaleMode'] = 'manual',
+  sizingMode: CanvasPreviewFrameSizingMode = 'document',
 ): CanvasPreviewFrameSize {
-  if (scaleMode === 'fit') {
+  if (sizingMode === 'document') {
+    // Expand to the full document, but clamp so a viewport-relative page
+    // (min-height: 100vh, etc.) cannot inflate the iframe without bound.
     return {
-      width: Math.max(CANVAS_PREVIEW_BASE_WIDTH, metrics.viewportWidth),
+      width: Math.min(
+        CANVAS_PREVIEW_MAX_DOCUMENT_WIDTH,
+        Math.max(CANVAS_PREVIEW_BASE_WIDTH, metrics.viewportWidth, metrics.scrollWidth),
+      ),
+      height: Math.min(
+        CANVAS_PREVIEW_MAX_DOCUMENT_HEIGHT,
+        Math.max(CANVAS_PREVIEW_BASE_HEIGHT, metrics.viewportHeight, metrics.scrollHeight),
+      ),
+    };
+  }
+
+  if (sizingMode === 'viewport') {
+    // Manual preview: keep fit-to-width for wide pages, but lock the height to
+    // the viewport. Ignoring the document scroll height is what breaks the
+    // feedback loop — otherwise a 100vh page inflates the iframe, which makes
+    // 100vh taller, which inflates the iframe again. Overflow scrolls inside
+    // the frame instead.
+    return {
+      width: Math.min(
+        CANVAS_PREVIEW_MAX_DOCUMENT_WIDTH,
+        Math.max(CANVAS_PREVIEW_BASE_WIDTH, metrics.viewportWidth, metrics.scrollWidth),
+      ),
       height: Math.max(CANVAS_PREVIEW_BASE_HEIGHT, metrics.viewportHeight),
     };
   }
 
+  // 'fit': lock the frame to the desktop viewport and scale it to fit.
   return {
-    width: Math.max(CANVAS_PREVIEW_BASE_WIDTH, metrics.viewportWidth, metrics.scrollWidth),
-    height: Math.max(CANVAS_PREVIEW_BASE_HEIGHT, metrics.viewportHeight, metrics.scrollHeight),
+    width: Math.max(CANVAS_PREVIEW_BASE_WIDTH, metrics.viewportWidth),
+    height: Math.max(CANVAS_PREVIEW_BASE_HEIGHT, metrics.viewportHeight),
   };
 }
 
-function measureCanvasPreviewDocument(document: Document, scaleMode: CanvasPreviewProps['scaleMode']): CanvasPreviewFrameSize {
+function measureCanvasPreviewDocument(document: Document, sizingMode: CanvasPreviewFrameSizingMode): CanvasPreviewFrameSize {
   const body = document.body;
   const root = document.documentElement;
 
@@ -752,7 +797,7 @@ function measureCanvasPreviewDocument(document: Document, scaleMode: CanvasPrevi
       body?.scrollHeight ?? 0,
       body?.offsetHeight ?? 0,
     ),
-  }, scaleMode);
+  }, sizingMode);
 }
 
 function areFrameLayoutsEqual(

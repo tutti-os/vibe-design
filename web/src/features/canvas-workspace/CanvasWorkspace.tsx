@@ -484,7 +484,7 @@ export function CanvasWorkspace({
       return;
     }
 
-    const nextScale = resolveInteractivePreviewAutoScale(activeManualFrameLayout, interactionViewportBounds, isCommentMode);
+    const nextScale = resolveInteractivePreviewAutoScale(activeManualFrameLayout, interactionViewportBounds);
     setInteractivePreviewScale((currentScale) => (currentScale === nextScale ? currentScale : nextScale));
   }, [
     activeManualFrameLayout?.width,
@@ -492,7 +492,6 @@ export function CanvasWorkspace({
     interactionViewportBounds?.width,
     interactivePreviewScaleMode,
     usesManualPreviewLayout,
-    isCommentMode,
   ]);
 
   function clearCommentSession() {
@@ -845,7 +844,7 @@ export function CanvasWorkspace({
 
   function resetInteractivePreviewZoom() {
     setInteractivePreviewScaleMode('auto');
-    setInteractivePreviewScale(resolveInteractivePreviewAutoScale(activeManualFrameLayout, interactionViewportBounds, isCommentMode));
+    setInteractivePreviewScale(resolveInteractivePreviewAutoScale(activeManualFrameLayout, interactionViewportBounds));
   }
 
   function handleInteractionViewportScroll(event: React.UIEvent<HTMLDivElement>) {
@@ -1656,13 +1655,10 @@ function interactivePreviewContentStyle(
 function resolveInteractivePreviewAutoScale(
   frameLayout: CanvasPreviewFrameLayout | null,
   viewportBounds: CanvasInteractionViewportBounds | null,
-  fitToWidth = true,
 ): number {
-  // Preview mode opens at 100%; only comment mode shrinks the frame to fit the viewport width.
-  if (!fitToWidth) {
-    return 1;
-  }
-
+  // Both preview and mark-up modes open fit-to-width so the frame fills the
+  // viewport horizontally instead of requiring horizontal scrolling. Content is
+  // only scaled down (never above 1), so narrow pages still render at 100%.
   const frameWidth = frameLayout?.width ?? 1280;
   const viewportWidth = viewportBounds?.width ?? frameWidth;
   if (!Number.isFinite(frameWidth) || frameWidth <= 0 || !Number.isFinite(viewportWidth) || viewportWidth <= 0) {
@@ -1980,7 +1976,11 @@ function DesignFileDetail({
                 onClick={(event) => {
                   event.preventDefault();
                   void downloadFileFromUrl(selectedFile.url!, selectedFile.name)
-                    .then(() => toast.success(t('artifacts.downloadStarted', { title: selectedFile.name })))
+                    .then((saved) => {
+                      if (saved) {
+                        toast.success(t('artifacts.downloadStarted', { title: selectedFile.name }));
+                      }
+                    })
                     .catch(() => toast.error(t('artifacts.downloadFailed', { title: selectedFile.name })));
                 }}
               >
