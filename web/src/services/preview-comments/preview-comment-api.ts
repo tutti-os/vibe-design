@@ -9,20 +9,15 @@ import type {
 import type { PreviewCommentUpsertInput } from './preview-comment-types';
 
 export interface PreviewCommentApi {
-  list(projectId: string, conversationId: string): Promise<CanvasPreviewComment[]>;
-  upsert(projectId: string, conversationId: string, input: PreviewCommentUpsertInput): Promise<CanvasPreviewComment>;
-  patchStatus(
-    projectId: string,
-    conversationId: string,
-    commentId: string,
-    status: CanvasCommentStatus,
-  ): Promise<CanvasPreviewComment>;
-  delete(projectId: string, conversationId: string, commentId: string): Promise<void>;
+  list(projectId: string): Promise<CanvasPreviewComment[]>;
+  upsert(projectId: string, input: PreviewCommentUpsertInput): Promise<CanvasPreviewComment>;
+  patchStatus(projectId: string, commentId: string, status: CanvasCommentStatus): Promise<CanvasPreviewComment>;
+  delete(projectId: string, commentId: string): Promise<void>;
 }
 
 export class FetchPreviewCommentApi implements PreviewCommentApi {
-  async list(projectId: string, conversationId: string): Promise<CanvasPreviewComment[]> {
-    const response = await fetch(collectionUrl(projectId, conversationId));
+  async list(projectId: string): Promise<CanvasPreviewComment[]> {
+    const response = await fetch(collectionUrl(projectId));
     const data = await response.json().catch(() => null);
 
     if (!response.ok) {
@@ -45,8 +40,8 @@ export class FetchPreviewCommentApi implements PreviewCommentApi {
     return comments;
   }
 
-  async upsert(projectId: string, conversationId: string, input: PreviewCommentUpsertInput): Promise<CanvasPreviewComment> {
-    const response = await fetch(collectionUrl(projectId, conversationId), {
+  async upsert(projectId: string, input: PreviewCommentUpsertInput): Promise<CanvasPreviewComment> {
+    const response = await fetch(collectionUrl(projectId), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -65,13 +60,8 @@ export class FetchPreviewCommentApi implements PreviewCommentApi {
     return comment;
   }
 
-  async patchStatus(
-    projectId: string,
-    conversationId: string,
-    commentId: string,
-    status: CanvasCommentStatus,
-  ): Promise<CanvasPreviewComment> {
-    const response = await fetch(commentUrl(projectId, conversationId, commentId), {
+  async patchStatus(projectId: string, commentId: string, status: CanvasCommentStatus): Promise<CanvasPreviewComment> {
+    const response = await fetch(commentUrl(projectId, commentId), {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
@@ -90,8 +80,8 @@ export class FetchPreviewCommentApi implements PreviewCommentApi {
     return comment;
   }
 
-  async delete(projectId: string, conversationId: string, commentId: string): Promise<void> {
-    const response = await fetch(commentUrl(projectId, conversationId, commentId), {
+  async delete(projectId: string, commentId: string): Promise<void> {
+    const response = await fetch(commentUrl(projectId, commentId), {
       method: 'DELETE',
     });
     const data = await response.json().catch(() => null);
@@ -106,12 +96,12 @@ export class FetchPreviewCommentApi implements PreviewCommentApi {
   }
 }
 
-function collectionUrl(projectId: string, conversationId: string): string {
-  return `/api/projects/${encodeURIComponent(projectId)}/conversations/${encodeURIComponent(conversationId)}/comments`;
+function collectionUrl(projectId: string): string {
+  return `/api/projects/${encodeURIComponent(projectId)}/comments`;
 }
 
-function commentUrl(projectId: string, conversationId: string, commentId: string): string {
-  return `${collectionUrl(projectId, conversationId)}/${encodeURIComponent(commentId)}`;
+function commentUrl(projectId: string, commentId: string): string {
+  return `${collectionUrl(projectId)}/${encodeURIComponent(commentId)}`;
 }
 
 function readCommentPayload(data: unknown): CanvasPreviewComment | null {
@@ -126,7 +116,6 @@ function readPreviewComment(value: unknown): CanvasPreviewComment | null {
     !isObject(target) ||
     typeof value.id !== 'string' ||
     typeof value.projectId !== 'string' ||
-    typeof value.conversationId !== 'string' ||
     typeof target.filePath !== 'string' ||
     typeof target.targetId !== 'string' ||
     typeof target.selector !== 'string' ||
@@ -175,7 +164,6 @@ function readPreviewComment(value: unknown): CanvasPreviewComment | null {
     return {
       id: value.id,
       projectId: value.projectId,
-      conversationId: value.conversationId,
       filePath: target.filePath,
       targetId: target.targetId,
       selector: target.selector,
@@ -206,7 +194,6 @@ function readPreviewComment(value: unknown): CanvasPreviewComment | null {
     return {
       id: value.id,
       projectId: value.projectId,
-      conversationId: value.conversationId,
       filePath: target.filePath,
       targetId: target.targetId,
       selector: target.selector,
@@ -234,7 +221,6 @@ function readPreviewComment(value: unknown): CanvasPreviewComment | null {
   return {
     id: value.id,
     projectId: value.projectId,
-    conversationId: value.conversationId,
     filePath: target.filePath,
     targetId: target.targetId,
     selector: target.selector,

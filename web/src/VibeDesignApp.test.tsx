@@ -14,6 +14,7 @@ import type { CreateProjectInput, IProjectService } from './services/projects/pr
 import type { DesignFileChangeEvent, IDesignFileService } from './services/design-files/design-file-service.interface';
 import type { IChatSessionService } from './services/chat-session/chat-session-service.interface';
 import type { SendTurnInput } from './services/chat-session/chat-session-types';
+import type { ProjectEditorInitialData } from './project-editor-data';
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -50,6 +51,14 @@ function queryButtonByText(container: HTMLElement, text: string): HTMLButtonElem
   return [...container.querySelectorAll<HTMLButtonElement>('button')].find(
     (candidate) => candidate.textContent?.trim() === text,
   ) ?? null;
+}
+
+function getByLabelText(container: HTMLElement, label: string): HTMLElement {
+  const element = container.querySelector(`[aria-label="${label}"]`);
+  if (!(element instanceof HTMLElement)) {
+    throw new Error(`Could not find element with label "${label}".`);
+  }
+  return element;
 }
 
 function tabButtonByText(container: HTMLElement, text: string): HTMLButtonElement {
@@ -117,7 +126,6 @@ function previewComment(overrides: Partial<CanvasPreviewComment> = {}): CanvasPr
   const comment: CanvasPreviewComment = {
     id: 'comment-1',
     projectId: 'project-1',
-    conversationId: 'conversation-1',
     filePath: 'landing.html',
     targetId: 'hero',
     selector: '[data-vd-id="hero"]',
@@ -145,19 +153,17 @@ function createPreviewCommentService(initial: PreviewCommentSnapshot): IPreviewC
     },
     getSnapshot: vi.fn(() => snapshot),
     load: vi.fn(async () => undefined),
-    upsert: vi.fn(async (conversationId, input) => {
+    upsert: vi.fn(async (input) => {
       const target =
         input.target && typeof input.target === 'object' ? (input.target as Partial<CanvasPreviewComment>) : {};
       const existing = snapshot.comments.find(
         (candidate) =>
-          candidate.conversationId === conversationId &&
           candidate.filePath === target.filePath &&
           candidate.targetId === target.targetId,
       );
       const comment = previewComment({
         id: existing?.id ?? 'comment-saved',
         createdAt: existing?.createdAt ?? 1,
-        conversationId,
         note: input.note,
         ...target,
         status: 'open',
@@ -172,7 +178,7 @@ function createPreviewCommentService(initial: PreviewCommentSnapshot): IPreviewC
       for (const listener of listeners) listener();
       return comment;
     }),
-    patchStatus: vi.fn(async (_conversationId, commentId, status) => {
+    patchStatus: vi.fn(async (commentId, status) => {
       const comment = {
         ...(snapshot.comments.find((candidate) => candidate.id === commentId) ?? previewComment({ id: commentId })),
         status,
@@ -185,10 +191,35 @@ function createPreviewCommentService(initial: PreviewCommentSnapshot): IPreviewC
       for (const listener of listeners) listener();
       return comment;
     }),
-    delete: vi.fn(async (_conversationId, commentId) => {
+    delete: vi.fn(async (commentId) => {
       snapshot = { ...snapshot, comments: snapshot.comments.filter((comment) => comment.id !== commentId) };
       for (const listener of listeners) listener();
     }),
+  };
+}
+
+function previewCommentProjectEditorData(overrides: Partial<ProjectEditorInitialData> = {}): ProjectEditorInitialData {
+  return {
+    project: {
+      id: 'preview-comment-project',
+      tabsState: {
+        tabs: [{ kind: 'file' as const, key: 'file:landing.html', path: 'landing.html', name: 'landing.html' }],
+        activeTabKey: 'file:landing.html',
+      },
+    },
+    files: [
+      {
+        name: 'landing.html',
+        path: 'landing.html',
+        kind: 'html' as const,
+        mime: 'text/html',
+        contents: '<main><h1 data-vd-id="hero">Hero</h1></main>',
+      },
+    ],
+    conversations: [{ id: 'conversation-1', title: 'Preview comments', createdAt: 1, updatedAt: 1 }],
+    activeConversationId: 'conversation-1',
+    messages: [],
+    ...overrides,
   };
 }
 
@@ -2513,7 +2544,7 @@ describe('VibeDesignApp', () => {
         await Promise.resolve();
       });
 
-      expect(previewCommentService.load).toHaveBeenCalledWith('conversation-1');
+      expect(previewCommentService.load).toHaveBeenCalledWith();
 
       await act(async () => {
         fireEvent.click(buttonByText(container, 'Comments 1'));
@@ -2572,7 +2603,6 @@ describe('VibeDesignApp', () => {
 
       await waitFor(() =>
         expect(previewCommentService.upsert).toHaveBeenCalledWith(
-          'conversation-1',
           expect.objectContaining({
             target: expect.objectContaining({ filePath: 'landing.html', targetId: 'hero' }),
             note: 'Fix hero',
@@ -2581,7 +2611,52 @@ describe('VibeDesignApp', () => {
       );
 
       expect(previewCommentService.delete).not.toHaveBeenCalled();
-      expect(previewCommentService.patchStatus).not.toHaveBeenCalledWith('conversation-1', 'comment-1', 'open');
+      expect(previewCommentService.patchStatus).not.toHaveBeenCalledWith('comment-1', 'open');
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('keeps preview comments loaded when switching project conversations', async () => {
+    const previewCommentService = createPreviewCommentService({
+      comments: [previewComment({ status: 'open' })],
+      loading: false,
+      error: null,
+    });
+    const flow = createVibeDesignFlow({
+      route: { kind: 'project', projectId: 'preview-comment-project' },
+      previewCommentService,
+      projectEditor: previewCommentProjectEditorData({
+        conversations: [
+          { id: 'conversation-1', title: 'First conversation', createdAt: 1, updatedAt: 1 },
+          { id: 'conversation-2', title: 'Second conversation', createdAt: 2, updatedAt: 2 },
+        ],
+      }),
+    });
+
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      await act(async () => {
+        fireEvent.click(tabButtonByText(container, 'Mark up'));
+      });
+
+      expect(previewCommentService.load).toHaveBeenCalledTimes(1);
+      expect(container.querySelector('[data-testid="canvas-comment-saved-marker"]')).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.click(getByLabelText(container, 'Conversation history'));
+      });
+      await act(async () => {
+        fireEvent.click(buttonByText(container, 'Second conversation'));
+      });
+
+      expect(previewCommentService.load).toHaveBeenCalledTimes(1);
+      expect(container.querySelector('[data-testid="canvas-comment-saved-marker"]')).toBeTruthy();
     } finally {
       cleanup(root, container);
     }
@@ -2791,7 +2866,6 @@ describe('VibeDesignApp', () => {
 
       await waitFor(() =>
         expect(previewCommentService.upsert).toHaveBeenCalledWith(
-          'conversation-1',
           expect.objectContaining({
             target: expect.objectContaining({ filePath: 'landing.html', targetId: 'hero' }),
             note: 'Updated saved note',

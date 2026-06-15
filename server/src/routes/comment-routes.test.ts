@@ -50,19 +50,30 @@ async function startApi(): Promise<{ url: (path: string) => string }> {
   return { url: (path: string) => `http://127.0.0.1:${port}${path}` };
 }
 
-async function createProject(api: { url: (path: string) => string }): Promise<{ projectId: string; conversationId: string }> {
+async function createProject(api: { url: (path: string) => string }): Promise<{ projectId: string }> {
   const response = await fetch(api.url('/api/projects'), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ prompt: 'Build a landing page', projectKind: 'prototype' }),
   });
   expect(response.status).toBe(201);
-  const payload = (await response.json()) as { project: { id: string }; conversationId: string };
-  return { projectId: payload.project.id, conversationId: payload.conversationId };
+  const payload = (await response.json()) as { project: { id: string } };
+  return { projectId: payload.project.id };
 }
 
-function commentPath(projectId: string, conversationId: string, commentId?: string): string {
-  const base = `/api/projects/${projectId}/conversations/${conversationId}/comments`;
+async function createConversation(api: { url: (path: string) => string }, projectId: string): Promise<string> {
+  const response = await fetch(api.url(`/api/projects/${projectId}/conversations`), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title: 'Follow-up' }),
+  });
+  expect(response.status).toBe(201);
+  const payload = (await response.json()) as { conversation: { id: string } };
+  return payload.conversation.id;
+}
+
+function commentPath(projectId: string, commentId?: string): string {
+  const base = `/api/projects/${projectId}/comments`;
   return commentId ? `${base}/${commentId}` : base;
 }
 
@@ -84,9 +95,9 @@ function createBody(note: string) {
 describe('comment routes', () => {
   it('creates, lists, patches, and deletes preview comments', async () => {
     const api = await startApi();
-    const { projectId, conversationId } = await createProject(api);
+    const { projectId } = await createProject(api);
 
-    const createResponse = await fetch(api.url(commentPath(projectId, conversationId)), {
+    const createResponse = await fetch(api.url(commentPath(projectId)), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(createBody('Tighten this heading')),
@@ -95,12 +106,12 @@ describe('comment routes', () => {
     const created = (await createResponse.json()) as { comment: { id: string; note: string; status: string } };
     expect(created.comment).toMatchObject({ note: 'Tighten this heading', status: 'open' });
 
-    const listResponse = await fetch(api.url(commentPath(projectId, conversationId)));
+    const listResponse = await fetch(api.url(commentPath(projectId)));
     expect(listResponse.status).toBe(200);
     const listed = (await listResponse.json()) as { comments: Array<{ id: string }> };
     expect(listed.comments.map((comment) => comment.id)).toEqual([created.comment.id]);
 
-    const patchResponse = await fetch(api.url(commentPath(projectId, conversationId, created.comment.id)), {
+    const patchResponse = await fetch(api.url(commentPath(projectId, created.comment.id)), {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ status: 'resolved' }),
@@ -108,30 +119,59 @@ describe('comment routes', () => {
     expect(patchResponse.status).toBe(200);
     await expect(patchResponse.json()).resolves.toMatchObject({ comment: { id: created.comment.id, status: 'resolved' } });
 
-    const deleteResponse = await fetch(api.url(commentPath(projectId, conversationId, created.comment.id)), { method: 'DELETE' });
+    const deleteResponse = await fetch(api.url(commentPath(projectId, created.comment.id)), { method: 'DELETE' });
     expect(deleteResponse.status).toBe(200);
     await expect(deleteResponse.json()).resolves.toEqual({ ok: true });
   });
 
+  it('keeps preview comments available across conversations in the same project', async () => {
+    const api = await startApi();
+    const { projectId } = await createProject(api);
+    const nextConversationId = await createConversation(api, projectId);
+    expect(nextConversationId).toMatch(/^conversation-/);
+
+    const createResponse = await fetch(api.url(commentPath(projectId)), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(createBody('First note')),
+    });
+    expect(createResponse.status).toBe(200);
+    const created = (await createResponse.json()) as { comment: { id: string } };
+
+    const updateResponse = await fetch(api.url(commentPath(projectId)), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(createBody('Updated note')),
+    });
+    expect(updateResponse.status).toBe(200);
+    const updated = (await updateResponse.json()) as { comment: { id: string; note: string } };
+    expect(updated.comment).toMatchObject({ id: created.comment.id, note: 'Updated note' });
+
+    const listResponse = await fetch(api.url(commentPath(projectId)));
+    expect(listResponse.status).toBe(200);
+    const listed = (await listResponse.json()) as { comments: Array<{ id: string; note: string }> };
+    expect(listed.comments).toEqual([expect.objectContaining({ id: created.comment.id, note: 'Updated note' })]);
+  });
+
   it('rejects empty notes and invalid statuses', async () => {
     const api = await startApi();
-    const { projectId, conversationId } = await createProject(api);
+    const { projectId } = await createProject(api);
 
-    const emptyNote = await fetch(api.url(commentPath(projectId, conversationId)), {
+    const emptyNote = await fetch(api.url(commentPath(projectId)), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(createBody('   ')),
     });
     expect(emptyNote.status).toBe(400);
 
-    const created = await fetch(api.url(commentPath(projectId, conversationId)), {
+    const created = await fetch(api.url(commentPath(projectId)), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(createBody('Track this')),
     });
     const payload = (await created.json()) as { comment: { id: string } };
 
-    const invalidStatus = await fetch(api.url(commentPath(projectId, conversationId, payload.comment.id)), {
+    const invalidStatus = await fetch(api.url(commentPath(projectId, payload.comment.id)), {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ status: 'closed' }),
@@ -141,71 +181,70 @@ describe('comment routes', () => {
 
   it('returns not found for missing preview comment patch and delete', async () => {
     const api = await startApi();
-    const { projectId, conversationId } = await createProject(api);
+    const { projectId } = await createProject(api);
 
-    const patchResponse = await fetch(api.url(commentPath(projectId, conversationId, 'missing-comment')), {
+    const patchResponse = await fetch(api.url(commentPath(projectId, 'missing-comment')), {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ status: 'resolved' }),
     });
     expect(patchResponse.status).toBe(404);
 
-    const deleteResponse = await fetch(api.url(commentPath(projectId, conversationId, 'missing-comment')), { method: 'DELETE' });
+    const deleteResponse = await fetch(api.url(commentPath(projectId, 'missing-comment')), { method: 'DELETE' });
     expect(deleteResponse.status).toBe(404);
   });
 
   it('rejects invalid preview comment ids on patch and delete', async () => {
     const api = await startApi();
-    const { projectId, conversationId } = await createProject(api);
+    const { projectId } = await createProject(api);
     const invalidCommentId = 'bad comment';
 
-    const patchResponse = await fetch(api.url(commentPath(projectId, conversationId, invalidCommentId)), {
+    const patchResponse = await fetch(api.url(commentPath(projectId, invalidCommentId)), {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ status: 'resolved' }),
     });
     expect(patchResponse.status).toBe(400);
 
-    const deleteResponse = await fetch(api.url(commentPath(projectId, conversationId, invalidCommentId)), {
+    const deleteResponse = await fetch(api.url(commentPath(projectId, invalidCommentId)), {
       method: 'DELETE',
     });
     expect(deleteResponse.status).toBe(400);
   });
 
-  it('returns not found when project and conversation ids do not belong together', async () => {
+  it('keeps preview comments isolated by project only', async () => {
     const api = await startApi();
     const projectA = await createProject(api);
     const projectB = await createProject(api);
 
-    const createResponse = await fetch(api.url(commentPath(projectA.projectId, projectB.conversationId)), {
+    const createResponse = await fetch(api.url(commentPath(projectA.projectId)), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(createBody('Wrong scope')),
+      body: JSON.stringify(createBody('Project A scope')),
     });
-    expect(createResponse.status).toBe(404);
+    expect(createResponse.status).toBe(200);
+    const payload = (await createResponse.json()) as { comment: { id: string } };
 
-    const listResponse = await fetch(api.url(commentPath(projectA.projectId, projectB.conversationId)));
-    expect(listResponse.status).toBe(404);
+    const projectAList = await fetch(api.url(commentPath(projectA.projectId)));
+    expect(projectAList.status).toBe(200);
+    await expect(projectAList.json()).resolves.toMatchObject({ comments: [{ id: payload.comment.id }] });
 
-    const validCreate = await fetch(api.url(commentPath(projectA.projectId, projectA.conversationId)), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(createBody('Valid scope')),
-    });
-    const payload = (await validCreate.json()) as { comment: { id: string } };
+    const projectBList = await fetch(api.url(commentPath(projectB.projectId)));
+    expect(projectBList.status).toBe(200);
+    await expect(projectBList.json()).resolves.toEqual({ comments: [] });
 
-    const patchResponse = await fetch(api.url(commentPath(projectA.projectId, projectB.conversationId, payload.comment.id)), {
+    const patchResponse = await fetch(api.url(commentPath(projectB.projectId, payload.comment.id)), {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ status: 'resolved' }),
     });
     expect(patchResponse.status).toBe(404);
-    await expect(patchResponse.json()).resolves.toMatchObject({ error: { code: 'CONVERSATION_NOT_FOUND' } });
+    await expect(patchResponse.json()).resolves.toMatchObject({ error: { code: 'COMMENT_NOT_FOUND' } });
 
-    const deleteResponse = await fetch(api.url(commentPath(projectA.projectId, projectB.conversationId, payload.comment.id)), {
+    const deleteResponse = await fetch(api.url(commentPath(projectB.projectId, payload.comment.id)), {
       method: 'DELETE',
     });
     expect(deleteResponse.status).toBe(404);
-    await expect(deleteResponse.json()).resolves.toMatchObject({ error: { code: 'CONVERSATION_NOT_FOUND' } });
+    await expect(deleteResponse.json()).resolves.toMatchObject({ error: { code: 'COMMENT_NOT_FOUND' } });
   });
 });

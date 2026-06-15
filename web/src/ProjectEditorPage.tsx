@@ -75,6 +75,7 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
   const pendingCanvasSaveNamesRef = React.useRef(new Map<string, number>());
   const filesRef = React.useRef(files);
   const previewScreenshotRequesterRef = React.useRef<CanvasPreviewScreenshotRequester | null>(null);
+  const loadedPreviewCommentsRef = React.useRef<{ projectId: string; service: typeof previewComments } | null>(null);
   const refreshFilesRequestRef = React.useRef(0);
   const observedGeneratedFileEventKeysRef = React.useRef<Set<string> | null>(null);
   const observedCompletedRunKeysRef = React.useRef<Set<string> | null>(null);
@@ -257,24 +258,21 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
   );
   const handleSavePreviewComment = React.useCallback(
     (target: CanvasPreviewCommentTarget, note: string) => {
-      if (!activeConversationId) return Promise.resolve(null);
-      return previewComments.upsert(activeConversationId, { target, note });
+      return previewComments.upsert({ target, note });
     },
-    [activeConversationId, previewComments],
+    [previewComments],
   );
   const handleDeletePreviewComment = React.useCallback(
     (commentId: string) => {
-      if (!activeConversationId) return Promise.resolve();
-      return previewComments.delete(activeConversationId, commentId);
+      return previewComments.delete(commentId);
     },
-    [activeConversationId, previewComments],
+    [previewComments],
   );
   const handlePatchPreviewCommentStatus = React.useCallback(
     (commentId: string, status: CanvasCommentStatus) => {
-      if (!activeConversationId) return Promise.resolve();
-      return previewComments.patchStatus(activeConversationId, commentId, status).then(() => undefined);
+      return previewComments.patchStatus(commentId, status).then(() => undefined);
     },
-    [activeConversationId, previewComments],
+    [previewComments],
   );
   const handleOpenPreviewComment = React.useCallback(
     (comment: CanvasPreviewComment) => {
@@ -444,9 +442,20 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
 
   React.useEffect(() => {
     setStagedCommentAttachments([]);
-    if (!activeConversationId) return;
-    void previewComments.load(activeConversationId).catch(() => undefined);
-  }, [activeConversationId, previewComments]);
+  }, [activeConversationId]);
+
+  React.useEffect(() => {
+    const loadedPreviewComments = loadedPreviewCommentsRef.current;
+    if (loadedPreviewComments?.projectId === projectId && loadedPreviewComments.service === previewComments) {
+      return;
+    }
+    loadedPreviewCommentsRef.current = { projectId, service: previewComments };
+    void previewComments.load().catch(() => {
+      if (loadedPreviewCommentsRef.current?.projectId === projectId) {
+        loadedPreviewCommentsRef.current = null;
+      }
+    });
+  }, [previewComments, projectId]);
 
   React.useEffect(() => {
     if (!activeDesignSystemId) return;
@@ -538,7 +547,7 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
             commentsPanelOpen={commentPanelOpen}
             onOpenPreviewCommentsPanel={() => setCommentPanelOpen(true)}
             onClosePreviewCommentsPanel={() => setCommentPanelOpen(false)}
-            onSavePreviewComment={activeConversationId ? handleSavePreviewComment : undefined}
+            onSavePreviewComment={handleSavePreviewComment}
             onSendCommentAttachments={handleSendCommentAttachments}
             onPreviewScreenshotRequesterChange={(requester) => {
               previewScreenshotRequesterRef.current = requester;

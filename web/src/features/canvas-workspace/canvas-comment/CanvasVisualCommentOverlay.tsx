@@ -198,11 +198,11 @@ export function CanvasVisualCommentOverlay({
   return (
     <div
       data-testid="canvas-visual-comment-overlay"
-      className="absolute inset-0 z-20 flex flex-col pointer-events-none"
+      className="absolute inset-0 z-[70] flex flex-col pointer-events-none"
     >
       <div
         data-testid="canvas-visual-comment-mark-surface"
-        className={`pointer-events-auto absolute cursor-crosshair ${frameLayout ? '' : 'inset-0'}`}
+        className={`pointer-events-auto absolute cursor-crosshair overflow-hidden ${frameLayout ? '' : 'inset-0'}`}
         style={surfaceStyle}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}

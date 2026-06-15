@@ -170,7 +170,6 @@ function previewComment(overrides: Partial<CanvasPreviewComment> = {}): CanvasPr
   const comment: CanvasPreviewComment = {
     id: 'comment-1',
     projectId: 'project-1',
-    conversationId: 'conversation-1',
     filePath: 'landing.html',
     targetId: 'hero',
     selector: '[data-vd-id="hero"]',

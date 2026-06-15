@@ -78,11 +78,11 @@ export function registerCliRoutes(app: Express, ctx: CliRouteDeps): void {
   });
 
   postCli('/tutti/cli/comments', async (req: Request, res: Response) => {
-    const ids = readProjectConversationIds(res, cliInput(req.body));
-    if (!ids) return;
-    const comments = listPreviewCommentsFromStore(ctx.paths.projectsDir, ids.projectId, ids.conversationId);
+    const projectId = readRequiredSafeProjectId(res, cliInput(req.body));
+    if (!projectId) return;
+    const comments = listPreviewCommentsFromStore(ctx.paths.projectsDir, projectId);
     if (!comments) {
-      sendCliError(res, 404, 'CONVERSATION_NOT_FOUND', 'conversation not found');
+      sendCliError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
       return;
     }
     sendCliJson(res, { comments });

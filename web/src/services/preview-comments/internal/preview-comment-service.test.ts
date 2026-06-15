@@ -9,9 +9,9 @@ describe('PreviewCommentService', () => {
     const api = createApi({ list: vi.fn(async () => comments) });
     const service = new PreviewCommentService(api, 'project-1');
 
-    await service.load('conversation-1');
+    await service.load();
 
-    expect(api.list).toHaveBeenCalledWith('project-1', 'conversation-1');
+    expect(api.list).toHaveBeenCalledWith('project-1');
     expect(service.getSnapshot()).toEqual({ comments, loading: false, error: null });
   });
 
@@ -24,24 +24,24 @@ describe('PreviewCommentService', () => {
       upsert: vi.fn(async () => existing),
     });
     const service = new PreviewCommentService(api, 'project-1');
-    await service.upsert('conversation-1', { target: existing, note: existing.note });
+    await service.upsert({ target: existing, note: existing.note });
     const listener = vi.fn();
     const unsubscribe = service.subscribe(listener);
 
-    await expect(service.load('conversation-1')).resolves.toBeUndefined();
+    await expect(service.load()).resolves.toBeUndefined();
 
     expect(listener).toHaveBeenCalledTimes(2);
     expect(service.getSnapshot()).toEqual({ comments: [existing], loading: false, error: 'List failed' });
     unsubscribe();
-    await service.upsert('conversation-1', { target: existing, note: 'After unsubscribe' });
+    await service.upsert({ target: existing, note: 'After unsubscribe' });
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
-  it('ignores stale load responses when a newer conversation load wins', async () => {
+  it('ignores stale load responses when a newer project load wins', async () => {
     const firstLoad = deferred<CanvasPreviewComment[]>();
     const secondLoad = deferred<CanvasPreviewComment[]>();
-    const firstComment = previewComment({ id: 'comment-a', conversationId: 'conversation-a', note: 'A' });
-    const secondComment = previewComment({ id: 'comment-b', conversationId: 'conversation-b', note: 'B' });
+    const firstComment = previewComment({ id: 'comment-a', note: 'A' });
+    const secondComment = previewComment({ id: 'comment-b', note: 'B' });
     const api = createApi({
       list: vi
         .fn<PreviewCommentApi['list']>()
@@ -50,8 +50,8 @@ describe('PreviewCommentService', () => {
     });
     const service = new PreviewCommentService(api, 'project-1');
 
-    const loadA = service.load('conversation-a');
-    const loadB = service.load('conversation-b');
+    const loadA = service.load();
+    const loadB = service.load();
     secondLoad.resolve([secondComment]);
     await loadB;
     firstLoad.resolve([firstComment]);
@@ -60,21 +60,21 @@ describe('PreviewCommentService', () => {
     expect(service.getSnapshot()).toEqual({ comments: [secondComment], loading: false, error: null });
   });
 
-  it('clears comments immediately when loading a different conversation', async () => {
-    const firstComment = previewComment({ id: 'comment-a', conversationId: 'conversation-a', note: 'A' });
+  it('keeps project comments visible while loading a project reload', async () => {
+    const firstComment = previewComment({ id: 'comment-a', note: 'A' });
     const secondLoad = deferred<CanvasPreviewComment[]>();
     const api = createApi({
       list: vi.fn<PreviewCommentApi['list']>().mockResolvedValueOnce([firstComment]).mockReturnValueOnce(secondLoad.promise),
     });
     const service = new PreviewCommentService(api, 'project-1');
-    await service.load('conversation-a');
+    await service.load();
 
-    const loadB = service.load('conversation-b');
+    const loadB = service.load();
 
-    expect(service.getSnapshot()).toEqual({ comments: [], loading: true, error: null });
+    expect(service.getSnapshot()).toEqual({ comments: [firstComment], loading: true, error: null });
     secondLoad.reject(new Error('List B failed'));
     await loadB;
-    expect(service.getSnapshot()).toEqual({ comments: [], loading: false, error: 'List B failed' });
+    expect(service.getSnapshot()).toEqual({ comments: [firstComment], loading: false, error: 'List B failed' });
   });
 
   it('ignores stale load responses after a local mutation changes active comments', async () => {
@@ -87,8 +87,8 @@ describe('PreviewCommentService', () => {
     });
     const service = new PreviewCommentService(api, 'project-1');
 
-    const load = service.load('conversation-1');
-    await service.upsert('conversation-1', { target: savedComment, note: savedComment.note });
+    const load = service.load();
+    await service.upsert({ target: savedComment, note: savedComment.note });
     pendingLoad.resolve([loadedComment]);
     await load;
 
@@ -105,10 +105,10 @@ describe('PreviewCommentService', () => {
       delete: vi.fn(async () => undefined),
     });
     const service = new PreviewCommentService(api, 'project-1');
-    await service.upsert('conversation-1', { target: currentComment, note: currentComment.note });
+    await service.upsert({ target: currentComment, note: currentComment.note });
 
-    const load = service.load('conversation-1');
-    await service.delete('conversation-1', 'comment-current');
+    const load = service.load();
+    await service.delete('comment-current');
     pendingLoad.resolve([loadedComment]);
     await load;
 
@@ -124,39 +124,39 @@ describe('PreviewCommentService', () => {
       upsert: vi.fn(async () => updatedFirst),
     });
     const service = new PreviewCommentService(api, 'project-1');
-    await service.load('conversation-1');
+    await service.load();
 
-    await expect(service.upsert('conversation-1', { target: first, note: 'Updated first' })).resolves.toEqual(updatedFirst);
+    await expect(service.upsert({ target: first, note: 'Updated first' })).resolves.toEqual(updatedFirst);
 
-    expect(api.upsert).toHaveBeenCalledWith('project-1', 'conversation-1', { target: first, note: 'Updated first' });
+    expect(api.upsert).toHaveBeenCalledWith('project-1', { target: first, note: 'Updated first' });
     expect(service.getSnapshot().comments.map((comment) => comment.id)).toEqual(['comment-1', 'comment-2']);
     expect(service.getSnapshot().comments[0]).toEqual(updatedFirst);
   });
 
-  it('does not apply or notify for stale upsert results after switching conversations', async () => {
+  it('applies upsert results after reloading project comments because comments are project scoped', async () => {
     const pendingUpsert = deferred<CanvasPreviewComment>();
-    const conversationAComment = previewComment({ id: 'comment-a', conversationId: 'conversation-a', note: 'Saved A' });
-    const conversationBComment = previewComment({ id: 'comment-b', conversationId: 'conversation-b', note: 'Loaded B' });
+    const projectCommentA = previewComment({ id: 'comment-a', note: 'Saved A' });
+    const projectCommentB = previewComment({ id: 'comment-b', note: 'Loaded B' });
     const api = createApi({
-      list: vi.fn(async () => [conversationBComment]),
+      list: vi.fn(async () => [projectCommentB]),
       upsert: vi.fn(async () => pendingUpsert.promise),
     });
     const service = new PreviewCommentService(api, 'project-1');
-    await service.load('conversation-a');
+    await service.load();
     const listener = vi.fn();
     service.subscribe(listener);
 
-    const upsert = service.upsert('conversation-a', { target: conversationAComment, note: conversationAComment.note });
-    await service.load('conversation-b');
+    const upsert = service.upsert({ target: projectCommentA, note: projectCommentA.note });
+    await service.load();
     listener.mockClear();
-    pendingUpsert.resolve(conversationAComment);
+    pendingUpsert.resolve(projectCommentA);
 
-    await expect(upsert).resolves.toEqual(conversationAComment);
-    expect(service.getSnapshot()).toEqual({ comments: [conversationBComment], loading: false, error: null });
-    expect(listener).not.toHaveBeenCalled();
+    await expect(upsert).resolves.toEqual(projectCommentA);
+    expect(service.getSnapshot()).toEqual({ comments: [projectCommentA, projectCommentB], loading: false, error: null });
+    expect(listener).toHaveBeenCalledOnce();
   });
 
-  it('applies concurrent same-conversation upserts as each request resolves', async () => {
+  it('applies concurrent same-project upserts as each request resolves', async () => {
     const firstUpsert = deferred<CanvasPreviewComment>();
     const secondUpsert = deferred<CanvasPreviewComment>();
     const firstComment = previewComment({ id: 'comment-1', note: 'First' });
@@ -171,8 +171,8 @@ describe('PreviewCommentService', () => {
     const listener = vi.fn();
     service.subscribe(listener);
 
-    const firstRequest = service.upsert('conversation-1', { target: firstComment, note: firstComment.note });
-    const secondRequest = service.upsert('conversation-1', { target: secondComment, note: secondComment.note });
+    const firstRequest = service.upsert({ target: firstComment, note: firstComment.note });
+    const secondRequest = service.upsert({ target: secondComment, note: secondComment.note });
     firstUpsert.resolve(firstComment);
     await firstRequest;
     secondUpsert.resolve(secondComment);
@@ -200,12 +200,12 @@ describe('PreviewCommentService', () => {
       upsert: vi.fn(async () => pendingUpsert.promise),
     });
     const service = new PreviewCommentService(api, 'project-1');
-    await service.load('conversation-1');
+    await service.load();
     const listener = vi.fn();
     service.subscribe(listener);
 
-    const patchRequest = service.patchStatus('conversation-1', 'comment-1', 'resolved');
-    const upsertRequest = service.upsert('conversation-1', { target, note: upserted.note });
+    const patchRequest = service.patchStatus('comment-1', 'resolved');
+    const upsertRequest = service.upsert({ target, note: upserted.note });
     pendingUpsert.resolve(upserted);
     await expect(upsertRequest).resolves.toEqual(upserted);
     expect(service.getSnapshot().comments).toEqual([upserted]);
@@ -239,8 +239,8 @@ describe('PreviewCommentService', () => {
     const listener = vi.fn();
     service.subscribe(listener);
 
-    const firstRequest = service.upsert('conversation-1', { target, note: firstComment.note });
-    const secondRequest = service.upsert('conversation-1', { target, note: secondComment.note });
+    const firstRequest = service.upsert({ target, note: firstComment.note });
+    const secondRequest = service.upsert({ target, note: secondComment.note });
     secondUpsert.resolve(secondComment);
     await expect(secondRequest).resolves.toEqual(secondComment);
     expect(service.getSnapshot().comments).toEqual([secondComment]);
@@ -261,13 +261,13 @@ describe('PreviewCommentService', () => {
       patchStatus: vi.fn(async () => resolved),
     });
     const service = new PreviewCommentService(api, 'project-1');
-    await service.load('conversation-1');
+    await service.load();
     const listener = vi.fn();
     service.subscribe(listener);
 
-    await expect(service.patchStatus('conversation-1', 'comment-1', 'resolved')).resolves.toEqual(resolved);
+    await expect(service.patchStatus('comment-1', 'resolved')).resolves.toEqual(resolved);
 
-    expect(api.patchStatus).toHaveBeenCalledWith('project-1', 'conversation-1', 'comment-1', 'resolved');
+    expect(api.patchStatus).toHaveBeenCalledWith('project-1', 'comment-1', 'resolved');
     expect(service.getSnapshot().comments).toEqual([resolved]);
     expect(listener).toHaveBeenCalledOnce();
   });
@@ -283,12 +283,12 @@ describe('PreviewCommentService', () => {
       delete: vi.fn(async () => pendingDelete.promise),
     });
     const service = new PreviewCommentService(api, 'project-1');
-    await service.load('conversation-1');
+    await service.load();
     const listener = vi.fn();
     service.subscribe(listener);
 
-    const patchRequest = service.patchStatus('conversation-1', 'comment-1', 'resolved');
-    const deleteRequest = service.delete('conversation-1', 'comment-1');
+    const patchRequest = service.patchStatus('comment-1', 'resolved');
+    const deleteRequest = service.delete('comment-1');
     pendingDelete.resolve();
     await deleteRequest;
     expect(service.getSnapshot().comments).toEqual([]);
@@ -301,7 +301,7 @@ describe('PreviewCommentService', () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
-  it('applies concurrent same-conversation patches for different comments', async () => {
+  it('applies concurrent same-project patches for different comments', async () => {
     const firstPatch = deferred<CanvasPreviewComment>();
     const secondPatch = deferred<CanvasPreviewComment>();
     const firstOpen = previewComment({ id: 'comment-1', status: 'open' });
@@ -316,12 +316,12 @@ describe('PreviewCommentService', () => {
         .mockReturnValueOnce(secondPatch.promise),
     });
     const service = new PreviewCommentService(api, 'project-1');
-    await service.load('conversation-1');
+    await service.load();
     const listener = vi.fn();
     service.subscribe(listener);
 
-    const firstRequest = service.patchStatus('conversation-1', 'comment-1', 'resolved');
-    const secondRequest = service.patchStatus('conversation-1', 'comment-2', 'needs_review');
+    const firstRequest = service.patchStatus('comment-1', 'resolved');
+    const secondRequest = service.patchStatus('comment-2', 'needs_review');
     secondPatch.resolve(secondNeedsReview);
     await secondRequest;
     firstPatch.resolve(firstResolved);
@@ -331,30 +331,30 @@ describe('PreviewCommentService', () => {
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
-  it('does not apply or notify for stale delete results after switching conversations', async () => {
+  it('applies delete results after reloading project comments because comments are project scoped', async () => {
     const pendingDelete = deferred<void>();
-    const conversationAComment = previewComment({ id: 'comment-a', conversationId: 'conversation-a', note: 'A' });
-    const conversationBComment = previewComment({ id: 'comment-b', conversationId: 'conversation-b', note: 'B' });
+    const projectCommentA = previewComment({ id: 'comment-a', note: 'A' });
+    const projectCommentB = previewComment({ id: 'comment-b', note: 'B' });
     const api = createApi({
       list: vi
         .fn<PreviewCommentApi['list']>()
-        .mockResolvedValueOnce([conversationAComment])
-        .mockResolvedValueOnce([conversationBComment]),
+        .mockResolvedValueOnce([projectCommentA])
+        .mockResolvedValueOnce([projectCommentB]),
       delete: vi.fn(async () => pendingDelete.promise),
     });
     const service = new PreviewCommentService(api, 'project-1');
-    await service.load('conversation-a');
+    await service.load();
     const listener = vi.fn();
     service.subscribe(listener);
 
-    const deleteRequest = service.delete('conversation-a', 'comment-a');
-    await service.load('conversation-b');
+    const deleteRequest = service.delete('comment-a');
+    await service.load();
     listener.mockClear();
     pendingDelete.resolve();
     await deleteRequest;
 
-    expect(service.getSnapshot()).toEqual({ comments: [conversationBComment], loading: false, error: null });
-    expect(listener).not.toHaveBeenCalled();
+    expect(service.getSnapshot()).toEqual({ comments: [projectCommentB], loading: false, error: null });
+    expect(listener).toHaveBeenCalledOnce();
   });
 
   it('prepends a patched comment when it is not already loaded', async () => {
@@ -362,7 +362,7 @@ describe('PreviewCommentService', () => {
     const api = createApi({ patchStatus: vi.fn(async () => patched) });
     const service = new PreviewCommentService(api, 'project-1');
 
-    await service.patchStatus('conversation-1', 'comment-missing', 'needs_review');
+    await service.patchStatus('comment-missing', 'needs_review');
 
     expect(service.getSnapshot().comments).toEqual([patched]);
   });
@@ -375,13 +375,13 @@ describe('PreviewCommentService', () => {
       delete: vi.fn(async () => undefined),
     });
     const service = new PreviewCommentService(api, 'project-1');
-    await service.load('conversation-1');
+    await service.load();
     const listener = vi.fn();
     service.subscribe(listener);
 
-    await service.delete('conversation-1', 'comment-1');
+    await service.delete('comment-1');
 
-    expect(api.delete).toHaveBeenCalledWith('project-1', 'conversation-1', 'comment-1');
+    expect(api.delete).toHaveBeenCalledWith('project-1', 'comment-1');
     expect(service.getSnapshot().comments).toEqual([second]);
     expect(listener).toHaveBeenCalledOnce();
   });
@@ -390,7 +390,7 @@ describe('PreviewCommentService', () => {
     const first = previewComment({ id: 'comment-1' });
     const api = createApi({ list: vi.fn(async () => [first]) });
     const service = new PreviewCommentService(api, 'project-1');
-    await service.load('conversation-1');
+    await service.load();
 
     service.getSnapshot().comments.pop();
 
@@ -401,7 +401,7 @@ describe('PreviewCommentService', () => {
     const first = previewComment({ id: 'comment-1', note: 'Original note' });
     const api = createApi({ list: vi.fn(async () => [first]) });
     const service = new PreviewCommentService(api, 'project-1');
-    await service.load('conversation-1');
+    await service.load();
     const expectedNote = first.note;
     const expectedX = first.position.x;
 
@@ -431,7 +431,6 @@ function previewComment(overrides: Partial<CanvasPreviewComment> = {}): CanvasPr
   const comment: CanvasPreviewComment = {
     id: 'comment-1',
     projectId: 'project-1',
-    conversationId: 'conversation-1',
     filePath: 'index.html',
     targetId: 'hero-title',
     selector: '#hero-title',

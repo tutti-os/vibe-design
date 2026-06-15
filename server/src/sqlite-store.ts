@@ -129,7 +129,6 @@ export interface PreviewCommentTarget {
 export interface StoredPreviewComment {
   id: string;
   projectId: string;
-  conversationId: string;
   target: PreviewCommentTarget;
   note: string;
   status: PreviewCommentStatus;
@@ -208,7 +207,6 @@ interface MessageRow {
 interface PreviewCommentRow {
   id: string;
   project_id: string;
-  conversation_id: string;
   file_path: string;
   target_id: string;
   selector: string;
@@ -522,7 +520,6 @@ export function deleteConversationFromStore(
       return 'last_conversation';
     }
 
-    db.prepare('DELETE FROM preview_comments WHERE project_id = ? AND conversation_id = ?').run(projectId, conversationId);
     db.prepare('DELETE FROM messages WHERE conversation_id = ?').run(conversationId);
     db.prepare('DELETE FROM conversations WHERE project_id = ? AND id = ?').run(projectId, conversationId);
     const now = Date.now();
@@ -751,88 +748,59 @@ export function upsertMessageInStore(
 export function listPreviewCommentsFromStore(
   projectsDir: string,
   projectId: string,
-  conversationId: string,
 ): StoredPreviewComment[] | null {
   const db = getStore(projectsDir);
-  if (!conversationBelongsToProject(db, projectId, conversationId)) {
+  if (!projectExists(db, projectId)) {
     return null;
   }
 
   const rows = db
     .prepare(
-      `SELECT id, project_id, conversation_id, file_path, target_id, selector, label, text, position_json, hover_point_json,
+      `SELECT id, project_id, file_path, target_id, selector, label, text, position_json, hover_point_json,
         html_hint, style_json, selection_kind, member_count, pod_members_json, screenshot_path, mark_kind, intent,
         note, status, created_at, updated_at
        FROM preview_comments
-       WHERE project_id = ? AND conversation_id = ?
+       WHERE project_id = ?
        ORDER BY updated_at DESC, rowid DESC`,
     )
-    .all(projectId, conversationId) as PreviewCommentRow[];
+    .all(projectId) as PreviewCommentRow[];
   return rows.map(previewCommentFromRow);
 }
 
-export function previewCommentConversationExistsInStore(
-  projectsDir: string,
-  projectId: string,
-  conversationId: string,
-): boolean {
-  return conversationBelongsToProject(getStore(projectsDir), projectId, conversationId);
+export function previewCommentProjectExistsInStore(projectsDir: string, projectId: string): boolean {
+  return projectExists(getStore(projectsDir), projectId);
 }
 
 export function upsertPreviewCommentInStore(
   projectsDir: string,
   projectId: string,
-  conversationId: string,
   input: UpsertPreviewCommentInput,
 ): StoredPreviewComment {
   const target = normalizePreviewCommentTarget(input.target);
   const note = normalizeRequiredText(input.note, 'comment note is required');
   const db = getStore(projectsDir);
   const tx = db.transaction(() => {
-    if (!conversationBelongsToProject(db, projectId, conversationId)) {
-      throw new Error('conversation not found');
+    if (!projectExists(db, projectId)) {
+      throw new Error('project not found');
     }
 
     const current = db
       .prepare(
-        `SELECT id, project_id, conversation_id, file_path, target_id, selector, label, text, position_json, hover_point_json,
+        `SELECT id, project_id, file_path, target_id, selector, label, text, position_json, hover_point_json,
           html_hint, style_json, selection_kind, member_count, pod_members_json, screenshot_path, mark_kind, intent,
           note, status, created_at, updated_at
          FROM preview_comments
-         WHERE project_id = ? AND conversation_id = ? AND file_path = ? AND target_id = ?`,
+         WHERE project_id = ? AND file_path = ? AND target_id = ?
+         ORDER BY updated_at DESC, rowid DESC
+         LIMIT 1`,
       )
-      .get(projectId, conversationId, target.filePath, target.targetId) as PreviewCommentRow | undefined;
+      .get(projectId, target.filePath, target.targetId) as PreviewCommentRow | undefined;
     const now = Date.now();
     const id = current?.id ?? `comment-${randomUUID().slice(0, 8)}`;
     const createdAt = current?.created_at ?? now;
-    db.prepare(
-      `INSERT INTO preview_comments (
-        id, project_id, conversation_id, file_path, target_id, selector, label, text, position_json, hover_point_json,
-        html_hint, style_json, selection_kind, member_count, pod_members_json, screenshot_path, mark_kind, intent,
-        note, status, created_at, updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(project_id, conversation_id, file_path, target_id) DO UPDATE SET
-        selector = excluded.selector,
-        label = excluded.label,
-        text = excluded.text,
-        position_json = excluded.position_json,
-        hover_point_json = excluded.hover_point_json,
-        html_hint = excluded.html_hint,
-        style_json = excluded.style_json,
-        selection_kind = excluded.selection_kind,
-        member_count = excluded.member_count,
-        pod_members_json = excluded.pod_members_json,
-        screenshot_path = excluded.screenshot_path,
-        mark_kind = excluded.mark_kind,
-        intent = excluded.intent,
-        note = excluded.note,
-        status = excluded.status,
-        updated_at = excluded.updated_at`,
-    ).run(
+    const values = [
       id,
       projectId,
-      conversationId,
       target.filePath,
       target.targetId,
       target.selector,
@@ -852,18 +820,69 @@ export function upsertPreviewCommentInStore(
       'open',
       createdAt,
       now,
-    );
-    bumpConversationAndProject(db, conversationId, projectId, now);
+    ] as const;
+
+    if (current) {
+      db.prepare(
+        `UPDATE preview_comments
+         SET selector = ?,
+           label = ?,
+           text = ?,
+           position_json = ?,
+           hover_point_json = ?,
+           html_hint = ?,
+           style_json = ?,
+           selection_kind = ?,
+           member_count = ?,
+           pod_members_json = ?,
+           screenshot_path = ?,
+           mark_kind = ?,
+           intent = ?,
+           note = ?,
+           status = ?,
+           updated_at = ?
+         WHERE id = ? AND project_id = ?`,
+      ).run(
+        target.selector,
+        target.label,
+        target.text,
+        JSON.stringify(target.position),
+        target.hoverPoint ? JSON.stringify(target.hoverPoint) : null,
+        target.htmlHint,
+        target.style === null ? null : JSON.stringify(target.style),
+        target.selectionKind,
+        target.memberCount,
+        target.podMembers === null ? null : JSON.stringify(target.podMembers),
+        target.screenshotPath,
+        target.markKind,
+        target.intent,
+        note,
+        'open',
+        now,
+        current.id,
+        projectId,
+      );
+    } else {
+      db.prepare(
+        `INSERT INTO preview_comments (
+          id, project_id, file_path, target_id, selector, label, text, position_json, hover_point_json,
+          html_hint, style_json, selection_kind, member_count, pod_members_json, screenshot_path, mark_kind, intent,
+          note, status, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(...values);
+    }
+    bumpProject(db, projectId, now);
 
     const row = db
       .prepare(
-        `SELECT id, project_id, conversation_id, file_path, target_id, selector, label, text, position_json, hover_point_json,
+        `SELECT id, project_id, file_path, target_id, selector, label, text, position_json, hover_point_json,
           html_hint, style_json, selection_kind, member_count, pod_members_json, screenshot_path, mark_kind, intent,
           note, status, created_at, updated_at
          FROM preview_comments
-         WHERE project_id = ? AND conversation_id = ? AND file_path = ? AND target_id = ?`,
+         WHERE project_id = ? AND file_path = ? AND target_id = ?`,
       )
-      .get(projectId, conversationId, target.filePath, target.targetId) as PreviewCommentRow;
+      .get(projectId, target.filePath, target.targetId) as PreviewCommentRow;
     return previewCommentFromRow(row);
   });
   return cloneJson(tx());
@@ -872,7 +891,6 @@ export function upsertPreviewCommentInStore(
 export function updatePreviewCommentStatusInStore(
   projectsDir: string,
   projectId: string,
-  conversationId: string,
   commentId: string,
   status: string,
 ): StoredPreviewComment | null {
@@ -882,46 +900,43 @@ export function updatePreviewCommentStatusInStore(
 
   const now = Date.now();
   const db = getStore(projectsDir);
-  if (!conversationBelongsToProject(db, projectId, conversationId)) {
+  if (!projectExists(db, projectId)) {
     return null;
   }
 
   const result = db
-    .prepare('UPDATE preview_comments SET status = ?, updated_at = ? WHERE project_id = ? AND conversation_id = ? AND id = ?')
-    .run(status, now, projectId, conversationId, commentId);
+    .prepare('UPDATE preview_comments SET status = ?, updated_at = ? WHERE project_id = ? AND id = ?')
+    .run(status, now, projectId, commentId);
   if (result.changes === 0) {
     return null;
   }
-  bumpConversationAndProject(db, conversationId, projectId, now);
+  bumpProject(db, projectId, now);
 
   const row = db
     .prepare(
-      `SELECT id, project_id, conversation_id, file_path, target_id, selector, label, text, position_json, hover_point_json,
+      `SELECT id, project_id, file_path, target_id, selector, label, text, position_json, hover_point_json,
         html_hint, style_json, selection_kind, member_count, pod_members_json, screenshot_path, mark_kind, intent,
         note, status, created_at, updated_at
        FROM preview_comments
-       WHERE project_id = ? AND conversation_id = ? AND id = ?`,
+       WHERE project_id = ? AND id = ?`,
     )
-    .get(projectId, conversationId, commentId) as PreviewCommentRow | undefined;
+    .get(projectId, commentId) as PreviewCommentRow | undefined;
   return row ? cloneJson(previewCommentFromRow(row)) : null;
 }
 
 export function deletePreviewCommentFromStore(
   projectsDir: string,
   projectId: string,
-  conversationId: string,
   commentId: string,
 ): boolean {
   const db = getStore(projectsDir);
-  if (!conversationBelongsToProject(db, projectId, conversationId)) {
+  if (!projectExists(db, projectId)) {
     return false;
   }
 
-  const result = db
-    .prepare('DELETE FROM preview_comments WHERE project_id = ? AND conversation_id = ? AND id = ?')
-    .run(projectId, conversationId, commentId);
+  const result = db.prepare('DELETE FROM preview_comments WHERE project_id = ? AND id = ?').run(projectId, commentId);
   if (result.changes > 0) {
-    bumpConversationAndProject(db, conversationId, projectId, Date.now());
+    bumpProject(db, projectId, Date.now());
   }
   return result.changes > 0;
 }
@@ -1044,7 +1059,6 @@ function migrate(db: SqliteDatabase): void {
     CREATE TABLE IF NOT EXISTS preview_comments (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
-      conversation_id TEXT NOT NULL,
       file_path TEXT NOT NULL,
       target_id TEXT NOT NULL,
       selector TEXT NOT NULL,
@@ -1064,17 +1078,14 @@ function migrate(db: SqliteDatabase): void {
       status TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      UNIQUE(project_id, conversation_id, file_path, target_id),
-      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+      UNIQUE(project_id, file_path, target_id),
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
 
     CREATE INDEX IF NOT EXISTS idx_conversations_project ON conversations(project_id, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_messages_conversation_position ON messages(conversation_id, position ASC);
-    CREATE INDEX IF NOT EXISTS idx_preview_comments_conversation
-      ON preview_comments(project_id, conversation_id, updated_at DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_preview_comments_scope_updated
-      ON preview_comments(project_id, conversation_id, updated_at DESC);
+      ON preview_comments(project_id, updated_at DESC);
   `);
 
   const messageColumns = db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>;
@@ -1102,6 +1113,99 @@ function migrate(db: SqliteDatabase): void {
   }
   if (!previewCommentColumns.some((column) => column.name === 'hover_point_json')) {
     db.exec('ALTER TABLE preview_comments ADD COLUMN hover_point_json TEXT');
+  }
+  migratePreviewCommentsToProjectScope(db);
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_preview_comments_project_target
+      ON preview_comments(project_id, file_path, target_id);
+    CREATE INDEX IF NOT EXISTS idx_preview_comments_scope_updated
+      ON preview_comments(project_id, updated_at DESC);
+  `);
+}
+
+function migratePreviewCommentsToProjectScope(db: SqliteDatabase): void {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'preview_comments'")
+    .get() as { sql?: string } | undefined;
+  const tableSql = row?.sql ?? '';
+  if (!/\bconversation_id\b/i.test(tableSql) && !/REFERENCES\s+conversations/i.test(tableSql) && !/UNIQUE\s*\(\s*project_id\s*,\s*conversation_id\s*,\s*file_path\s*,\s*target_id\s*\)/i.test(tableSql)) {
+    return;
+  }
+
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.exec(`
+      CREATE TABLE preview_comments_next (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        selector TEXT NOT NULL,
+        label TEXT NOT NULL,
+        text TEXT NOT NULL,
+        position_json TEXT NOT NULL,
+        hover_point_json TEXT,
+        html_hint TEXT NOT NULL,
+        style_json TEXT,
+        selection_kind TEXT NOT NULL,
+        member_count INTEGER,
+        pod_members_json TEXT,
+        screenshot_path TEXT,
+        mark_kind TEXT,
+        intent TEXT,
+        note TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(project_id, file_path, target_id),
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      );
+
+      INSERT INTO preview_comments_next (
+        id, project_id, file_path, target_id, selector, label, text, position_json, hover_point_json,
+        html_hint, style_json, selection_kind, member_count, pod_members_json, screenshot_path, mark_kind, intent,
+        note, status, created_at, updated_at
+      )
+      SELECT
+        current.id,
+        current.project_id,
+        current.file_path,
+        current.target_id,
+        current.selector,
+        current.label,
+        current.text,
+        current.position_json,
+        current.hover_point_json,
+        current.html_hint,
+        current.style_json,
+        current.selection_kind,
+        current.member_count,
+        current.pod_members_json,
+        current.screenshot_path,
+        current.mark_kind,
+        current.intent,
+        current.note,
+        current.status,
+        current.created_at,
+        current.updated_at
+      FROM preview_comments AS current
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM preview_comments AS newer
+        WHERE newer.project_id = current.project_id
+          AND newer.file_path = current.file_path
+          AND newer.target_id = current.target_id
+          AND (
+            newer.updated_at > current.updated_at
+            OR (newer.updated_at = current.updated_at AND newer.rowid > current.rowid)
+          )
+      );
+
+      DROP TABLE preview_comments;
+      ALTER TABLE preview_comments_next RENAME TO preview_comments;
+    `);
+  } finally {
+    db.pragma('foreign_keys = ON');
   }
 }
 
@@ -1216,7 +1320,6 @@ function previewCommentFromRow(row: PreviewCommentRow): StoredPreviewComment {
   return {
     id: row.id,
     projectId: row.project_id,
-    conversationId: row.conversation_id,
     target: {
       filePath: row.file_path,
       targetId: row.target_id,
@@ -1442,8 +1545,16 @@ function conversationBelongsToProject(db: SqliteDatabase, projectId: string, con
   return Boolean(db.prepare('SELECT 1 FROM conversations WHERE project_id = ? AND id = ?').get(projectId, conversationId));
 }
 
+function projectExists(db: SqliteDatabase, projectId: string): boolean {
+  return Boolean(db.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId));
+}
+
 function bumpConversation(db: SqliteDatabase, conversationId: string, timestamp: number): void {
   db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(timestamp, conversationId);
+}
+
+function bumpProject(db: SqliteDatabase, projectId: string, timestamp: number): void {
+  db.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(timestamp, projectId);
 }
 
 function bumpConversationAndProject(
@@ -1453,7 +1564,7 @@ function bumpConversationAndProject(
   timestamp: number,
 ): void {
   bumpConversation(db, conversationId, timestamp);
-  db.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(timestamp, projectId);
+  bumpProject(db, projectId, timestamp);
 }
 
 function parseJson<T>(text: string, fallback: T): T {

@@ -79,7 +79,7 @@ function readParentUpdatedAt(projectsDir: string, projectId = 'project-a', conve
   return { project: project.updatedAt, conversation: conversation.updatedAt };
 }
 
-function commentInput(note: string, overrides: Partial<Parameters<typeof upsertPreviewCommentInStore>[3]['target']> = {}) {
+function commentInput(note: string, overrides: Partial<Parameters<typeof upsertPreviewCommentInStore>[2]['target']> = {}) {
   return {
     note,
     target: {
@@ -189,7 +189,7 @@ describe('sqlite preview comments', () => {
     });
   });
 
-  it('deletes a conversation with its messages and preview comments', async () => {
+  it('deletes a conversation with its messages while keeping project preview comments', async () => {
     const projectsDir = await createProjectsDir();
     writeConversation(projectsDir, 'project-a', 'conversation-a');
     createConversationInStore(projectsDir, 'project-a', 'conversation-b', 'Conversation B');
@@ -203,7 +203,7 @@ describe('sqlite preview comments', () => {
       role: 'user',
       content: 'Keep this',
     });
-    upsertPreviewCommentInStore(projectsDir, 'project-a', 'conversation-a', commentInput('Delete comment'));
+    upsertPreviewCommentInStore(projectsDir, 'project-a', commentInput('Delete comment'));
 
     expect(deleteConversationFromStore(projectsDir, 'project-a', 'conversation-a')).toBe('deleted');
 
@@ -214,7 +214,10 @@ describe('sqlite preview comments', () => {
     expect(listConversationMessagesFromStore(projectsDir, 'project-a', 'conversation-b')).toEqual([
       expect.objectContaining({ id: 'message-b', content: 'Keep this' }),
     ]);
-    expect(listPreviewCommentsFromStore(projectsDir, 'project-a', 'conversation-a')).toBeNull();
+    expect(listPreviewCommentsFromStore(projectsDir, 'project-missing')).toBeNull();
+    expect(listPreviewCommentsFromStore(projectsDir, 'project-a')).toEqual([
+      expect.objectContaining({ note: 'Delete comment' }),
+    ]);
     expect(deleteConversationFromStore(projectsDir, 'project-a', 'conversation-a')).toBe('not_found');
     expect(deleteConversationFromStore(projectsDir, 'project-a', 'conversation-b')).toBe('last_conversation');
     expect(listConversationsFromStore(projectsDir, 'project-a').map((conversation) => conversation.id)).toEqual([
@@ -226,8 +229,8 @@ describe('sqlite preview comments', () => {
     const projectsDir = await createProjectsDir();
     writeConversation(projectsDir);
 
-    const created = upsertPreviewCommentInStore(projectsDir, 'project-a', 'conversation-a', commentInput('First note'));
-    const updated = upsertPreviewCommentInStore(projectsDir, 'project-a', 'conversation-a', commentInput('Updated note'));
+    const created = upsertPreviewCommentInStore(projectsDir, 'project-a', commentInput('First note'));
+    const updated = upsertPreviewCommentInStore(projectsDir, 'project-a', commentInput('Updated note'));
 
     expect(updated.id).toBe(created.id);
     expect(updated.createdAt).toBe(created.createdAt);
@@ -244,13 +247,12 @@ describe('sqlite preview comments', () => {
     const created = upsertPreviewCommentInStore(
       projectsDir,
       'project-a',
-      'conversation-a',
       commentInput('Point note', {
         targetId: 'hero-title@30-32',
         hoverPoint: { x: 30.4, y: 31.6 },
-      } as Partial<Parameters<typeof upsertPreviewCommentInStore>[3]['target']>),
+      } as Partial<Parameters<typeof upsertPreviewCommentInStore>[2]['target']>),
     );
-    const [loaded] = listPreviewCommentsFromStore(projectsDir, 'project-a', 'conversation-a') ?? [];
+    const [loaded] = listPreviewCommentsFromStore(projectsDir, 'project-a') ?? [];
 
     expect(created.target.hoverPoint).toEqual({ x: 30.4, y: 31.6 });
     expect(loaded?.target.hoverPoint).toEqual({ x: 30.4, y: 31.6 });
@@ -263,7 +265,6 @@ describe('sqlite preview comments', () => {
     const created = upsertPreviewCommentInStore(
       projectsDir,
       'project-a',
-      'conversation-a',
       commentInput('Normalize nested fields', {
         selectionKind: 'pod',
         memberCount: 3.7,
@@ -321,7 +322,6 @@ describe('sqlite preview comments', () => {
     const element = upsertPreviewCommentInStore(
       projectsDir,
       'project-a',
-      'conversation-a',
       commentInput('Element target', {
         selectionKind: undefined,
         memberCount: 2,
@@ -350,7 +350,6 @@ describe('sqlite preview comments', () => {
     const pod = upsertPreviewCommentInStore(
       projectsDir,
       'project-a',
-      'conversation-a',
       commentInput('Pod target', {
         targetId: 'pod-target',
         selector: '#pod-target',
@@ -381,7 +380,6 @@ describe('sqlite preview comments', () => {
     const visual = upsertPreviewCommentInStore(
       projectsDir,
       'project-a',
-      'conversation-a',
       commentInput('Visual target', {
         targetId: 'visual-target',
         selector: '#visual-target',
@@ -420,30 +418,28 @@ describe('sqlite preview comments', () => {
       screenshotPath: 'screenshots/visual.png',
       markKind: 'click',
       intent: `  ${'Tune this visual region. '.repeat(20)}  `,
-    } satisfies Partial<Parameters<typeof upsertPreviewCommentInStore>[3]['target']> & { intent: string };
+    } satisfies Partial<Parameters<typeof upsertPreviewCommentInStore>[2]['target']> & { intent: string };
     const elementTarget = {
       targetId: 'element-target',
       selector: '#element-target',
       selectionKind: 'element',
       intent: 'Drop this element intent',
-    } satisfies Partial<Parameters<typeof upsertPreviewCommentInStore>[3]['target']> & { intent: string };
+    } satisfies Partial<Parameters<typeof upsertPreviewCommentInStore>[2]['target']> & { intent: string };
 
     const visual = upsertPreviewCommentInStore(
       projectsDir,
       'project-a',
-      'conversation-a',
       commentInput('Visual target with intent', visualTarget),
     );
     const element = upsertPreviewCommentInStore(
       projectsDir,
       'project-a',
-      'conversation-a',
       commentInput('Element target clears intent', elementTarget),
     );
 
     expect(visual.target.intent).toBe('Tune this visual region. '.repeat(20).trim().slice(0, 200));
     expect(element.target.intent).toBeNull();
-    const listed = listPreviewCommentsFromStore(projectsDir, 'project-a', 'conversation-a');
+    const listed = listPreviewCommentsFromStore(projectsDir, 'project-a');
     expect(listed?.find((comment) => comment.id === visual.id)?.target.intent).toBe(visual.target.intent);
     expect(listed?.find((comment) => comment.id === element.id)?.target.intent).toBeNull();
   });
@@ -456,7 +452,6 @@ describe('sqlite preview comments', () => {
       upsertPreviewCommentInStore(
         projectsDir,
         'project-a',
-        'conversation-a',
         commentInput('Invalid kind', { selectionKind: 'group' }),
       ),
     ).toThrow('comment selectionKind is invalid');
@@ -470,7 +465,6 @@ describe('sqlite preview comments', () => {
       upsertPreviewCommentInStore(
         projectsDir,
         'project-a',
-        'conversation-a',
         commentInput('Visual target missing mark kind', {
           targetId: 'visual-target',
           selector: '#visual-target',
@@ -488,7 +482,6 @@ describe('sqlite preview comments', () => {
     const created = upsertPreviewCommentInStore(
       projectsDir,
       'project-a',
-      'conversation-a',
       commentInput('Bound nested scans', {
         selectionKind: 'pod',
         style: {
@@ -527,17 +520,15 @@ describe('sqlite preview comments', () => {
     upsertPreviewCommentInStore(
       projectsDir,
       'project-a',
-      'conversation-a',
       commentInput('Older note', { targetId: 'first', selector: '#first', label: 'First' }),
     );
     const newer = upsertPreviewCommentInStore(
       projectsDir,
       'project-a',
-      'conversation-a',
       commentInput('Newer note', { targetId: 'second', selector: '#second', label: 'Second' }),
     );
 
-    const comments = listPreviewCommentsFromStore(projectsDir, 'project-a', 'conversation-a');
+    const comments = listPreviewCommentsFromStore(projectsDir, 'project-a');
 
     expect(comments).not.toBeNull();
     expect(comments).toHaveLength(2);
@@ -585,68 +576,83 @@ describe('sqlite preview comments', () => {
     });
   });
 
-  it('updates status and deletes only scoped preview comments', async () => {
+  it('shares preview comments across conversations by project file target', async () => {
     const projectsDir = await createProjectsDir();
     writeConversation(projectsDir, 'project-a', 'conversation-a');
-    writeConversation(projectsDir, 'project-b', 'conversation-b');
-    const comment = upsertPreviewCommentInStore(projectsDir, 'project-a', 'conversation-a', commentInput('Track this'));
+    createConversationInStore(projectsDir, 'project-a', 'conversation-b', 'Follow-up');
 
-    expect(updatePreviewCommentStatusInStore(projectsDir, 'project-b', 'conversation-b', comment.id, 'resolved')).toBeNull();
-    const updated = updatePreviewCommentStatusInStore(projectsDir, 'project-a', 'conversation-a', comment.id, 'resolved');
-    expect(updated?.status).toBe('resolved');
+    const created = upsertPreviewCommentInStore(projectsDir, 'project-a', commentInput('First note'));
+    const updated = upsertPreviewCommentInStore(projectsDir, 'project-a', commentInput('Updated note'));
 
-    expect(deletePreviewCommentFromStore(projectsDir, 'project-b', 'conversation-b', comment.id)).toBe(false);
-    expect(deletePreviewCommentFromStore(projectsDir, 'project-a', 'conversation-a', comment.id)).toBe(true);
-    expect(listPreviewCommentsFromStore(projectsDir, 'project-a', 'conversation-a')).toEqual([]);
+    expect(updated.id).toBe(created.id);
+    expect(updated.createdAt).toBe(created.createdAt);
+    expect(updated.note).toBe('Updated note');
+    expect(listPreviewCommentsFromStore(projectsDir, 'project-a')?.map((comment) => comment.note)).toEqual(['Updated note']);
   });
 
-  it('bumps parent project and conversation timestamps when preview comments mutate', async () => {
+  it('updates status and deletes only project-scoped preview comments', async () => {
+    const projectsDir = await createProjectsDir();
+    writeConversation(projectsDir, 'project-a', 'conversation-a');
+    createConversationInStore(projectsDir, 'project-a', 'conversation-b', 'Follow-up');
+    writeConversation(projectsDir, 'project-b', 'conversation-project-b');
+    const comment = upsertPreviewCommentInStore(projectsDir, 'project-a', commentInput('Track this'));
+
+    expect(updatePreviewCommentStatusInStore(projectsDir, 'project-b', comment.id, 'resolved')).toBeNull();
+    const updated = updatePreviewCommentStatusInStore(projectsDir, 'project-a', comment.id, 'resolved');
+    expect(updated?.status).toBe('resolved');
+
+    expect(deletePreviewCommentFromStore(projectsDir, 'project-b', comment.id)).toBe(false);
+    expect(deletePreviewCommentFromStore(projectsDir, 'project-a', comment.id)).toBe(true);
+    expect(listPreviewCommentsFromStore(projectsDir, 'project-a')).toEqual([]);
+  });
+
+  it('bumps only the parent project timestamp when preview comments mutate', async () => {
     const projectsDir = await createProjectsDir();
     writeConversation(projectsDir);
     const initial = readParentUpdatedAt(projectsDir);
 
     await waitForNextMillisecond();
-    const comment = upsertPreviewCommentInStore(projectsDir, 'project-a', 'conversation-a', commentInput('Track this'));
+    const comment = upsertPreviewCommentInStore(projectsDir, 'project-a', commentInput('Track this'));
     const afterCreate = readParentUpdatedAt(projectsDir);
-    expect(afterCreate.conversation).toBeGreaterThan(initial.conversation);
+    expect(afterCreate.conversation).toBe(initial.conversation);
     expect(afterCreate.project).toBeGreaterThan(initial.project);
 
     await waitForNextMillisecond();
-    expect(updatePreviewCommentStatusInStore(projectsDir, 'project-a', 'conversation-a', comment.id, 'resolved')).not.toBeNull();
+    expect(updatePreviewCommentStatusInStore(projectsDir, 'project-a', comment.id, 'resolved')).not.toBeNull();
     const afterStatus = readParentUpdatedAt(projectsDir);
-    expect(afterStatus.conversation).toBeGreaterThan(afterCreate.conversation);
+    expect(afterStatus.conversation).toBe(afterCreate.conversation);
     expect(afterStatus.project).toBeGreaterThan(afterCreate.project);
 
     await waitForNextMillisecond();
-    expect(deletePreviewCommentFromStore(projectsDir, 'project-a', 'conversation-a', comment.id)).toBe(true);
+    expect(deletePreviewCommentFromStore(projectsDir, 'project-a', comment.id)).toBe(true);
     const afterDelete = readParentUpdatedAt(projectsDir);
-    expect(afterDelete.conversation).toBeGreaterThan(afterStatus.conversation);
+    expect(afterDelete.conversation).toBe(afterStatus.conversation);
     expect(afterDelete.project).toBeGreaterThan(afterStatus.project);
   });
 
-  it('rejects mismatched project and conversation scopes for preview comments', async () => {
+  it('rejects missing project scopes for preview comments', async () => {
     const projectsDir = await createProjectsDir();
     writeConversation(projectsDir, 'project-a', 'conversation-a');
     writeConversation(projectsDir, 'project-b', 'conversation-b');
-    const comment = upsertPreviewCommentInStore(projectsDir, 'project-a', 'conversation-a', commentInput('Track this'));
+    const comment = upsertPreviewCommentInStore(projectsDir, 'project-a', commentInput('Track this'));
 
-    expect(listPreviewCommentsFromStore(projectsDir, 'project-a', 'conversation-b')).toBeNull();
+    expect(listPreviewCommentsFromStore(projectsDir, 'project-missing')).toBeNull();
     expect(() =>
-      upsertPreviewCommentInStore(projectsDir, 'project-a', 'conversation-b', commentInput('Wrong scope')),
-    ).toThrow('conversation not found');
-    expect(updatePreviewCommentStatusInStore(projectsDir, 'project-a', 'conversation-b', comment.id, 'resolved')).toBeNull();
-    expect(deletePreviewCommentFromStore(projectsDir, 'project-a', 'conversation-b', comment.id)).toBe(false);
+      upsertPreviewCommentInStore(projectsDir, 'project-missing', commentInput('Wrong scope')),
+    ).toThrow('project not found');
+    expect(updatePreviewCommentStatusInStore(projectsDir, 'project-missing', comment.id, 'resolved')).toBeNull();
+    expect(deletePreviewCommentFromStore(projectsDir, 'project-missing', comment.id)).toBe(false);
   });
 
   it('rejects blank notes and invalid statuses', async () => {
     const projectsDir = await createProjectsDir();
     writeConversation(projectsDir);
 
-    expect(() => upsertPreviewCommentInStore(projectsDir, 'project-a', 'conversation-a', commentInput('   '))).toThrow(
+    expect(() => upsertPreviewCommentInStore(projectsDir, 'project-a', commentInput('   '))).toThrow(
       'comment note is required',
     );
     expect(() =>
-      updatePreviewCommentStatusInStore(projectsDir, 'project-a', 'conversation-a', 'missing-comment', 'closed'),
+      updatePreviewCommentStatusInStore(projectsDir, 'project-a', 'missing-comment', 'closed'),
     ).toThrow('preview comment status is invalid');
   });
 

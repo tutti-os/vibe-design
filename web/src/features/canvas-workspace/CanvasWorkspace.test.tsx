@@ -127,7 +127,6 @@ function previewComment(overrides: Partial<CanvasPreviewComment> = {}): CanvasPr
   const comment: CanvasPreviewComment = {
     id: 'comment-1',
     projectId: 'project-1',
-    conversationId: 'conversation-1',
     filePath: 'landing.html',
     targetId: 'hero',
     selector: '[data-vd-id="hero"]',
@@ -400,7 +399,7 @@ describe('CanvasWorkspace', () => {
     expect(screen.queryByTestId('design-tweaks-dock')).toBeNull();
   });
 
-  it('renders the selected html file in a fixed desktop preview viewport', () => {
+  it('renders the selected html file flush inside the design file preview frame', () => {
     render(<CanvasWorkspace files={files} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'landing.html' }));
@@ -413,9 +412,17 @@ describe('CanvasWorkspace', () => {
     expect(screen.getByTestId('design-file-preview-frame').className).toContain('shadow-none');
     expect(screen.getByTestId('design-file-preview-frame').className).not.toContain('shadow-[var(--project-shadow-floating)]');
     expect(screen.getByTestId('design-file-preview-fit').className).toContain('overflow-hidden');
+    expect(screen.getByTestId('design-file-preview-fit').className).toContain('min-h-0');
+    expect(screen.getByTestId('design-file-preview-fit').className).not.toContain('min-h-[420px]');
+    expect(screen.getByTestId('design-file-preview-srcdoc').className).toContain('left-0');
+    expect(screen.getByTestId('design-file-preview-srcdoc').className).toContain('top-0');
+    expect(screen.getByTestId('design-file-preview-srcdoc').className).not.toContain('left-1/2');
+    expect(screen.getByTestId('design-file-preview-srcdoc').className).not.toContain('top-1/2');
     expect(screen.getByTestId('design-file-preview-srcdoc').style.width).toBe('1280px');
     expect(screen.getByTestId('design-file-preview-srcdoc').style.height).toBe('800px');
     expect(screen.getByTestId('design-file-preview-srcdoc').style.transform).toContain('scale(');
+    expect(screen.getByTestId('design-file-preview-srcdoc').style.transform).not.toContain('translate');
+    expect(screen.getByTestId('design-file-preview-srcdoc').style.transformOrigin).toBe('top left');
   });
 
   it('uses the manual preview scrollbar in selected html file detail previews', () => {
@@ -1165,7 +1172,8 @@ describe('CanvasWorkspace', () => {
       expect(screen.getByTestId('canvas-comment-overlay').style.width).toBe('1280px');
       expect(screen.getByTestId('canvas-comment-overlay').style.height).toBe('800px');
       expect(screen.getByTestId('canvas-comment-overlay').style.transformOrigin).toBe('top center');
-      expect(screen.getByTestId('canvas-comment-overlay').className).toContain('z-20');
+      expect(screen.getByTestId('canvas-comment-overlay').className).toContain('z-[60]');
+      expect(screen.getByTestId('canvas-comment-overlay').className).toContain('overflow-hidden');
     } finally {
       rectSpy.mockRestore();
     }
@@ -1296,7 +1304,7 @@ describe('CanvasWorkspace', () => {
     expect(screen.getByTestId('canvas-comment-saved-marker').getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('expands a saved comment marker to the right with wrapped preview text on hover', () => {
+  it('expands a saved comment marker to the right with wrapped preview text on hover', async () => {
     render(
       <CanvasWorkspace
         files={files}
@@ -1320,11 +1328,12 @@ describe('CanvasWorkspace', () => {
     expect(icon?.className).toContain('min-w-7');
     expect(icon?.className).toContain('bg-[var(--project-comment-marker-bg)]');
     expect(preview.className).not.toContain('absolute');
-    expect(preview.className).toContain('-ml-7');
-    expect(preview.className).toContain('pl-10');
-    expect(preview.className).toContain('py-[5px]');
+    expect(preview.className).toContain('w-0');
+    expect(preview.className).toContain('max-w-0');
+    expect(preview.className).toContain('border-0');
+    expect(preview.className).not.toContain('-ml-7');
+    expect(preview.className).not.toContain('pl-10');
     expect(preview.className).toContain('rounded-md');
-    expect(preview.className).toContain('rounded-l-md');
     expect(preview.className).toContain('bg-[var(--background-fronted)]');
     expect(preview.className).toContain('text-[var(--text-primary)]');
     expect(preview.className).toContain('whitespace-normal');
@@ -1333,13 +1342,17 @@ describe('CanvasWorkspace', () => {
 
     fireEvent.mouseEnter(marker);
 
-    expect(preview.getAttribute('data-state')).toBe('expanded');
+    await waitFor(() => expect(preview.getAttribute('data-state')).toBe('expanded'));
     expect(marker.className).toContain('w-fit');
     expect(marker.className).toContain('max-w-[320px]');
     expect(marker.className).not.toContain('w-64');
     expect(marker.className).toContain('rounded-lg');
     expect(icon?.className).toContain('w-7');
     expect(preview.className).toContain('max-w-[320px]');
+    expect(preview.className).toContain('-ml-7');
+    expect(preview.className).toContain('pl-10');
+    expect(preview.className).toContain('py-[5px]');
+    expect(preview.className).toContain('rounded-l-md');
     expect(preview.className).toContain('opacity-100');
     expect(preview.children).toHaveLength(1);
     expect(preview.textContent).toContain('Tighten this section');
@@ -1350,7 +1363,7 @@ describe('CanvasWorkspace', () => {
     expect(preview.getAttribute('data-state')).toBe('collapsed');
   });
 
-  it('opens the saved comment marker preview leftward when the target hugs the right frame edge', () => {
+  it('opens the saved comment marker preview leftward when the target hugs the right frame edge', async () => {
     render(
       <CanvasWorkspace
         files={files}
@@ -1376,6 +1389,12 @@ describe('CanvasWorkspace', () => {
     expect(marker.style.right).not.toBe('');
     expect(marker.style.left).toBe('');
     expect(marker.style.transform).toBe('translate(14px, -14px)');
+    expect(preview.className).toContain('w-0');
+    expect(preview.className).not.toContain('-mr-7');
+
+    fireEvent.mouseEnter(marker);
+
+    await waitFor(() => expect(preview.getAttribute('data-state')).toBe('expanded'));
     expect(preview.className).toContain('-mr-7');
     expect(preview.className).toContain('pr-10');
     expect(preview.className).toContain('pl-3');
@@ -1606,6 +1625,7 @@ describe('CanvasWorkspace', () => {
     );
 
     expect(screen.getByTestId('canvas-comment-popover')).toBeTruthy();
+    expect(screen.getByTestId('canvas-comment-popover').parentElement?.className).toContain('z-[80]');
     expect(screen.getByTestId('canvas-comment-active-target')).toBeTruthy();
     expect(screen.getByLabelText('Comment note')).toBeTruthy();
     expect(screen.queryByText('2 members')).toBeNull();
@@ -2049,6 +2069,83 @@ describe('CanvasWorkspace', () => {
     expect(screen.getByRole('button', { name: 'Close tab about.html' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Move landing.html left' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Move about.html right' })).toBeNull();
+  });
+
+  it('shows workspace tab scroll arrows only while hovering a scrollable tab strip', async () => {
+    const tabFiles: WorkspaceFile[] = [
+      ...files,
+      {
+        name: 'dashboard-room-detail-collaboration-final.png',
+        path: 'dashboard-room-detail-collaboration-final.png',
+        kind: 'image',
+        mime: 'image/png',
+        contents: '',
+      },
+      {
+        name: 'dashboard-room-detail-collaboration-fixed.png',
+        path: 'dashboard-room-detail-collaboration-fixed.png',
+        kind: 'image',
+        mime: 'image/png',
+        contents: '',
+      },
+      {
+        name: 'dashboard-room-detail-mobile-responsive.png',
+        path: 'dashboard-room-detail-mobile-responsive.png',
+        kind: 'image',
+        mime: 'image/png',
+        contents: '',
+      },
+    ];
+    const initialTabs: WorkspaceTabsState = {
+      tabs: tabFiles.map((file) => ({ kind: 'file', key: `file:${file.path}`, path: file.path, name: file.name })),
+      activeTabKey: 'file:dashboard-room-detail-mobile-responsive.png',
+    };
+    render(<CanvasWorkspace files={tabFiles} initialTabs={initialTabs} />);
+
+    const workspaceTabs = screen.getByRole('tablist', { name: 'Workspace tabs' });
+    const workspaceTabsHeader = workspaceTabs.parentElement!;
+    Object.defineProperties(workspaceTabs, {
+      clientWidth: { configurable: true, value: 300 },
+      scrollWidth: { configurable: true, value: 900 },
+      scrollLeft: { configurable: true, value: 0, writable: true },
+    });
+    fireEvent.scroll(workspaceTabs);
+
+    expect(screen.queryByTestId('workspace-tab-scroll-left')).toBeNull();
+    expect(screen.queryByTestId('workspace-tab-scroll-right')).toBeNull();
+
+    fireEvent.mouseEnter(workspaceTabsHeader);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('workspace-tab-scroll-left')).toBeNull();
+      expect(screen.getByTestId('workspace-tab-scroll-right')).toBeTruthy();
+    });
+
+    Object.defineProperty(workspaceTabs, 'scrollLeft', { configurable: true, value: 240, writable: true });
+    fireEvent.scroll(workspaceTabs);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('workspace-tab-scroll-left')).toBeTruthy();
+      expect(screen.getByTestId('workspace-tab-scroll-right')).toBeTruthy();
+    });
+
+    fireEvent.mouseLeave(workspaceTabsHeader);
+
+    expect(screen.queryByTestId('workspace-tab-scroll-left')).toBeNull();
+    expect(screen.queryByTestId('workspace-tab-scroll-right')).toBeNull();
+
+    Object.defineProperties(workspaceTabs, {
+      clientWidth: { configurable: true, value: 300 },
+      scrollWidth: { configurable: true, value: 300 },
+      scrollLeft: { configurable: true, value: 0, writable: true },
+    });
+    fireEvent.scroll(workspaceTabs);
+    fireEvent.mouseEnter(workspaceTabsHeader);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('workspace-tab-scroll-left')).toBeNull();
+      expect(screen.queryByTestId('workspace-tab-scroll-right')).toBeNull();
+    });
   });
 
   it('matches Claude Design styling for workspace file tabs', () => {

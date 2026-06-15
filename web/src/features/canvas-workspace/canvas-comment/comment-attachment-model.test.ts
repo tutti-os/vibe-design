@@ -175,7 +175,6 @@ describe('comment attachment model', () => {
     const savedComment: CanvasPreviewComment = {
       id: 'comment-1',
       projectId: 'project-1',
-      conversationId: 'conversation-1',
       filePath: 'src/page.html',
       targetId: 'hero-title',
       selector: '#hero-title',
@@ -461,7 +460,6 @@ describe('canvas preview comment timestamp contract', () => {
     const savedComment: CanvasPreviewComment = {
       id: 'comment-1',
       projectId: 'project-1',
-      conversationId: 'conversation-1',
       filePath: 'src/page.html',
       targetId: 'hero-title',
       selector: '#hero-title',
@@ -507,7 +505,6 @@ function savedVisualComment(overrides: Partial<CanvasPreviewComment> = {}): Canv
   const comment: CanvasPreviewComment = {
     id: 'comment-visual-1',
     projectId: 'project-1',
-    conversationId: 'conversation-1',
     filePath: 'src/page.html',
     targetId: 'visual-mark-1',
     selector: 'body',

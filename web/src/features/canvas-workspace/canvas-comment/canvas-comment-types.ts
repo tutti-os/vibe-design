@@ -101,7 +101,6 @@ export type CanvasPreviewCommentTarget = CanvasCommentTarget | CanvasVisualComme
 export type CanvasPreviewComment = CanvasPreviewCommentTarget & {
   id: string;
   projectId: string;
-  conversationId: string;
   note: string;
   status: CanvasCommentStatus;
   createdAt: number;
