@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
@@ -60,17 +60,12 @@ function createRecordingRuntime(
 }
 
 describe('startAgentRun', () => {
-  it('lets agent-acp-kit use a run-scoped Codex home with browser/computer-use capabilities disabled', async () => {
+  it('runs Codex from the global ~/.codex with browser/computer-use capabilities disabled', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-codex-home-'));
     const sourceHome = join(root, 'source-home');
     await mkdir(sourceHome, { recursive: true });
     await writeFile(join(sourceHome, 'auth.json'), JSON.stringify({ OPENAI_API_KEY: 'test-key' }));
-    await writeFile(join(sourceHome, 'config.toml'), [
-      'model = "gpt-5.4"',
-      'base_url = "https://example.test/v1"',
-      'service_tier = "default"',
-      '',
-    ].join('\n'));
+    await writeFile(join(sourceHome, 'config.toml'), 'model = "gpt-5.4"\n');
 
     const provider = createVibeCodexProvider();
     const adapter = provider.createAdapter?.();
@@ -92,13 +87,13 @@ describe('startAgentRun', () => {
         'browser_use_external',
         'computer_use',
         'in_app_browser',
+        '-c',
+        'features.multi_agent=false',
       ]));
-      expect(plan.args).not.toEqual(expect.arrayContaining(['-c', 'features.multi_agent=false']));
-      expect(plan.env?.CODEX_HOME).toBeTruthy();
+      // Codex is pinned to the user's global home, not a per-run scratch home, so it
+      // reads the canonical user-level config.toml instead of a project-local layer.
+      expect(plan.env?.CODEX_HOME).toBe(join(homedir(), '.codex'));
       expect(plan.env?.CODEX_HOME).not.toBe(sourceHome);
-      const runConfig = await readFile(join(plan.env!.CODEX_HOME!, 'config.toml'), 'utf8');
-      expect(runConfig).toContain('base_url = "https://example.test/v1"');
-      expect(runConfig).not.toContain('service_tier = "default"');
     } finally {
       for await (const _event of adapter!.parseEvents((async function* () {})())) {
         // Drain the adapter stream so its run-scoped cleanup runs.
