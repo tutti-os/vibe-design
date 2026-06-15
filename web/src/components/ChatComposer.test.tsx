@@ -1269,7 +1269,7 @@ describe('ChatComposer', () => {
     }
   });
 
-  it('renders one loading action while streaming with no draft', () => {
+  it('renders a clickable stop action while streaming with no draft', () => {
     const onStop = vi.fn();
     const { container, root } = renderComponent(
       <ChatComposer
@@ -1287,11 +1287,16 @@ describe('ChatComposer', () => {
     try {
       const actions = container.querySelectorAll('.composer-send');
       expect(actions).toHaveLength(1);
-      expect(getByLabelText(container, 'Response loading')).toBeTruthy();
-      expect((getByLabelText(container, 'Response loading') as HTMLButtonElement).disabled).toBe(true);
-      expect(container.querySelector('[aria-label="Stop response"]')).toBeNull();
+      const stopButton = getByLabelText(container, 'Stop') as HTMLButtonElement;
+      expect(stopButton).toBeTruthy();
+      expect(stopButton.disabled).toBe(false);
       expect(container.querySelector('[aria-label="Send message"]')).toBeNull();
       expect(onStop).not.toHaveBeenCalled();
+
+      act(() => {
+        fireEvent.click(stopButton);
+      });
+      expect(onStop).toHaveBeenCalledTimes(1);
     } finally {
       cleanup(root, container);
     }

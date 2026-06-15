@@ -3,6 +3,7 @@ import { FileIcon } from '@tutti-os/ui-system/icons';
 import React from 'react';
 import type { LiveArtifactWorkspaceEntry } from '../types';
 import { useTranslation } from '../i18n';
+import { downloadFileFromUrl } from '../utils/download-file';
 
 interface LiveArtifactBadgesProps {
   artifacts: LiveArtifactWorkspaceEntry[];
@@ -38,7 +39,12 @@ export function LiveArtifactBadges({ artifacts, onOpenLiveArtifact }: LiveArtifa
                   href={artifact.preview.url}
                   download={artifact.title}
                   aria-label={t('artifacts.downloadAria', { title: artifact.title })}
-                  onClick={() => toast.success(t('artifacts.downloadStarted', { title: artifact.title }))}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    void downloadFileFromUrl(artifact.preview.url!, artifact.title)
+                      .then(() => toast.success(t('artifacts.downloadStarted', { title: artifact.title })))
+                      .catch(() => toast.error(t('artifacts.downloadFailed', { title: artifact.title })));
+                  }}
                 >
                   {t('artifacts.download')}
                 </a>

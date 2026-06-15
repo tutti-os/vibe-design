@@ -395,8 +395,8 @@ describe('ChatPane', () => {
       await act(async () => buttonByName(container, 'Submit').click());
       expect(onAnswerToolQuestion).toHaveBeenCalledWith('question-1', 'Compact');
 
-      expect(getByLabelText(container, 'Response loading')).toBeTruthy();
-      expect(container.querySelector('[aria-label="Stop response"]')).toBeNull();
+      expect((getByLabelText(container, 'Stop') as HTMLButtonElement).disabled).toBe(false);
+      expect(container.querySelector('[aria-label="Send message"]')).toBeNull();
       expect(onStop).not.toHaveBeenCalled();
 
       await act(async () =>

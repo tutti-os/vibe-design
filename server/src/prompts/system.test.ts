@@ -49,6 +49,22 @@ describe('composeSystemPrompt', () => {
     expect(questionStopIndex).toBeLessThan(discoveryIndex);
   });
 
+  it('forces the inline question-form channel for the headless claude provider', () => {
+    const result = composeSystemPrompt({ agentId: 'claude', skillMode: 'prototype' });
+
+    expect(result).toContain('Claude Code ask channel — inline question-form only');
+    expect(result).toContain('you MUST emit exactly one inline `<question-form>` block');
+    expect(result).toContain('Do NOT call, invoke, or emit the `AskUserQuestion`');
+    expect(result).toContain('Never emit an empty or childless question form');
+    expect(result).not.toContain('ask it through `AskUserQuestion` as a concise choice');
+  });
+
+  it('does not inject the claude ask-channel override for other providers', () => {
+    const result = composeSystemPrompt({ agentId: 'codex', skillMode: 'prototype' });
+
+    expect(result).not.toContain('Claude Code ask channel — inline question-form only');
+  });
+
   it('requires AskUserQuestion to batch unresolved single-select questions', () => {
     const result = composeSystemPrompt({ agentId: 'claude', skillMode: 'prototype' });
 

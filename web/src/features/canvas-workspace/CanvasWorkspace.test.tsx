@@ -903,7 +903,7 @@ describe('CanvasWorkspace', () => {
     expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(1)');
   });
 
-  it('fits wide html previews horizontally by default in preview mode', async () => {
+  it('opens wide html previews at 100% scale by default in preview mode', async () => {
     const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
       this: HTMLElement,
     ) {
@@ -942,10 +942,11 @@ describe('CanvasWorkspace', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('canvas-preview-srcdoc').style.width).toBe('1600px');
-        expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(0.5)');
-        expect(screen.getByTestId('canvas-preview-zoom-level').textContent).toBe('50%');
+        expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(1)');
+        expect(screen.getByTestId('canvas-preview-zoom-level').textContent).toBe('100%');
+        // At 100% the wide frame overflows the 800px viewport and becomes horizontally scrollable.
+        expect(Number.parseFloat(screen.getByTestId('canvas-preview-interaction-content').style.width)).toBe(1600);
       });
-      expect(Number.parseFloat(screen.getByTestId('canvas-preview-interaction-content').style.width)).toBeLessThanOrEqual(800);
     } finally {
       rectSpy.mockRestore();
     }
@@ -1188,6 +1189,38 @@ describe('CanvasWorkspace', () => {
     fireEvent.mouseLeave(marker);
 
     expect(preview.getAttribute('data-state')).toBe('collapsed');
+  });
+
+  it('opens the saved comment marker preview leftward when the target hugs the right frame edge', () => {
+    render(
+      <CanvasWorkspace
+        files={files}
+        previewComments={[
+          previewComment({
+            note: '点击无反应',
+            position: { x: 1200, y: 20, width: 70, height: 40 },
+          }),
+        ]}
+      />,
+    );
+
+    openDesignFile('landing.html');
+    fireEvent.click(screen.getByRole('tab', { name: 'Mark up' }));
+
+    const marker = screen.getByTestId('canvas-comment-saved-marker');
+    const preview = screen.getByTestId('canvas-comment-saved-marker-preview');
+
+    expect(marker.getAttribute('data-preview-side')).toBe('left');
+    expect(marker.className).toContain('flex-row-reverse');
+    // Anchored by the right edge so the w-fit pill grows into the open left space
+    // instead of being clamped to a sliver against the frame edge.
+    expect(marker.style.right).not.toBe('');
+    expect(marker.style.left).toBe('');
+    expect(marker.style.transform).toBe('translate(14px, -14px)');
+    expect(preview.className).toContain('-mr-7');
+    expect(preview.className).toContain('pr-10');
+    expect(preview.className).toContain('pl-3');
+    expect(preview.className).not.toContain('-ml-7');
   });
 
   it('keeps a single-line saved comment marker preview to one rendered row', () => {

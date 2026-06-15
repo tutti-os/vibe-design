@@ -6,7 +6,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { AtSign, SwatchBook } from 'lucide-react';
+import { AtSign, Square, SwatchBook } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -122,6 +122,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     onAgentChange,
     onDraftChange,
     onSend,
+    onStop,
   }, ref) {
     const { t } = useTranslation();
     const [uncontrolledDraft, setUncontrolledDraft] = useState('');
@@ -135,6 +136,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     const [selectingContextId, setSelectingContextId] = useState<string | null>(null);
     const [modelProvider, setModelProvider] = useState<ModelProvider>('codex');
     const [sendPending, setSendPending] = useState(false);
+    const [stopPending, setStopPending] = useState(false);
     const [sendError, setSendError] = useState<string | null>(null);
     const [designSystemDialogOpen, setDesignSystemDialogOpen] = useState(false);
     const [draftDesignSystemId, setDraftDesignSystemId] = useState<string | null>(null);
@@ -157,7 +159,10 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       uploadedAttachments.length > 0 ||
       hasCommentAttachments ||
       hasSelectedContext;
-    const showResponseLoading = sendPending || (streaming && !hasSendableInput);
+    // A run is active and the user has not staged a new turn: offer to interrupt
+    // instead of showing an inert spinner. With new input staged the button stays
+    // a send action so the turn can be queued.
+    const canInterrupt = streaming && !hasSendableInput && !sendPending;
     const canSend = hasSendableInput && !sendPending && !selectedProviderUnavailableReason;
 
     useImperativeHandle(
@@ -287,6 +292,19 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
         setSendError(readSendErrorMessage(error, t('chat.composer.messageSendFailed')));
       } finally {
         setSendPending(false);
+      }
+    }
+
+    async function interrupt(): Promise<void> {
+      if (stopPending) return;
+      setStopPending(true);
+      setSendError(null);
+      try {
+        await onStop();
+      } catch (error) {
+        setSendError(readSendErrorMessage(error, t('chat.composer.stopRunFailed')));
+      } finally {
+        setStopPending(false);
       }
     }
 
@@ -742,22 +760,48 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
               </Select>
             </TooltipProvider>
 
-            <Button
-              type="button"
-              className="project-primary-button composer-send"
-              size="sm"
-              aria-label={showResponseLoading ? t('chat.composer.responseLoading') : t('chat.composer.sendMessage')}
-              disabled={showResponseLoading || !canSend}
-              onClick={() => void submit()}
-            >
-              {showResponseLoading ? (
+            {sendPending ? (
+              <Button
+                type="button"
+                className="project-primary-button composer-send"
+                size="sm"
+                aria-label={t('chat.composer.responseLoading')}
+                disabled
+              >
                 <span className="composer-send-loading-icon">
                   <LoadingIcon size={14} title={t('chat.composer.responseLoading')} />
                 </span>
-              ) : (
-                t('chat.composer.send')
-              )}
-            </Button>
+              </Button>
+            ) : canInterrupt ? (
+              <Button
+                type="button"
+                className="project-primary-button composer-send composer-send--stop"
+                size="sm"
+                aria-label={t('chat.composer.stopRun')}
+                title={t('chat.composer.stopRunTitle')}
+                disabled={stopPending}
+                onClick={() => void interrupt()}
+              >
+                {stopPending ? (
+                  <span className="composer-send-loading-icon">
+                    <LoadingIcon size={14} title={t('chat.composer.stoppingRun')} />
+                  </span>
+                ) : (
+                  <Square size={12} aria-hidden fill="currentColor" />
+                )}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                className="project-primary-button composer-send"
+                size="sm"
+                aria-label={t('chat.composer.sendMessage')}
+                disabled={!canSend}
+                onClick={() => void submit()}
+              >
+                {t('chat.composer.send')}
+              </Button>
+            )}
           </div>
         </div>
 
