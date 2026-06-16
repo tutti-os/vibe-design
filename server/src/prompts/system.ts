@@ -115,7 +115,7 @@ const MEDIA_DISPATCH_HINT = `
 
 ## Media generation if asked
 
-If the user asks for image, video, or audio during a non-media project, use the configured Vibe Design media path when available. Do not ask for provider API keys or fabricate generated files.`;
+If the user asks for image, video, or audio during a non-media project, use the configured Prototype Design media path when available. Do not ask for provider API keys or fabricate generated files.`;
 
 const ACTIVE_DESIGN_SYSTEM_VISUAL_DIRECTION_OVERRIDE = `
 
@@ -148,7 +148,7 @@ const PROJECT_WORKSPACE_OUTPUT_CONTRACT = (workspaceDir: string): string => `
 
 Current project workspace: ${workspaceDir}
 
-Vibe Design records a deliverable in the project's **design files** list ONLY when you emit it through one of the two host text-block channels below. A file produced by ANY other method — a patch tool, a shell redirect, an editor write-to-disk — is INVISIBLE to the product even though it lands on disk: the user sees the run "succeed" but the design files list stays EMPTY. This is the single most important rule of this environment. Do not violate it for any reason.
+Prototype Design records a deliverable in the project's **design files** list ONLY when you emit it through one of the two host text-block channels below. A file produced by ANY other method — a patch tool, a shell redirect, an editor write-to-disk — is INVISIBLE to the product even though it lands on disk: the user sees the run "succeed" but the design files list stays EMPTY. This is the single most important rule of this environment. Do not violate it for any reason.
 
 ### The ONLY two ways to deliver a file
 
@@ -192,11 +192,11 @@ Use Codex image generation for image outputs. Do not substitute HTML, SVG mockup
 
 const SKILL_BOUNDARY_WITH_ACTIVE_SKILL = `## Skill boundary
 
-Only use skills explicitly provided by Vibe Design in this system prompt. Do not search for, load, invoke, or claim to follow any other skill from local files, host configuration, external registries, or prior conversation text.`;
+Only use skills explicitly provided by Prototype Design in this system prompt. Do not search for, load, invoke, or claim to follow any other skill from local files, host configuration, external registries, or prior conversation text.`;
 
 const SKILL_BOUNDARY_WITHOUT_ACTIVE_SKILL = `## Skill boundary
 
-Only use skills explicitly provided by Vibe Design in this system prompt. No active skill was provided for this run. Do not search for, load, invoke, or claim to follow any skill from local files, host configuration, external registries, or prior conversation text.`;
+Only use skills explicitly provided by Prototype Design in this system prompt. No active skill was provided for this run. Do not search for, load, invoke, or claim to follow any skill from local files, host configuration, external registries, or prior conversation text.`;
 
 export function composeSystemPrompt(input: ComposeInput): string {
   const parts: string[] = [];
@@ -331,7 +331,7 @@ export function renderUiLocalePrompt(locale: string | undefined): string {
   return [
     '# UI locale override',
     '',
-    `The Vibe Design UI locale for this run is \`${normalized}\` (${languageName}).`,
+    `The Prototype Design UI locale for this run is \`${normalized}\` (${languageName}).`,
     'All user-visible chat prose and generated UI controls must follow this locale.',
     'Keep machine-readable ids and option `value` fields exact and unlocalized.',
   ].join('\n');
@@ -388,10 +388,10 @@ function renderDesignSystemImportModeGuidance(
   importMode: ComposeInput['designSystemImportMode'],
 ): string {
   if (importMode === 'normalized') {
-    return 'Use the normalized Vibe Design tokens and component descriptions as the contract.';
+    return 'Use the normalized Prototype Design tokens and component descriptions as the contract.';
   }
   if (importMode === 'hybrid') {
-    return 'Start from normalized Vibe Design tokens, then use source evidence when it improves fidelity.';
+    return 'Start from normalized Prototype Design tokens, then use source evidence when it improves fidelity.';
   }
   if (importMode === 'verbatim') {
     return 'Preserve source naming and component semantics when they are available.';
@@ -526,7 +526,7 @@ function resolveEffectiveSurface(input: ComposeInput): {
   if (skillModeSurfaces.length > 1) {
     return {
       surface: null,
-      warning: `\n\n## Surface selection warning\n\nConflicting exclusive surfaces were provided in \`skillModes\`: ${skillModeSurfaces.join(', ')}. Vibe Design will not inject deck or media hard-constraint layers until metadata.kind or skillMode selects a single surface.`,
+      warning: `\n\n## Surface selection warning\n\nConflicting exclusive surfaces were provided in \`skillModes\`: ${skillModeSurfaces.join(', ')}. Prototype Design will not inject deck or media hard-constraint layers until metadata.kind or skillMode selects a single surface.`,
     };
   }
 

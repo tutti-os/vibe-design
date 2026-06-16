@@ -1437,6 +1437,7 @@ describe('VibeDesignApp', () => {
       expect(inspiration?.textContent).toContain('Inspired by Open Design');
       expect(inspiration?.className).toContain('mt-auto');
       expect(brandIcon).not.toBeNull();
+      expect(container.querySelector('h1')?.textContent).toBe('Prototype Design');
       expect(container.querySelector('[data-testid="project-empty-placeholder-icon"]')).not.toBeNull();
       expect(designSystemDescription?.className).toContain('font-normal');
       expect(container.textContent).not.toContain('Anyone in your organization');
@@ -3038,7 +3039,7 @@ describe('VibeDesignApp', () => {
       expect(container.textContent).not.toContain('Chat');
       expect(container.textContent).not.toContain('Comments');
       expect(container.textContent).toContain('Ready to start creating');
-      expect(container.textContent).toContain('Vibe Design turns ideas into designs you can see, discuss, and refine.');
+      expect(container.textContent).toContain('Prototype Design turns ideas into designs you can see, discuss, and refine.');
       expect(container.textContent).toContain('No files yet');
       expect(container.textContent).not.toContain('Start with context');
       expect(container.textContent).not.toContain('SaaS Analytics Dashboard');

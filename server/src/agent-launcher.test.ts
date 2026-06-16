@@ -981,7 +981,7 @@ describe('startAgentRun', () => {
       expect(systemPrompt).toContain('## Reference component manifest — Atelier Zero');
       expect(systemPrompt).toContain('az-button');
       expect(systemPrompt).toContain('## Design system import mode — Atelier Zero');
-      expect(systemPrompt).toContain('Start from normalized Vibe Design tokens');
+      expect(systemPrompt).toContain('Start from normalized Prototype Design tokens');
     } finally {
       await rm(root, { recursive: true, force: true });
     }

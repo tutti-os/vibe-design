@@ -1949,9 +1949,9 @@ describe('CanvasWorkspace', () => {
     expect(screen.queryByLabelText('Canvas inspector')).toBeNull();
     expect(screen.queryByRole('tab', { name: 'Inspect' })).toBeNull();
 
-    expect(screen.getByLabelText('Vibe Design Workspace').className).toContain('min-w-0');
-    expect(screen.getByLabelText('Vibe Design Workspace').className).toContain('overflow-hidden');
-    expect(screen.getByLabelText('Vibe Design Workspace').className).toContain('bg-[var(--project-workspace-bg)]');
+    expect(screen.getByLabelText('Prototype Design Workspace').className).toContain('min-w-0');
+    expect(screen.getByLabelText('Prototype Design Workspace').className).toContain('overflow-hidden');
+    expect(screen.getByLabelText('Prototype Design Workspace').className).toContain('bg-[var(--project-workspace-bg)]');
     expect(screen.getByTestId('canvas-preview-interaction-viewport').className).toContain('min-w-0');
     expect(screen.getByTestId('canvas-preview-interaction-viewport').className).toContain('max-w-full');
     expect(screen.queryByTestId('canvas-inspector-floating-window')).toBeNull();
@@ -2038,7 +2038,7 @@ describe('CanvasWorkspace', () => {
 
     expect(screen.getByRole('tab', { name: 'about.html' }).getAttribute('aria-selected')).toBe('true');
     expect(screen.getByTestId('canvas-preview-srcdoc').getAttribute('srcdoc')).toContain('About page');
-    expect(screen.getByTestId('canvas-preview-srcdoc').getAttribute('srcdoc')).not.toContain('Vibe Design');
+    expect(screen.getByTestId('canvas-preview-srcdoc').getAttribute('srcdoc')).not.toContain('Prototype Design');
   });
 
   it('normalizes duplicate saved tabs for the same file path on first render', () => {

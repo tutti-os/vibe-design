@@ -6,7 +6,7 @@ product
 
 ## Users
 
-Vibe Design is for builders and designers who use an AI-assisted workspace to create project interfaces, inspect generated design files, and make targeted edits on the canvas without leaving the project editor.
+Prototype Design is for builders and designers who use an AI-assisted workspace to create project interfaces, inspect generated design files, and make targeted edits on the canvas without leaving the project editor.
 
 ## Product Purpose
 
