@@ -1,19 +1,19 @@
-# Vibe Design
+# Prototype Design
 
 <p align="right">
   <a href="./README.md"><kbd>English</kbd></a>
   <a href="./README.zh-CN.md"><kbd>中文</kbd></a>
 </p>
 
-![Vibe Design dashboard](docs/screenshots/vibe-design-dashboard.png)
+![Prototype Design dashboard](docs/screenshots/vibe-design-dashboard.png)
 
 > **Turn a prompt into a real, runnable prototype — then review, annotate, and refine it with AI in one workspace.**
 
-Vibe Design is an AI-assisted design prototyping workspace. Start from a single prompt, ground the generation in a real design system, preview the live result on an interactive canvas, mark up exactly what needs to change, and send that visual feedback straight back to a local coding agent (Codex or Claude Code). Projects, conversations, files, and comments all persist — so a prototype keeps improving across many rounds instead of resetting every time.
+Prototype Design is an AI-assisted design prototyping workspace. Start from a single prompt, ground the generation in a real design system, preview the live result on an interactive canvas, mark up exactly what needs to change, and send that visual feedback straight back to a local coding agent (Codex or Claude Code). Projects, conversations, files, and comments all persist — so a prototype keeps improving across many rounds instead of resetting every time.
 
-Inspired by Open Design, Vibe Design keeps the creation loop open, inspectable, and grounded in real project artifacts.
+Inspired by Open Design, Prototype Design keeps the creation loop open, inspectable, and grounded in real project artifacts.
 
-## Why Vibe Design
+## Why Prototype Design
 
 - **From prompt to runnable prototype** — Describe a screen and get real HTML and assets you can open and click, not a static mockup.
 - **Design-system-grounded output** — Pick an official design system and it becomes generation context, keeping color, typography, spacing, and component style on-brand.
@@ -36,7 +36,7 @@ The project editor is built around a conversation workspace. Choose a local agen
 
 Generated HTML, assets, and project files land in the canvas workspace. Files open as tabs with preview, comment, and annotation modes, and HTML prototypes render directly on the canvas so you inspect the real layout — not a screenshot of one.
 
-![Vibe Design project editor](docs/screenshots/vibe-design-project-editor.png)
+![Prototype Design project editor](docs/screenshots/vibe-design-project-editor.png)
 
 ### 📌 Visual review loop
 
@@ -91,7 +91,7 @@ make dev PORT=3100  # override the port
 vibe-design/
 |-- server/          # Express server, local agent runtime, persistence, API and CLI routes
 |-- web/             # React app, canvas workspace, chat UI, services, and SSR renderer
-|-- skills/          # Bundled Vibe Design skills
+|-- skills/          # Bundled Prototype Design skills
 |-- design-systems/  # Built-in design system definitions
 |-- docs/            # Specs, implementation plans, and screenshots
 |-- scripts/         # Packaging and support scripts
@@ -133,7 +133,7 @@ pnpm --filter @vibe-design/server type-check
 
 ### Tutti CLI
 
-Vibe Design registers read-only CLI commands under the `vibe-design` scope. See `COMMANDS.md` for the full reference.
+Prototype Design registers read-only CLI commands under the `vibe-design` scope. See `COMMANDS.md` for the full reference.
 
 ```bash
 tutti --json vibe-design projects
@@ -160,4 +160,4 @@ pnpm test:package
 
 ## License
 
-Vibe Design is licensed under the [Apache License 2.0](./LICENSE).
+Prototype Design is licensed under the [Apache License 2.0](./LICENSE).

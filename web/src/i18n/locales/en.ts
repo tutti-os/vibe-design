@@ -4,7 +4,7 @@ export const en = {
     apply: 'Apply',
     cancel: 'Cancel',
     done: 'Done',
-    appTitle: 'Vibe Design',
+    appTitle: 'Prototype Design',
     loading: 'Loading...',
     retry: 'Retry',
     save: 'Save',
@@ -90,7 +90,7 @@ export const en = {
     empty: {
       description: 'Add a design style, screenshot, codebase, or Figma file. Generated files open here for preview and inspection.',
       projectContext: 'Project context',
-      projectDescription: 'Vibe Design turns ideas into designs you can see, discuss, and refine.',
+      projectDescription: 'Prototype Design turns ideas into designs you can see, discuss, and refine.',
       projectTitle: 'Ready to start creating',
       title: 'Start with context',
     },
@@ -312,8 +312,8 @@ export const en = {
       saveRename: 'Save rename {{name}}',
       upload: 'Upload',
       uploadFiles: 'Upload files',
-      vibeDesignPr: 'Vibe Design PR',
-      vibeDesignPrAria: 'Vibe Design PR for {{name}}',
+      vibeDesignPr: 'Prototype Design PR',
+      vibeDesignPrAria: 'Prototype Design PR for {{name}}',
     },
     columns: {
       kind: 'Kind',
@@ -633,7 +633,7 @@ export const en = {
       placeholder: 'Describe the issue or suggestion...',
     },
     designFiles: 'Design Files',
-    defaultTitle: 'Vibe Design Workspace',
+    defaultTitle: 'Prototype Design Workspace',
     designFilePreviewTitle: '{{name}} design file preview',
     designFilesPanel: {
       components: 'COMPONENTS',

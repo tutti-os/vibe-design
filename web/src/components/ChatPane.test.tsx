@@ -516,7 +516,7 @@ describe('ChatPane', () => {
     try {
       expect(container.querySelector('[data-testid="project-chat-empty-icon"]')).not.toBeNull();
       expect(container.textContent).toContain('Ready to start creating');
-      expect(container.textContent).toContain('Vibe Design turns ideas into designs you can see, discuss, and refine.');
+      expect(container.textContent).toContain('Prototype Design turns ideas into designs you can see, discuss, and refine.');
       expect(container.textContent).not.toContain('Start with context');
       expect(container.textContent).not.toContain('SaaS Analytics Dashboard');
       expect(container.textContent).not.toContain('Mobile Banking Onboarding');
@@ -573,7 +573,7 @@ describe('ChatPane', () => {
       });
 
       const emptyHint = container.querySelector('.chat-empty-hint');
-      expect(emptyHint?.textContent).toBe('Vibe Design turns ideas into designs you can see, discuss, and refine.');
+      expect(emptyHint?.textContent).toBe('Prototype Design turns ideas into designs you can see, discuss, and refine.');
       expect(emptyHint?.textContent).not.toContain('Claude Code');
       expect(emptyHint?.textContent).not.toContain('Codex');
     } finally {

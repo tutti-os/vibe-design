@@ -6,7 +6,7 @@ export const zhCN = {
     apply: '应用',
     cancel: '取消',
     done: '完成',
-    appTitle: 'Vibe Design',
+    appTitle: 'Prototype Design',
     loading: '加载中...',
     retry: '重试',
     save: '保存',
@@ -92,7 +92,7 @@ export const zhCN = {
     empty: {
       description: '添加设计风格、截图、代码库或 Figma 文件。生成的文件会在这里打开，用于预览和检查。',
       projectContext: '项目上下文',
-      projectDescription: 'Vibe Design，让想法看得见。',
+      projectDescription: 'Prototype Design，让想法看得见。',
       projectTitle: '准备开始创建',
       title: '从上下文开始',
     },
@@ -314,8 +314,8 @@ export const zhCN = {
       saveRename: '保存重命名 {{name}}',
       upload: '上传',
       uploadFiles: '上传文件',
-      vibeDesignPr: 'Vibe Design PR',
-      vibeDesignPrAria: '为 {{name}} 创建 Vibe Design PR',
+      vibeDesignPr: 'Prototype Design PR',
+      vibeDesignPrAria: '为 {{name}} 创建 Prototype Design PR',
     },
     columns: {
       kind: '类型',
@@ -635,7 +635,7 @@ export const zhCN = {
       placeholder: '描述问题或建议...',
     },
     designFiles: '设计文件',
-    defaultTitle: 'Vibe Design 工作区',
+    defaultTitle: 'Prototype Design 工作区',
     designFilePreviewTitle: '{{name}} 设计文件预览',
     designFilesPanel: {
       components: '组件',

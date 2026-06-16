@@ -7,8 +7,8 @@
   "commands": [
     {
       "path": ["projects"],
-      "summary": "List Vibe Design projects",
-      "description": "List projects in the current Vibe Design workspace.",
+      "summary": "List Prototype Design projects",
+      "description": "List projects in the current Prototype Design workspace.",
       "inputSchema": {
         "type": "object",
         "properties": {

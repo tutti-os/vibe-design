@@ -13,7 +13,7 @@ afterEach(() => {
   restoreNavigatorProperty('languages', originalLanguagesDescriptor);
 });
 
-describe('Vibe Design i18n runtime', () => {
+describe('Prototype Design i18n runtime', () => {
   it('keeps the server-rendered document language ahead of browser language fallback', () => {
     document.documentElement.lang = 'en';
     setNavigatorProperty('language', 'zh-CN');

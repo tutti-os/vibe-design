@@ -15,7 +15,7 @@ describe('composeSystemPrompt', () => {
     expect(result).not.toHaveProperty('then');
 
     const localeIndex = indexOfRequired(result, '# UI locale override');
-    const discoveryIndex = indexOfRequired(result, '# Vibe Design discovery directives');
+    const discoveryIndex = indexOfRequired(result, '# Prototype Design discovery directives');
     const identityIndex = indexOfRequired(result, '# Identity and workflow charter');
 
     expect(localeIndex).toBeLessThan(discoveryIndex);
@@ -26,7 +26,7 @@ describe('composeSystemPrompt', () => {
     const result = composeSystemPrompt({ locale: 'en' });
 
     const languageIndex = indexOfRequired(result, '# Response language');
-    const discoveryIndex = indexOfRequired(result, '# Vibe Design discovery directives');
+    const discoveryIndex = indexOfRequired(result, '# Prototype Design discovery directives');
 
     expect(result).toContain('Decide the response language from the multi-turn conversation context');
     expect(result).toContain('Do not switch languages only because the most recent user message uses a different language');
@@ -39,7 +39,7 @@ describe('composeSystemPrompt', () => {
     const result = composeSystemPrompt({ agentId: 'claude', skillMode: 'prototype' });
 
     const questionStopIndex = indexOfRequired(result, '# Question stop rule');
-    const discoveryIndex = indexOfRequired(result, '# Vibe Design discovery directives');
+    const discoveryIndex = indexOfRequired(result, '# Prototype Design discovery directives');
 
     expect(result).toContain('After asking the user a question through `AskUserQuestion`, stop the turn immediately');
     expect(result).toContain('Do not write files, generate artifacts, call additional tools');
@@ -71,7 +71,7 @@ describe('composeSystemPrompt', () => {
     const result = composeSystemPrompt({ agentId: 'claude', skillMode: 'prototype' });
 
     const formatIndex = indexOfRequired(result, '# Question output format');
-    const discoveryIndex = indexOfRequired(result, '# Vibe Design discovery directives');
+    const discoveryIndex = indexOfRequired(result, '# Prototype Design discovery directives');
 
     expect(result).toContain('Ask all material unresolved decisions in one batch');
     expect(result).toContain('AskUserQuestion');
@@ -119,7 +119,7 @@ Keep this exact line: <do-not-normalize />`;
     expect(result).toContain(skillBody);
   });
 
-  it('limits skill usage to skills explicitly injected by Vibe Design', () => {
+  it('limits skill usage to skills explicitly injected by Prototype Design', () => {
     const withSkill = composeSystemPrompt({
       skillName: 'Custom Workflow',
       skillBody: '# Custom workflow',
@@ -127,7 +127,7 @@ Keep this exact line: <do-not-normalize />`;
     const withoutSkill = composeSystemPrompt({});
 
     expect(withSkill).toContain('## Skill boundary');
-    expect(withSkill).toContain('Only use skills explicitly provided by Vibe Design in this system prompt.');
+    expect(withSkill).toContain('Only use skills explicitly provided by Prototype Design in this system prompt.');
     expect(withSkill).toContain('Do not search for, load, invoke, or claim to follow any other skill');
     expect(indexOfRequired(withSkill, '## Skill boundary')).toBeLessThan(
       indexOfRequired(withSkill, '## Active skill — Custom Workflow'),
@@ -212,7 +212,7 @@ Keep this exact line: <do-not-normalize />`;
       metadata: { kind: 'image', imageAspect: '16:9' },
     });
 
-    expect(result).not.toContain('# Vibe Design discovery directives');
+    expect(result).not.toContain('# Prototype Design discovery directives');
     expect(result).toContain('## Media generation contract');
     expect(result).toContain('image');
   });
@@ -327,7 +327,7 @@ Keep this exact line: <do-not-normalize />`;
   it('treats skillModes media entries as media mode', () => {
     const result = composeSystemPrompt({ skillModes: ['image'] });
 
-    expect(result).not.toContain('# Vibe Design discovery directives');
+    expect(result).not.toContain('# Prototype Design discovery directives');
     expect(result).toContain('## Media generation contract');
   });
 
@@ -373,7 +373,7 @@ Keep this exact line: <do-not-normalize />`;
       skillModes: ['deck', 'image'],
     });
 
-    expect(result).not.toContain('# Vibe Design discovery directives');
+    expect(result).not.toContain('# Prototype Design discovery directives');
     expect(result).toContain('## Media generation contract');
     expect(result).toContain('- **surface**: video');
     expect(result).not.toContain('## Slide deck framework');

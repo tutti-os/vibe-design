@@ -683,7 +683,7 @@ function PluginActionsSection({
                     onPluginFolderAgentAction(folder.path, {
                       kind: 'vibe-design-pr',
                       path: folder.path,
-                      prTitle: `Add ${folder.pluginName} to Vibe Design`,
+                      prTitle: `Add ${folder.pluginName} to Prototype Design`,
                     }),
                   ).catch(() => undefined);
                 }}

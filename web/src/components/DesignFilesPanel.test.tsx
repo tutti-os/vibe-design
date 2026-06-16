@@ -556,12 +556,12 @@ describe('DesignFilesPanel', () => {
       });
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Vibe Design PR for generated-plugin' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Prototype Design PR for generated-plugin' }));
     await waitFor(() => {
       expect(onPluginFolderAgentAction).toHaveBeenCalledWith('generated-plugin', {
         kind: 'vibe-design-pr',
         path: 'generated-plugin',
-        prTitle: 'Add generated-plugin to Vibe Design',
+        prTitle: 'Add generated-plugin to Prototype Design',
       });
     });
   });

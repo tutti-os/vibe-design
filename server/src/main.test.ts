@@ -227,7 +227,7 @@ async function postCliStatus(port: number, command: string, input: Record<string
 function readInitialDataFromHtml(html: string): Record<string, unknown> {
   const match = /window\.__VIBE_DESIGN_INITIAL__=(.*?);<\/script>/s.exec(html);
   if (!match) {
-    throw new Error('Missing Vibe Design initial data script.');
+    throw new Error('Missing Prototype Design initial data script.');
   }
   return JSON.parse(match[1] ?? '{}') as Record<string, unknown>;
 }
@@ -712,7 +712,7 @@ describe('createServer', () => {
 
     expect(response.status).toBe(200);
     const html = await response.text();
-    expect(html).toContain('Vibe Design');
+    expect(html).toContain('Prototype Design');
     expect(html).toContain('New prototype');
     expect(html).toContain('Search designs');
   });
@@ -759,7 +759,7 @@ describe('createServer', () => {
 
     expect(response.status).toBe(200);
     const html = await response.text();
-    expect(html).toContain('Vibe Design');
+    expect(html).toContain('Prototype Design');
     expect(html).toContain('New prototype');
   });
 

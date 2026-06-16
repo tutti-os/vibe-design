@@ -1,6 +1,6 @@
-# Vibe Design CLI Commands
+# Prototype Design CLI Commands
 
-The Vibe Design app exposes read-only commands under the `vibe-design` scope. Commands return JSON by default so agents can inspect project state without relying on the app's internal web UI routes.
+The Prototype Design app exposes read-only commands under the `vibe-design` scope. Commands return JSON by default so agents can inspect project state without relying on the app's internal web UI routes.
 
 ## Restrictions
 

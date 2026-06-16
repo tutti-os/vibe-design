@@ -138,7 +138,7 @@ test('validates required package output files and executable bootstrap', async (
     await mkdir(path.join(root, 'web/dist'), { recursive: true });
     await mkdir(path.join(root, 'design-systems/default'), { recursive: true });
     await writeFile(path.join(root, 'AGENTS.md'), '');
-    await writeFile(path.join(root, 'COMMANDS.md'), '# Vibe Design CLI Commands\n');
+    await writeFile(path.join(root, 'COMMANDS.md'), '# Prototype Design CLI Commands\n');
     await writeFile(path.join(root, 'icon.png'), 'icon');
     await mkdir(path.join(root, 'locales/zh-CN'), { recursive: true });
     await writeFile(
@@ -178,7 +178,7 @@ test('validates required package output files and executable bootstrap', async (
         commands: [
           {
             path: ['projects'],
-            summary: 'List Vibe Design projects',
+            summary: 'List Prototype Design projects',
             output: { defaultMode: 'json', json: true },
             handler: { kind: 'http', method: 'POST', path: '/tutti/cli/projects' },
           },
@@ -220,7 +220,7 @@ test('rejects package output that contains installed node_modules', async () => 
     await mkdir(path.join(root, 'design-systems/default'), { recursive: true });
     await mkdir(path.join(root, 'node_modules'), { recursive: true });
     await writeFile(path.join(root, 'AGENTS.md'), '');
-    await writeFile(path.join(root, 'COMMANDS.md'), '# Vibe Design CLI Commands\n');
+    await writeFile(path.join(root, 'COMMANDS.md'), '# Prototype Design CLI Commands\n');
     await writeFile(path.join(root, 'icon.png'), 'icon');
     await mkdir(path.join(root, 'locales/zh-CN'), { recursive: true });
     await writeFile(
@@ -260,7 +260,7 @@ test('rejects package output that contains installed node_modules', async () => 
         commands: [
           {
             path: ['projects'],
-            summary: 'List Vibe Design projects',
+            summary: 'List Prototype Design projects',
             output: { defaultMode: 'json', json: true },
             handler: { kind: 'http', method: 'POST', path: '/tutti/cli/projects' },
           },

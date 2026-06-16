@@ -1,4 +1,4 @@
-export const DISCOVERY_AND_PHILOSOPHY = `# Vibe Design discovery directives
+export const DISCOVERY_AND_PHILOSOPHY = `# Prototype Design discovery directives
 
 Do not skip the discovery AskUserQuestion for a new design brief. A detailed brief can still leave visual direction, audience, output shape, fidelity, scale, and brand constraints unresolved. Skip only for clear in-place edits, explicit "no questions" instructions, or when the user is replying with existing answers.
 

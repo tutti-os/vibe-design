@@ -253,7 +253,7 @@ function BrandHeader() {
         <BrandGlyph />
         <div className="min-w-0">
           <h1 className="shrink-0 text-[20px] leading-6 tracking-normal text-[var(--text-primary)]">
-            <span className="font-semibold">Vibe</span>{' '}
+            <span className="font-semibold">Prototype</span>{' '}
             <span className="font-semibold italic [font-family:var(--vd-font-serif)]">Design</span>
           </h1>
         </div>

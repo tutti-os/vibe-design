@@ -10,7 +10,7 @@ describe('renderPage', () => {
     expect(html).toContain('<link rel="icon" type="image/png" href="/icon.png">');
     expect(html).toContain('<link rel="apple-touch-icon" href="/icon.png">');
     expect(html).toContain('/styles.css');
-    expect(html).toContain('Vibe Design');
+    expect(html).toContain('Prototype Design');
     expect(html).not.toContain('Research Preview');
     expect(html).toContain('New prototype');
     expect(html).not.toContain('Wireframe');
@@ -58,7 +58,7 @@ describe('renderPage', () => {
       },
     });
 
-    expect(html).toContain('Vibe Design');
+    expect(html).toContain('Prototype Design');
     expect(html).toContain('vibe-design-chat-ui flex h-full min-h-0 flex-1 flex-col overflow-hidden');
     expect(html).toContain('Chat composer');
     expect(html).toContain('Demo project');
