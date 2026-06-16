@@ -49,18 +49,16 @@ describe('composeSystemPrompt', () => {
     expect(questionStopIndex).toBeLessThan(discoveryIndex);
   });
 
-  it('forces the inline question-form channel for local no-tools providers', () => {
+  it('does not force the inline question-form channel for local providers with tools available', () => {
     const result = composeSystemPrompt({ agentId: 'claude', skillMode: 'prototype' });
     const codexResult = composeSystemPrompt({ agentId: 'codex', skillMode: 'prototype' });
 
-    expect(result).toContain('Local no-tools ask channel — inline question-form only');
-    expect(result).toContain('you MUST emit exactly one inline `<question-form>` block');
-    expect(result).toContain('Do NOT call, invoke, or emit the `AskUserQuestion`');
-    expect(result).toContain('Never emit an empty or childless question form');
-    expect(codexResult).toContain('Local no-tools ask channel — inline question-form only');
-    expect(codexResult).toContain('you MUST emit exactly one inline `<question-form>` block');
-    expect(codexResult).toContain('Do NOT call, invoke, or emit the `AskUserQuestion`');
-    expect(result).not.toContain('ask it through `AskUserQuestion` as a concise choice');
+    expect(result).not.toContain('Local no-tools ask channel — inline question-form only');
+    expect(result).not.toContain('Do NOT call, invoke, or emit the `AskUserQuestion`');
+    expect(result).toContain('Use inline `<question-form>` only when a structured AskUserQuestion tool call is unavailable');
+    expect(codexResult).not.toContain('Local no-tools ask channel — inline question-form only');
+    expect(codexResult).not.toContain('Do NOT call, invoke, or emit the `AskUserQuestion`');
+    expect(codexResult).toContain('Use inline `<question-form>` only when a structured AskUserQuestion tool call is unavailable');
   });
 
   it('does not inject the local no-tools ask-channel override for unknown providers', () => {

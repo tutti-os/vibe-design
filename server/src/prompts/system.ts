@@ -105,22 +105,6 @@ If the provider cannot emit a structured AskUserQuestion tool call, emit exactly
 
 This is a strict rendering contract. Every question must be represented either as structured AskUserQuestion input or as the inline \`<question-form>\` fallback so the host can render one single-select answer group per question.`;
 
-const LOCAL_NO_TOOLS_INLINE_QUESTION_FORM_OVERRIDE = `
-
----
-
-## Local no-tools ask channel — inline question-form only
-
-You are running in Vibe Design's local no-tools agent mode. Default tool calls and MCP servers are disabled for this run, so structured \`AskUserQuestion\` tool calls have no reliable execution surface here.
-
-Therefore, for every user-input request — discovery brief, direction picker, follow-up decision, missing output requirement, target platform/size, or any clarifying choice — you MUST emit exactly one inline \`<question-form>\` block as text and then stop. This is mandatory, not a fallback.
-
-- Do NOT call, invoke, or emit the \`AskUserQuestion\`, \`ask_user_question\`, or \`request_user_input\` tool. It will not work in this runtime.
-- The \`<question-form>\` block must contain at least one \`<question>\` child. Never emit an empty or childless question form.
-- Shape: \`<question-form id="discovery" title="Quick brief"><question type="select" id="output_type" title="What are we making?" options="landing_page:Landing page|dashboard:Dashboard" /></question-form>\`.
-- One \`<question>\` per decision, \`type="select"\`, options encoded as \`value:Label|value:Label\`. Keep the prose line above it free of any option text.
-- After emitting the question-form block, stop the turn and wait for the user's answer.`;
-
 const SKIP_DISCOVERY_BRIEF_OVERRIDE = `# Automated project mode — skip discovery form
 
 The project already supplied enough structured context. Do not emit the initial discovery form unless a required decision cannot be inferred.`;
@@ -324,10 +308,6 @@ export function composeSystemPrompt(input: ComposeInput): string {
 
   if (activeDesignSystemBody) {
     parts.push(ACTIVE_DESIGN_SYSTEM_VISUAL_DIRECTION_OVERRIDE);
-  }
-
-  if (input.agentId === 'claude' || input.agentId === 'codex') {
-    parts.push(LOCAL_NO_TOOLS_INLINE_QUESTION_FORM_OVERRIDE);
   }
 
   if (hasText(input.projectWorkspaceDir)) {
