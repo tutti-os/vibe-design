@@ -17,6 +17,7 @@ import { scrubNestedClaudeSessionEnv } from './nested-session-env.js';
 const execFileAsync = promisify(execFile);
 
 export interface VibeClaudeProviderOptions {
+  claudeHome?: string;
   claudeSettingsPath?: string;
 }
 
@@ -41,7 +42,7 @@ export function createVibeClaudeProvider(
     displayName: 'Claude Code',
     kind: 'local-agent',
     async detect() {
-      return detectClaude();
+      return detectClaude(resolveClaudeHome(options));
     },
     capabilities() {
       return {
@@ -231,7 +232,14 @@ function buildClaudeLaunchPlan(
   }
 
   args.push('--permission-mode', 'default');
-  const env = mergeClaudeRunEnv(readClaudeSettingsEnv(options.claudeSettingsPath), params.env);
+  const claudeHome = resolveClaudeHome(options);
+  const env = mergeClaudeRunEnv(
+    claudeProcessEnv(
+      claudeHome,
+      readClaudeSettingsEnv(resolveClaudeSettingsPath(options, claudeHome)),
+    ),
+    params.env,
+  );
   return {
     args,
     command: resolveClaudeCommand(),
@@ -251,6 +259,36 @@ function mergeClaudeRunEnv(
   return {
     ...settingsEnv,
     ...(explicitEnv ?? {}),
+  };
+}
+
+function resolveClaudeHome(options: VibeClaudeProviderOptions): string | undefined {
+  const explicitHome = options.claudeHome?.trim() || process.env.VIBE_CLAUDE_HOME?.trim();
+  if (explicitHome) {
+    return explicitHome;
+  }
+
+  const tuttiDataDir = process.env.TUTTI_APP_DATA_DIR?.trim();
+  return tuttiDataDir ? join(tuttiDataDir, 'claude-home') : undefined;
+}
+
+function resolveClaudeSettingsPath(
+  options: VibeClaudeProviderOptions,
+  claudeHome: string | undefined,
+): string | undefined {
+  if (options.claudeSettingsPath) {
+    return options.claudeSettingsPath;
+  }
+  return claudeHome ? join(claudeHome, '.claude', 'settings.json') : undefined;
+}
+
+function claudeProcessEnv(
+  claudeHome: string | undefined,
+  extraEnv: Record<string, string>,
+): Record<string, string> {
+  return {
+    ...(claudeHome ? { HOME: claudeHome } : {}),
+    ...extraEnv,
   };
 }
 
@@ -279,19 +317,20 @@ function readJsonRecord(file: string): Record<string, unknown> | null {
   }
 }
 
-async function detectClaude(): Promise<AgentDetection> {
-  const configDir = join(homedir(), '.claude');
+async function detectClaude(claudeHome: string | undefined): Promise<AgentDetection> {
+  const configDir = join(claudeHome ?? homedir(), '.claude');
   const command = resolveClaudeCommand();
   try {
-    const { stdout } = await execFileAsync(command, ['--version']);
-    const authState = await detectClaudeAuthState(command);
+    const env = claudeHome ? { ...process.env, HOME: claudeHome } : undefined;
+    const { stdout } = await execFileAsync(command, ['--version'], env ? { env } : undefined);
+    const authState = await detectClaudeAuthState(command, env);
     return {
       authState,
       configDir,
       executablePath: command,
       skillsDir: join(configDir, 'skills'),
       supported: true,
-      version: stdout.trim() || 'unknown',
+      version: String(stdout).trim() || 'unknown',
     };
   } catch (error) {
     return {
@@ -306,9 +345,13 @@ async function detectClaude(): Promise<AgentDetection> {
   }
 }
 
-async function detectClaudeAuthState(command: string): Promise<AgentDetection['authState']> {
+async function detectClaudeAuthState(
+  command: string,
+  env: NodeJS.ProcessEnv | undefined,
+): Promise<AgentDetection['authState']> {
   try {
     const { stdout } = await execFileAsync(command, ['auth', 'status'], {
+      ...(env ? { env } : {}),
       maxBuffer: 128 * 1024,
       timeout: 5_000,
     });
