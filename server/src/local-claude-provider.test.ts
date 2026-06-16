@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createVibeClaudeProvider, parseClaudeAuthStatus, parseVibeClaudeStreamEvent } from './local-claude-provider.js';
 
 describe('createVibeClaudeProvider', () => {
-  it('launches Claude Code with default tools and MCP disabled', async () => {
+  it('launches Claude Code with MCP disabled while leaving other tools available', async () => {
     const provider = createVibeClaudeProvider();
     const plan = await provider.buildLaunchPlan({
       runId: 'run-1',
@@ -13,15 +13,11 @@ describe('createVibeClaudeProvider', () => {
     });
 
     expect(plan.args).toEqual(expect.arrayContaining([
-      '--tools',
-      '',
       '--mcp-config',
       '{}',
       '--strict-mcp-config',
       '--setting-sources',
       'local',
-      '--disable-slash-commands',
-      '--no-chrome',
       '--permission-mode',
       'default',
       '--model',
@@ -29,6 +25,9 @@ describe('createVibeClaudeProvider', () => {
       '--add-dir',
       '/tmp/shared-assets',
     ]));
+    expect(plan.args).not.toContain('--tools');
+    expect(plan.args).not.toContain('--disable-slash-commands');
+    expect(plan.args).not.toContain('--no-chrome');
     expect(plan.args).not.toEqual(expect.arrayContaining(['--permission-mode', 'bypassPermissions']));
     expect(plan.args).not.toContain('--dangerously-skip-permissions');
   });

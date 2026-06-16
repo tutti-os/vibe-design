@@ -191,15 +191,11 @@ function buildClaudeLaunchPlan(params: AgentRunParams<'local-agent', 'claude'>):
     '--output-format',
     'stream-json',
     '--verbose',
-    '--tools',
-    '',
     '--mcp-config',
     '{}',
     '--strict-mcp-config',
     '--setting-sources',
     'local',
-    '--disable-slash-commands',
-    '--no-chrome',
   ];
   const model = normalizeClaudeModel(params.model);
   if (model && model !== 'default') {

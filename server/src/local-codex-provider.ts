@@ -10,36 +10,6 @@ import {
 type CodexAdapter = LocalAgentProviderAdapter<'local-agent', 'codex'>;
 type CodexRawStream = Parameters<CodexAdapter['parseEvents']>[0];
 
-const DISABLED_CODEX_TOOL_FEATURES = [
-  'apps',
-  'apply_patch_streaming_events',
-  'browser_use',
-  'browser_use_external',
-  'computer_use',
-  'enable_mcp_apps',
-  'goals',
-  'image_generation',
-  'in_app_browser',
-  'multi_agent',
-  'plugins',
-  'shell_tool',
-  'shell_snapshot',
-  'skill_mcp_dependency_install',
-  'standalone_web_search',
-  'tool_suggest',
-  'tool_call_mcp_elicitation',
-  'unified_exec',
-  'workspace_dependencies',
-] as const;
-
-const CODEX_USER_CONFIG_ISOLATION_ARGS = [
-  '--sandbox',
-  'read-only',
-  '--ask-for-approval',
-  'never',
-  ...DISABLED_CODEX_TOOL_FEATURES.flatMap((feature) => ['--disable', feature]),
-] as const;
-
 export function createVibeCodexProvider(): LocalAgentProviderPlugin<'local-agent', 'codex'> {
   const provider = createCodexProvider();
 
@@ -74,36 +44,21 @@ async function isolateCodexLaunchPlan(plan: ProviderLaunchPlan): Promise<Provide
 
   return {
     ...planWithoutMcpServers,
-    args: insertCodexIsolationArgs(plan.args),
+    args: stripNonMcpDisableArgs(plan.args),
     ...(isolatedFallback ? { fallbackPlan: isolatedFallback } : {}),
   };
 }
 
-function insertCodexIsolationArgs(args: string[]): string[] {
-  const filteredArgs = args.filter((arg, index) => {
-    if (arg === '--dangerously-bypass-approvals-and-sandbox') return false;
-    if (arg === '--ignore-user-config') return false;
-    if (isCodexIsolationOptionWithValue(arg)) return false;
-    if (isCodexIsolationOptionWithValue(args[index - 1])) return false;
-    if (arg === '--disable' && isDisabledCodexToolFeature(args[index + 1])) return false;
-    if (isDisabledCodexToolFeature(arg) && args[index - 1] === '--disable') return false;
+function stripNonMcpDisableArgs(args: string[]): string[] {
+  return args.filter((arg, index) => {
+    if (arg === '--disable' && !isMcpFeatureFlag(args[index + 1])) return false;
+    if (args[index - 1] === '--disable' && !isMcpFeatureFlag(arg)) return false;
     return true;
   });
-  const insertionIndex = filteredArgs[0] === 'exec' && filteredArgs[1] === 'resume' ? 3 : 2;
-
-  return [
-    ...filteredArgs.slice(0, insertionIndex),
-    ...CODEX_USER_CONFIG_ISOLATION_ARGS,
-    ...filteredArgs.slice(insertionIndex),
-  ];
 }
 
-function isDisabledCodexToolFeature(value: string | undefined): boolean {
-  return DISABLED_CODEX_TOOL_FEATURES.includes(value as (typeof DISABLED_CODEX_TOOL_FEATURES)[number]);
-}
-
-function isCodexIsolationOptionWithValue(value: string | undefined): boolean {
-  return value === '--sandbox' || value === '-s' || value === '--ask-for-approval' || value === '-a';
+function isMcpFeatureFlag(value: string | undefined): boolean {
+  return typeof value === 'string' && value.includes('mcp');
 }
 
 function withoutMcpServers<T extends { mcpServers?: unknown }>(params: T): T {

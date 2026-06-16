@@ -60,7 +60,7 @@ function createRecordingRuntime(
 }
 
 describe('startAgentRun', () => {
-  it('lets agent-acp-kit use a run-scoped Codex home with default tools and MCP disabled', async () => {
+  it('lets agent-acp-kit use a run-scoped Codex home with MCP disabled while leaving other tools available', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-codex-home-'));
     const sourceHome = join(root, 'source-home');
     await mkdir(sourceHome, { recursive: true });
@@ -99,31 +99,8 @@ describe('startAgentRun', () => {
         ],
       });
 
-      expect(plan.args).not.toContain('--ignore-user-config');
-      expect(plan.args).not.toContain('--dangerously-bypass-approvals-and-sandbox');
-      expect(plan.args).toEqual(expect.arrayContaining(['--sandbox', 'read-only']));
-      expect(plan.args).toEqual(expect.arrayContaining(['--ask-for-approval', 'never']));
-      expect(plan.args).toContain('--disable');
-      expect(plan.args).toEqual(expect.arrayContaining([
-        'apps',
-        'apply_patch_streaming_events',
-        'browser_use',
-        'browser_use_external',
-        'computer_use',
-        'enable_mcp_apps',
-        'goals',
-        'image_generation',
-        'in_app_browser',
-        'multi_agent',
-        'plugins',
-        'shell_tool',
-        'shell_snapshot',
-        'standalone_web_search',
-        'tool_suggest',
-        'tool_call_mcp_elicitation',
-        'unified_exec',
-        'workspace_dependencies',
-      ]));
+      const disabledFeatures = plan.args.flatMap((arg, index) => (arg === '--disable' ? [plan.args[index + 1]] : []));
+      expect(disabledFeatures.every((feature) => feature?.includes('mcp'))).toBe(true);
       expect(plan.args).not.toEqual(expect.arrayContaining(['-c', 'features.multi_agent=false']));
       expect(plan).not.toHaveProperty('mcpServers');
       expect(plan.env?.CODEX_HOME).toBeTruthy();
