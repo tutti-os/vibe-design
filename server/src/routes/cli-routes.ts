@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Express, Request, Response } from 'express';
 import { isSafeConversationId, listConversationMessages, listConversations } from '../conversations.js';
-import type { RouteDeps } from '../server-context.js';
+import type { CliServiceResult, RouteDeps } from '../server-context.js';
 import {
   getProjectFileFromStore,
   listPreviewCommentsFromStore,
@@ -12,7 +12,7 @@ import {
 } from '../sqlite-store.js';
 import { isSafeFileName, isSafeProjectId } from './project-routes.js';
 
-type CliRouteDeps = RouteDeps<'http' | 'paths'>;
+type CliRouteDeps = RouteDeps<'http' | 'paths' | 'cli'>;
 
 type CliInput = Record<string, unknown>;
 
@@ -26,6 +26,18 @@ export function registerCliRoutes(app: Express, ctx: CliRouteDeps): void {
     sendCliJson(res, {
       projects: listProjectSummariesFromStore(ctx.paths.projectsDir, clamp(limit, 1, 500)),
     });
+  });
+
+  postCli('/tutti/cli/project-create', async (req: Request, res: Response) => {
+    sendCliServiceResult(res, await ctx.cli.createProject(cliInput(req.body)));
+  });
+
+  postCli('/tutti/cli/project-update', async (req: Request, res: Response) => {
+    sendCliServiceResult(res, await ctx.cli.updateProject(cliInput(req.body)));
+  });
+
+  postCli('/tutti/cli/session-start', async (req: Request, res: Response) => {
+    sendCliServiceResult(res, await ctx.cli.startSession(cliInput(req.body)));
   });
 
   postCli('/tutti/cli/conversations', async (req: Request, res: Response) => {
@@ -99,6 +111,15 @@ function sendCliJson(res: Response, value: unknown): void {
 
 function sendCliError(res: Response, status: number, code: string, message: string): void {
   res.status(status).json({ error: { code, message } });
+}
+
+function sendCliServiceResult(res: Response, result: CliServiceResult): void {
+  if (result.ok) {
+    sendCliJson(res, result.value);
+    return;
+  }
+
+  sendCliError(res, result.status, result.code, result.message);
 }
 
 function readRequiredSafeProjectId(res: Response, input: CliInput): string | null {
