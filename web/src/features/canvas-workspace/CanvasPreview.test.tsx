@@ -116,6 +116,28 @@ describe('CanvasPreview', () => {
     }
   });
 
+  it('uses ResizeObserver without adding a duplicate window resize listener for fit scaling', () => {
+    const originalResizeObserver = globalThis.ResizeObserver;
+    class TestResizeObserver {
+      constructor(readonly callback: ResizeObserverCallback) {}
+
+      observe() {}
+      disconnect() {}
+      unobserve() {}
+    }
+    globalThis.ResizeObserver = TestResizeObserver as typeof ResizeObserver;
+    const addEventListenerSpy = vi.spyOn(window, 'addEventListener');
+
+    try {
+      render(<CanvasPreview file={htmlFile('<main><h1 data-vd-id="hero">Hero</h1></main>')} />);
+
+      expect(addEventListenerSpy).not.toHaveBeenCalledWith('resize', expect.any(Function));
+    } finally {
+      addEventListenerSpy.mockRestore();
+      globalThis.ResizeObserver = originalResizeObserver;
+    }
+  });
+
   it('uses manual scale without hiding overflow when an interaction mode owns scrolling', () => {
     render(
       <CanvasPreview

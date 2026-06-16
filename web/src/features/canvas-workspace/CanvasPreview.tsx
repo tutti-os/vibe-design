@@ -255,11 +255,13 @@ export function CanvasPreview({
     updateScale();
 
     const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateScale);
-    resizeObserver?.observe(previewFitElement);
-    window.addEventListener('resize', updateScale);
+    if (resizeObserver) {
+      resizeObserver.observe(previewFitElement);
+      return () => resizeObserver.disconnect();
+    }
 
+    window.addEventListener('resize', updateScale);
     return () => {
-      resizeObserver?.disconnect();
       window.removeEventListener('resize', updateScale);
     };
   }, [previewSize.height, previewSize.width, scaleMode]);
