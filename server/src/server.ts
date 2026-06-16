@@ -53,6 +53,7 @@ import {
   updateProject,
   validateDesignSystemId,
 } from './routes/project-routes.js';
+import { registerReferencesRoutes } from './routes/references-routes.js';
 import { registerSkillsRoutes } from './routes/skills-routes.js';
 import { createChatRunService } from './runs.js';
 import {
@@ -683,6 +684,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   registerConversationRoutes(app, ctx);
   registerDesignSystemRoutes(app, ctx);
   registerProjectRoutes(app, ctx);
+  registerReferencesRoutes(app, ctx);
   registerSkillsRoutes(app, ctx);
 
   app.get('/healthz', (_req: Request, res: Response) => {
