@@ -1,3 +1,4 @@
+import { readFile, writeFile } from 'node:fs/promises';
 import {
   createCodexProvider,
   type AgentEvent,
@@ -10,13 +11,32 @@ type CodexAdapter = LocalAgentProviderAdapter<'local-agent', 'codex'>;
 type CodexRawStream = Parameters<CodexAdapter['parseEvents']>[0];
 
 const DISABLED_CODEX_TOOL_FEATURES = [
+  'apps',
+  'apply_patch_streaming_events',
   'browser_use',
   'browser_use_external',
   'computer_use',
+  'enable_mcp_apps',
+  'goals',
+  'image_generation',
   'in_app_browser',
+  'multi_agent',
+  'plugins',
+  'shell_tool',
+  'shell_snapshot',
+  'skill_mcp_dependency_install',
+  'standalone_web_search',
+  'tool_suggest',
+  'tool_call_mcp_elicitation',
+  'unified_exec',
+  'workspace_dependencies',
 ] as const;
 
 const CODEX_USER_CONFIG_ISOLATION_ARGS = [
+  '--sandbox',
+  'read-only',
+  '--ask-for-approval',
+  'never',
   ...DISABLED_CODEX_TOOL_FEATURES.flatMap((feature) => ['--disable', feature]),
 ] as const;
 
@@ -34,7 +54,7 @@ export function createVibeCodexProvider(): LocalAgentProviderPlugin<'local-agent
       return {
         ...adapter,
         async buildLaunchPlan(params) {
-          return isolateCodexLaunchPlan(await adapter.buildLaunchPlan(params));
+          return isolateCodexLaunchPlan(await adapter.buildLaunchPlan(withoutMcpServers(params)));
         },
         parseEvents(stream) {
           return parseVibeCodexEvents(stream, adapter);
@@ -42,26 +62,34 @@ export function createVibeCodexProvider(): LocalAgentProviderPlugin<'local-agent
       } satisfies CodexAdapter;
     },
     async buildLaunchPlan(params) {
-      return isolateCodexLaunchPlan(await provider.buildLaunchPlan(params));
+      return isolateCodexLaunchPlan(await provider.buildLaunchPlan(withoutMcpServers(params)));
     },
   };
 }
 
-function isolateCodexLaunchPlan(plan: ProviderLaunchPlan): ProviderLaunchPlan {
+async function isolateCodexLaunchPlan(plan: ProviderLaunchPlan): Promise<ProviderLaunchPlan> {
+  const isolatedFallback = plan.fallbackPlan ? await isolateCodexLaunchPlan(plan.fallbackPlan) : undefined;
+  await stripMcpServersFromRunScopedCodexConfig(plan);
+  const { mcpServers: _mcpServers, ...planWithoutMcpServers } = plan;
+
   return {
-    ...plan,
+    ...planWithoutMcpServers,
     args: insertCodexIsolationArgs(plan.args),
+    ...(isolatedFallback ? { fallbackPlan: isolatedFallback } : {}),
   };
 }
 
 function insertCodexIsolationArgs(args: string[]): string[] {
-  const insertionIndex = args[0] === 'exec' && args[1] === 'resume' ? 3 : 2;
   const filteredArgs = args.filter((arg, index) => {
+    if (arg === '--dangerously-bypass-approvals-and-sandbox') return false;
     if (arg === '--ignore-user-config') return false;
+    if (isCodexIsolationOptionWithValue(arg)) return false;
+    if (isCodexIsolationOptionWithValue(args[index - 1])) return false;
     if (arg === '--disable' && isDisabledCodexToolFeature(args[index + 1])) return false;
     if (isDisabledCodexToolFeature(arg) && args[index - 1] === '--disable') return false;
     return true;
   });
+  const insertionIndex = filteredArgs[0] === 'exec' && filteredArgs[1] === 'resume' ? 3 : 2;
 
   return [
     ...filteredArgs.slice(0, insertionIndex),
@@ -72,6 +100,55 @@ function insertCodexIsolationArgs(args: string[]): string[] {
 
 function isDisabledCodexToolFeature(value: string | undefined): boolean {
   return DISABLED_CODEX_TOOL_FEATURES.includes(value as (typeof DISABLED_CODEX_TOOL_FEATURES)[number]);
+}
+
+function isCodexIsolationOptionWithValue(value: string | undefined): boolean {
+  return value === '--sandbox' || value === '-s' || value === '--ask-for-approval' || value === '-a';
+}
+
+function withoutMcpServers<T extends { mcpServers?: unknown }>(params: T): T {
+  const { mcpServers: _mcpServers, ...rest } = params;
+  return rest as T;
+}
+
+async function stripMcpServersFromRunScopedCodexConfig(plan: ProviderLaunchPlan): Promise<void> {
+  const codexHome = plan.env?.CODEX_HOME;
+  if (!codexHome) return;
+
+  const configPath = `${codexHome}/config.toml`;
+  try {
+    const content = await readFile(configPath, 'utf8');
+    const stripped = stripCodexMcpServerTables(content);
+    if (stripped !== content) {
+      await writeFile(configPath, stripped, 'utf8');
+    }
+  } catch {
+    // The upstream provider creates this file for normal Codex runs. If a future
+    // provider changes that behavior, absence of config should not block launch.
+  }
+}
+
+function stripCodexMcpServerTables(content: string): string {
+  const lines = content.split(/\r?\n/);
+  const output: string[] = [];
+  let inMcpTable = false;
+
+  for (const line of lines) {
+    const tableName = readTomlTableName(line);
+    if (tableName) {
+      inMcpTable = tableName === 'mcp_servers' || tableName.startsWith('mcp_servers.');
+    }
+    if (!inMcpTable) {
+      output.push(line);
+    }
+  }
+
+  return `${output.join('\n').trimEnd()}\n`;
+}
+
+function readTomlTableName(line: string): string | null {
+  const match = line.trim().match(/^\[([^\]]+)\]\s*(?:#.*)?$/);
+  return match?.[1]?.trim() ?? null;
 }
 
 async function* parseVibeCodexEvents(stream: CodexRawStream, cleanupAdapter: CodexAdapter): AsyncIterable<AgentEvent> {

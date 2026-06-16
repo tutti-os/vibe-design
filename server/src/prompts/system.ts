@@ -105,13 +105,13 @@ If the provider cannot emit a structured AskUserQuestion tool call, emit exactly
 
 This is a strict rendering contract. Every question must be represented either as structured AskUserQuestion input or as the inline \`<question-form>\` fallback so the host can render one single-select answer group per question.`;
 
-const CLAUDE_INLINE_QUESTION_FORM_OVERRIDE = `
+const LOCAL_NO_TOOLS_INLINE_QUESTION_FORM_OVERRIDE = `
 
 ---
 
-## Claude Code ask channel — inline question-form only
+## Local no-tools ask channel — inline question-form only
 
-You are running as headless Claude Code (\`claude -p\`, non-interactive). The interactive \`AskUserQuestion\` tool has no surface here: when you call it, the host receives an empty tool input and renders a blank "Waiting for input" card with no questions. That is a broken ask.
+You are running in Vibe Design's local no-tools agent mode. Default tool calls and MCP servers are disabled for this run, so structured \`AskUserQuestion\` tool calls have no reliable execution surface here.
 
 Therefore, for every user-input request — discovery brief, direction picker, follow-up decision, missing output requirement, target platform/size, or any clarifying choice — you MUST emit exactly one inline \`<question-form>\` block as text and then stop. This is mandatory, not a fallback.
 
@@ -326,8 +326,8 @@ export function composeSystemPrompt(input: ComposeInput): string {
     parts.push(ACTIVE_DESIGN_SYSTEM_VISUAL_DIRECTION_OVERRIDE);
   }
 
-  if (input.agentId === 'claude') {
-    parts.push(CLAUDE_INLINE_QUESTION_FORM_OVERRIDE);
+  if (input.agentId === 'claude' || input.agentId === 'codex') {
+    parts.push(LOCAL_NO_TOOLS_INLINE_QUESTION_FORM_OVERRIDE);
   }
 
   if (hasText(input.projectWorkspaceDir)) {

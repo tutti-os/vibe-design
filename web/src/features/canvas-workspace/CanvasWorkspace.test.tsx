@@ -1042,7 +1042,7 @@ describe('CanvasWorkspace', () => {
     }
   });
 
-  it('refits automatic html preview zoom when the interaction viewport resizes', async () => {
+  it('keeps automatic html preview zoom fixed after the initial viewport fit', async () => {
     let viewportWidth = 800;
     const resizeObservers: Array<{
       callback: ResizeObserverCallback;
@@ -1122,9 +1122,22 @@ describe('CanvasWorkspace', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(0.75)');
-        expect(screen.getByTestId('canvas-preview-zoom-level').textContent).toBe('75%');
-        expect(Number.parseFloat(screen.getByTestId('canvas-preview-interaction-content').style.width)).toBe(960);
+        expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(0.625)');
+        expect(screen.getByTestId('canvas-preview-zoom-level').textContent).toBe('63%');
+        expect(Number.parseFloat(screen.getByTestId('canvas-preview-interaction-content').style.width)).toBe(800);
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Zoom in canvas' }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(0.73)');
+      });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Reset canvas zoom' }));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('canvas-preview-srcdoc').style.transform).toBe('translateX(-50%) scale(0.625)');
+        expect(screen.getByTestId('canvas-preview-zoom-level').textContent).toBe('63%');
       });
     } finally {
       globalThis.ResizeObserver = originalResizeObserver;
