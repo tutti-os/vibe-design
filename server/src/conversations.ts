@@ -99,8 +99,9 @@ export async function bindConversationProvider(
   projectId: string,
   conversationId: string,
   provider: string,
+  model?: string | null,
 ): Promise<StoredConversation | null> {
-  return bindConversationProviderInStore(projectsDir, projectId, conversationId, provider);
+  return bindConversationProviderInStore(projectsDir, projectId, conversationId, provider, model);
 }
 
 export async function updateConversationResumeMetadata(

@@ -42,6 +42,7 @@ export interface ChatConversationSummary {
   id: string;
   title: string;
   provider?: string | null;
+  model?: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -72,6 +73,7 @@ export interface SetUserMessageTurnStatusInput {
 export interface SetConversationProviderInput {
   conversationId: string;
   provider: string;
+  model?: string | null;
 }
 
 export interface StartAssistantRunInput {

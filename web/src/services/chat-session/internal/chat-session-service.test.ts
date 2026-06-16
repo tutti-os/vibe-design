@@ -140,6 +140,31 @@ describe('ChatSessionService', () => {
     });
   });
 
+  it('keeps the locked provider while sending and remembering a newly selected same-provider model', async () => {
+    const { service, timeline, run } = createService({
+      activeConversationProvider: 'codex',
+      activeConversationModel: 'codex:gpt-5.4',
+    });
+
+    await service.sendTurn({
+      draft: 'Try the newer Codex model',
+      files: [],
+      agentId: 'claude',
+      model: 'codex:gpt-5.5',
+    });
+
+    expect(firstCreateRunInput(run)).toMatchObject({
+      agentId: 'codex',
+      model: 'codex:gpt-5.5',
+      prompt: 'Try the newer Codex model',
+    });
+    expect(timeline.setConversationProvider).toHaveBeenCalledWith({
+      conversationId: 'conversation-1',
+      provider: 'codex',
+      model: 'codex:gpt-5.5',
+    });
+  });
+
   it('uploads staged files, appends the user message, builds context, creates the run, starts the assistant run, and wires stream handlers', async () => {
     const stagedFiles = [new File(['hero'], 'Hero.tsx', { type: 'text/tsx' })];
     const attachments: ChatAttachment[] = [
@@ -1063,6 +1088,7 @@ function createService(
     timeline?: IChatTimelineService;
     createRunResult?: { runId: string; provider?: string | null };
     activeConversationProvider?: string | null;
+    activeConversationModel?: string | null;
     selectedSkills?: Array<{ id: string; name: string; description?: string }>;
     selectedDesignFiles?: ProjectFile[];
     runContext?: RunContextSelection;
@@ -1135,6 +1161,7 @@ function createService(
           id: 'conversation-1',
           title: 'New conversation',
           provider: options.activeConversationProvider ?? null,
+          model: options.activeConversationModel ?? null,
           createdAt: 1,
           updatedAt: 1,
         },

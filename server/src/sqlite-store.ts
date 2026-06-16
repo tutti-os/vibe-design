@@ -56,6 +56,7 @@ export interface StoredConversation {
   projectId: string;
   title: string | null;
   provider: string | null;
+  model: string | null;
   providerSessionId: string | null;
   resumeToken: string | null;
   createdAt: number;
@@ -180,6 +181,7 @@ interface ConversationRow {
   project_id: string;
   title: string | null;
   provider: string | null;
+  model: string | null;
   provider_session_id: string | null;
   resume_token: string | null;
   created_at: number;
@@ -465,11 +467,21 @@ export function createConversationInStore(
   const now = Date.now();
   getStore(projectsDir)
     .prepare(
-      `INSERT INTO conversations (id, project_id, title, provider, provider_session_id, resume_token, created_at, updated_at)
-       VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?)`,
+      `INSERT INTO conversations (id, project_id, title, provider, model, provider_session_id, resume_token, created_at, updated_at)
+       VALUES (?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)`,
     )
     .run(id, projectId, title, now, now);
-  return { id, projectId, title, provider: null, providerSessionId: null, resumeToken: null, createdAt: now, updatedAt: now };
+  return {
+    id,
+    projectId,
+    title,
+    provider: null,
+    model: null,
+    providerSessionId: null,
+    resumeToken: null,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 export function updateConversationTitleInStore(
@@ -489,7 +501,7 @@ export function updateConversationTitleInStore(
 
   const row = db
     .prepare(
-      `SELECT id, project_id, title, provider, provider_session_id, resume_token, created_at, updated_at
+      `SELECT id, project_id, title, provider, model, provider_session_id, resume_token, created_at, updated_at
        FROM conversations
        WHERE project_id = ? AND id = ?`,
     )
@@ -532,7 +544,7 @@ export function deleteConversationFromStore(
 export function getFirstConversationFromStore(projectsDir: string, projectId: string): StoredConversation | null {
   const row = getStore(projectsDir)
     .prepare(
-      `SELECT id, project_id, title, provider, provider_session_id, resume_token, created_at, updated_at
+      `SELECT id, project_id, title, provider, model, provider_session_id, resume_token, created_at, updated_at
        FROM conversations
        WHERE project_id = ?
        ORDER BY created_at ASC
@@ -545,7 +557,7 @@ export function getFirstConversationFromStore(projectsDir: string, projectId: st
 export function listConversationsFromStore(projectsDir: string, projectId: string): StoredConversation[] {
   const rows = getStore(projectsDir)
     .prepare(
-      `SELECT id, project_id, title, provider, provider_session_id, resume_token, created_at, updated_at
+      `SELECT id, project_id, title, provider, model, provider_session_id, resume_token, created_at, updated_at
        FROM conversations
        WHERE project_id = ?
        ORDER BY updated_at DESC, created_at DESC`,
@@ -584,11 +596,12 @@ export function bindConversationProviderInStore(
   projectId: string,
   conversationId: string,
   provider: string,
+  model?: string | null,
 ): StoredConversation | null {
   const db = getStore(projectsDir);
   const row = db
     .prepare(
-      `SELECT id, project_id, title, provider, provider_session_id, resume_token, created_at, updated_at
+      `SELECT id, project_id, title, provider, model, provider_session_id, resume_token, created_at, updated_at
        FROM conversations
        WHERE project_id = ? AND id = ?`,
     )
@@ -597,19 +610,34 @@ export function bindConversationProviderInStore(
     return null;
   }
   if (row.provider) {
+    if (row.provider === provider && model && row.model !== model) {
+      const now = Date.now();
+      db.prepare('UPDATE conversations SET model = ?, updated_at = ? WHERE project_id = ? AND id = ?').run(
+        model,
+        now,
+        projectId,
+        conversationId,
+      );
+      return {
+        ...conversationFromRow(row),
+        model,
+        updatedAt: now,
+      };
+    }
     return conversationFromRow(row);
   }
 
   const now = Date.now();
-  db.prepare('UPDATE conversations SET provider = ?, updated_at = ? WHERE project_id = ? AND id = ?').run(
+  db.prepare('UPDATE conversations SET provider = ?, model = ?, updated_at = ? WHERE project_id = ? AND id = ?').run(
     provider,
+    model ?? null,
     now,
     projectId,
     conversationId,
   );
   const updated = db
     .prepare(
-      `SELECT id, project_id, title, provider, provider_session_id, resume_token, created_at, updated_at
+      `SELECT id, project_id, title, provider, model, provider_session_id, resume_token, created_at, updated_at
        FROM conversations
        WHERE project_id = ? AND id = ?`,
     )
@@ -626,7 +654,7 @@ export function updateConversationResumeMetadataInStore(
   const db = getStore(projectsDir);
   const existing = db
     .prepare(
-      `SELECT id, project_id, title, provider, provider_session_id, resume_token, created_at, updated_at
+      `SELECT id, project_id, title, provider, model, provider_session_id, resume_token, created_at, updated_at
        FROM conversations
        WHERE project_id = ? AND id = ?`,
     )
@@ -645,7 +673,7 @@ export function updateConversationResumeMetadataInStore(
   ).run(providerSessionId, resumeToken, now, projectId, conversationId);
   const updated = db
     .prepare(
-      `SELECT id, project_id, title, provider, provider_session_id, resume_token, created_at, updated_at
+      `SELECT id, project_id, title, provider, model, provider_session_id, resume_token, created_at, updated_at
        FROM conversations
        WHERE project_id = ? AND id = ?`,
     )
@@ -667,8 +695,8 @@ export function upsertMessageInStore(
     if (!existingConversation) {
       const now = Date.now();
       db.prepare(
-        `INSERT INTO conversations (id, project_id, title, provider, provider_session_id, resume_token, created_at, updated_at)
-         VALUES (?, ?, NULL, NULL, NULL, NULL, ?, ?)`,
+        `INSERT INTO conversations (id, project_id, title, provider, model, provider_session_id, resume_token, created_at, updated_at)
+         VALUES (?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?)`,
       ).run(conversationId, projectId, now, now);
     }
 
@@ -1029,6 +1057,7 @@ function migrate(db: SqliteDatabase): void {
       project_id TEXT NOT NULL,
       title TEXT,
       provider TEXT,
+      model TEXT,
       provider_session_id TEXT,
       resume_token TEXT,
       created_at INTEGER NOT NULL,
@@ -1105,6 +1134,9 @@ function migrate(db: SqliteDatabase): void {
   }
   if (!conversationColumns.some((column) => column.name === 'resume_token')) {
     db.exec('ALTER TABLE conversations ADD COLUMN resume_token TEXT');
+  }
+  if (!conversationColumns.some((column) => column.name === 'model')) {
+    db.exec('ALTER TABLE conversations ADD COLUMN model TEXT');
   }
 
   const previewCommentColumns = db.prepare('PRAGMA table_info(preview_comments)').all() as Array<{ name: string }>;
@@ -1290,6 +1322,7 @@ function conversationFromRow(row: ConversationRow): StoredConversation {
     projectId: row.project_id,
     title: row.title,
     provider: row.provider,
+    model: row.model,
     providerSessionId: row.provider_session_id,
     resumeToken: row.resume_token,
     createdAt: row.created_at,

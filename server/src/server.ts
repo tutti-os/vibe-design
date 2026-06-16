@@ -13,6 +13,11 @@ import {
   type AgentAvailability,
   type DetectAgentAvailability,
 } from './agent-availability.js';
+import {
+  detectLocalAgentModelCatalog,
+  fallbackAgentModelCatalog,
+  type DetectAgentModelCatalog,
+} from './agent-model-catalog.js';
 import { createSseErrorPayload, createSseResponse } from './http/sse.js';
 import { startAgentRun, type StartAgentRunInput } from './agent-launcher.js';
 import { materializeProjectArtifactsFromEvents } from './artifact-materializer.js';
@@ -50,7 +55,6 @@ import {
 } from './routes/project-routes.js';
 import { registerSkillsRoutes } from './routes/skills-routes.js';
 import { createChatRunService } from './runs.js';
-import { agentRegistry } from './runtimes/index.js';
 import {
   listProjectFilesFromStore,
   sqlitePathForProjectsDir,
@@ -69,6 +73,7 @@ export interface CreateServerOptions {
   builtInDesignSystemsRoot?: string;
   startAgentRun?: (input: StartAgentRunInput) => Promise<void> | void;
   detectAgentAvailability?: DetectAgentAvailability;
+  detectAgentModelCatalog?: DetectAgentModelCatalog;
   installClaudeCode?: () => Promise<void>;
 }
 
@@ -116,6 +121,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   const projectsDir = join(runtimeDir, 'projects');
   const runsLogDir = join(runtimeDir, 'runs');
   const detectAgentAvailability = options.detectAgentAvailability ?? detectLocalAgentAvailability;
+  const detectAgentModelCatalog = options.detectAgentModelCatalog ?? detectLocalAgentModelCatalog;
   const installClaudeCode = options.installClaudeCode ?? installLocalClaudeCode;
   const runs = createChatRunService({
     createSseResponse,
@@ -316,6 +322,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       projectId,
       conversationId,
       requestedProvider,
+      readString(body.model),
     );
     if (!conversation) {
       return { ok: false, status: 404, code: 'CONVERSATION_NOT_FOUND', message: 'conversation not found' };
@@ -329,6 +336,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
         conversationId,
         agentId: conversation.provider ?? requestedProvider,
         provider: conversation.provider ?? requestedProvider,
+        model: conversation.model ?? readString(body.model),
         providerSessionId: conversation.providerSessionId,
         resumeToken: conversation.resumeToken,
         assistantMessageId,
@@ -629,9 +637,10 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     runs.start(run, (startedRun) => startRunFromRequest(startedRun, persistentBody));
   });
 
-  app.get('/api/agents/models', (_req: Request, res: Response): void => {
+  app.get('/api/agents/models', async (_req: Request, res: Response): Promise<void> => {
+    const modelCatalog = await safeDetectAgentModelCatalog(detectAgentModelCatalog);
     res.json({
-      agents: agentRegistry.listAgentDefs().map((agent) => ({
+      agents: modelCatalog.map((agent) => ({
         id: agent.id,
         label: agent.label,
         models: agent.models.map((model) => ({
@@ -862,10 +871,19 @@ async function safeDetectAgentAvailability(detectAgentAvailability: DetectAgentA
   }
 }
 
+async function safeDetectAgentModelCatalog(detectAgentModelCatalog: DetectAgentModelCatalog) {
+  try {
+    return await detectAgentModelCatalog();
+  } catch {
+    return fallbackAgentModelCatalog();
+  }
+}
+
 function conversationSummaryForClient(conversation: {
   id: string;
   title: string | null;
   provider?: string | null;
+  model?: string | null;
   createdAt: number;
   updatedAt: number;
 }): ProjectEditorInitialData['conversations'][number] {
@@ -873,6 +891,7 @@ function conversationSummaryForClient(conversation: {
     id: conversation.id,
     title: conversation.title ?? 'New conversation',
     provider: conversation.provider ?? null,
+    model: conversation.model ?? null,
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
   };

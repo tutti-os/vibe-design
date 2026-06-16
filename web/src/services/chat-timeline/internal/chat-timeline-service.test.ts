@@ -76,6 +76,41 @@ describe('ChatTimelineService', () => {
     expect(api.renameConversation).toHaveBeenCalledWith('conversation-1', '帮我写一个登陆页');
   });
 
+  it('locks a conversation provider once while allowing the remembered model to change', () => {
+    const timeline = new ChatTimelineService({
+      initialSnapshot: {
+        conversations: [{ id: 'conversation-1', title: 'New conversation', createdAt: 1, updatedAt: 1 }],
+        activeConversationId: 'conversation-1',
+        activeConversationTitle: 'New conversation',
+        messages: [],
+        activeRunId: null,
+        phase: 'idle',
+        pinnedTodoInput: null,
+      },
+    });
+
+    timeline.setConversationProvider({
+      conversationId: 'conversation-1',
+      provider: 'codex',
+      model: 'codex:gpt-5.4',
+    });
+    timeline.setConversationProvider({
+      conversationId: 'conversation-1',
+      provider: 'claude',
+      model: 'claude:opus',
+    });
+    timeline.setConversationProvider({
+      conversationId: 'conversation-1',
+      provider: 'codex',
+      model: 'codex:gpt-5.5',
+    });
+
+    expect(timeline.getSnapshot().conversations[0]).toMatchObject({
+      provider: 'codex',
+      model: 'codex:gpt-5.5',
+    });
+  });
+
   it('reuses the current empty conversation instead of creating duplicate blank conversations', () => {
     const api = {
       createConversation: vi.fn(async (input: { id: string; title?: string }) => ({

@@ -162,15 +162,41 @@ describe('sqlite preview comments', () => {
     ]);
   });
 
-  it('stores a conversation provider once and updates resume metadata for restore', async () => {
+  it('stores a conversation provider once, remembers the current model, and updates resume metadata for restore', async () => {
     const projectsDir = await createProjectsDir();
     writeConversation(projectsDir);
 
-    const bound = bindConversationProviderInStore(projectsDir, 'project-a', 'conversation-a', 'claude');
-    expect(bound).toMatchObject({ provider: 'claude', providerSessionId: null, resumeToken: null });
+    const bound = bindConversationProviderInStore(
+      projectsDir,
+      'project-a',
+      'conversation-a',
+      'claude',
+      'claude:sonnet',
+    );
+    expect(bound).toMatchObject({
+      provider: 'claude',
+      model: 'claude:sonnet',
+      providerSessionId: null,
+      resumeToken: null,
+    });
 
-    const rebound = bindConversationProviderInStore(projectsDir, 'project-a', 'conversation-a', 'codex');
-    expect(rebound).toMatchObject({ provider: 'claude' });
+    const rebound = bindConversationProviderInStore(
+      projectsDir,
+      'project-a',
+      'conversation-a',
+      'codex',
+      'codex:gpt-5.5',
+    );
+    expect(rebound).toMatchObject({ provider: 'claude', model: 'claude:sonnet' });
+
+    const updatedModel = bindConversationProviderInStore(
+      projectsDir,
+      'project-a',
+      'conversation-a',
+      'claude',
+      'claude:opus',
+    );
+    expect(updatedModel).toMatchObject({ provider: 'claude', model: 'claude:opus' });
 
     const updated = updateConversationResumeMetadataInStore(projectsDir, 'project-a', 'conversation-a', {
       providerSessionId: 'claude-session-1',
@@ -179,11 +205,13 @@ describe('sqlite preview comments', () => {
 
     expect(updated).toMatchObject({
       provider: 'claude',
+      model: 'claude:opus',
       providerSessionId: 'claude-session-1',
       resumeToken: 'resume-token-1',
     });
     expect(listConversationsFromStore(projectsDir, 'project-a')[0]).toMatchObject({
       provider: 'claude',
+      model: 'claude:opus',
       providerSessionId: 'claude-session-1',
       resumeToken: 'resume-token-1',
     });
