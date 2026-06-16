@@ -247,6 +247,8 @@ export function CanvasWorkspace({
   });
   const savedHtmlPreviewScreenshotKeysRef = React.useRef<Map<string, 'pending' | 'saved'>>(new Map());
   const consumedAutoOpenFileRequestRef = React.useRef<string | null>(null);
+  const initializedAutoPreviewScaleFileRef = React.useRef<string | null>(null);
+  const initializedAutoPreviewScaleRef = React.useRef<number | null>(null);
   const activeTab = useMemo(
     () => tabsState.tabs.find((tab) => tab.key === tabsState.activeTabKey) ?? null,
     [tabsState.activeTabKey, tabsState.tabs],
@@ -466,6 +468,8 @@ export function CanvasWorkspace({
     setCommentFrameLayout(null);
     setInteractivePreviewScale(1);
     setInteractivePreviewScaleMode('auto');
+    initializedAutoPreviewScaleFileRef.current = null;
+    initializedAutoPreviewScaleRef.current = null;
   }, [activeFile?.path]);
 
   React.useEffect(() => {
@@ -549,7 +553,14 @@ export function CanvasWorkspace({
       return;
     }
 
+    const autoScaleFileKey = activeFile?.path ?? null;
+    if (!autoScaleFileKey || initializedAutoPreviewScaleFileRef.current === autoScaleFileKey) {
+      return;
+    }
+
     const nextScale = resolveInteractivePreviewAutoScale(activeManualFrameLayout, interactionViewportBounds);
+    initializedAutoPreviewScaleFileRef.current = autoScaleFileKey;
+    initializedAutoPreviewScaleRef.current = nextScale;
     setInteractivePreviewScale((currentScale) => (currentScale === nextScale ? currentScale : nextScale));
   }, [
     activeFile?.path,
@@ -908,7 +919,10 @@ export function CanvasWorkspace({
 
   function resetInteractivePreviewZoom() {
     setInteractivePreviewScaleMode('auto');
-    setInteractivePreviewScale(resolveInteractivePreviewAutoScale(activeManualFrameLayout, interactionViewportBounds));
+    setInteractivePreviewScale(
+      initializedAutoPreviewScaleRef.current
+        ?? resolveInteractivePreviewAutoScale(activeManualFrameLayout, interactionViewportBounds),
+    );
   }
 
   function handleInteractionViewportScroll(event: React.UIEvent<HTMLDivElement>) {
