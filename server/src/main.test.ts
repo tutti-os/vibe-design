@@ -33,6 +33,11 @@ type TestCreateServer = (options?: {
     available: boolean;
     unavailableReason?: string;
   }>>;
+  detectAgentModelCatalog?: () => Promise<Array<{
+    id: string;
+    label: string;
+    models: Array<{ id: string; label: string; description?: string }>;
+  }>>;
   installClaudeCode?: () => Promise<void>;
   startAgentRun?: (input: {
     run: ChatRun;
@@ -290,8 +295,30 @@ describe('createServer', () => {
     });
   });
 
-  it('lists model catalogs for runnable agents', async () => {
-    const port = await listenOnRandomPort(createTestServer({ runtimeDir: await createRuntimeDir() }));
+  it('lists model catalogs from agent runtime detection', async () => {
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentModelCatalog: async () => [
+          {
+            id: 'claude',
+            label: 'Claude Code',
+            models: [
+              { id: 'default', label: 'Default (recommended)' },
+              { id: 'opus[1m]', label: 'Opus 4.7 (1M context)', description: 'Detected by Claude.' },
+            ],
+          },
+          {
+            id: 'codex',
+            label: 'Codex',
+            models: [
+              { id: 'default', label: 'Default (CLI config)' },
+              { id: 'gpt-5.5', label: 'GPT-5.5', description: 'Detected by Codex.' },
+            ],
+          },
+        ],
+      }),
+    );
 
     const response = await fetch(`http://127.0.0.1:${port}/api/agents/models`);
 
@@ -302,44 +329,16 @@ describe('createServer', () => {
           id: 'claude',
           label: 'Claude Code',
           models: [
-            {
-              id: 'default',
-              label: 'Default',
-              description: 'Sonnet 4.6 · Best for everyday tasks',
-            },
-            {
-              id: 'claude:sonnet',
-              label: 'Sonnet',
-              description: 'Sonnet 4.6 · Best for everyday tasks',
-            },
-            {
-              id: 'claude:opus',
-              label: 'Opus',
-              description: 'Opus 4.7 · Most capable for complex work · ~2x usage vs Sonnet',
-            },
-            {
-              id: 'claude:haiku',
-              label: 'Haiku',
-              description: 'Haiku 4.5 · Fastest for quick answers',
-            },
+            { id: 'default', label: 'Default (recommended)' },
+            { id: 'opus[1m]', label: 'Opus 4.7 (1M context)', description: 'Detected by Claude.' },
           ],
         },
         {
           id: 'codex',
           label: 'Codex',
           models: [
-            {
-              id: 'default',
-              label: 'Default',
-              description: 'Use the default Codex model.',
-            },
-            {
-              id: 'codex:gpt-5.5',
-              label: 'GPT-5.5',
-              description: 'Frontier model for complex coding, research, and real-world work.',
-            },
-            { id: 'codex:gpt-5.4', label: 'GPT-5.4' },
-            { id: 'codex:gpt-5', label: 'GPT-5' },
+            { id: 'default', label: 'Default (CLI config)' },
+            { id: 'gpt-5.5', label: 'GPT-5.5', description: 'Detected by Codex.' },
           ],
         },
       ],
@@ -1358,6 +1357,61 @@ describe('createServer', () => {
         skillId: 'landing',
       }),
     ]);
+  });
+
+  it('keeps a conversation provider locked while updating its remembered model for same-provider runs', async () => {
+    const startedRequests: Record<string, unknown>[] = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        startAgentRun: ({ request }) => {
+          startedRequests.push(request);
+        },
+      }),
+    );
+
+    const firstResponse = await fetch(`http://127.0.0.1:${port}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: 'project-model-lock',
+        prompt: 'Build a small page',
+        agentId: 'codex',
+        model: 'codex:gpt-5.4',
+      }),
+    });
+    expect(firstResponse.status).toBe(202);
+    const firstRun = (await firstResponse.json()) as { conversationId: string };
+
+    const secondResponse = await fetch(`http://127.0.0.1:${port}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: 'project-model-lock',
+        conversationId: firstRun.conversationId,
+        prompt: 'Try a newer Codex model',
+        agentId: 'codex',
+        model: 'codex:gpt-5.5',
+      }),
+    });
+
+    expect(secondResponse.status).toBe(202);
+    expect(startedRequests).toEqual([
+      expect.objectContaining({ agentId: 'codex', model: 'codex:gpt-5.4' }),
+      expect.objectContaining({ agentId: 'codex', model: 'codex:gpt-5.5' }),
+    ]);
+
+    const conversationsResponse = await fetch(`http://127.0.0.1:${port}/api/projects/project-model-lock/conversations`);
+    expect(conversationsResponse.status).toBe(200);
+    expect(await conversationsResponse.json()).toMatchObject({
+      conversations: [
+        expect.objectContaining({
+          id: firstRun.conversationId,
+          provider: 'codex',
+          model: 'codex:gpt-5.5',
+        }),
+      ],
+    });
   });
 
   it('rejects /api/runs when the requested local agent is unavailable', async () => {

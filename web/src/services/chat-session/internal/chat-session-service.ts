@@ -111,11 +111,12 @@ export class ChatSessionService implements IChatSessionService {
     const timelineSnapshot = this.dependencies.timeline.getSnapshot();
     const conversationId = timelineSnapshot.activeConversationId;
     const lockedProvider = readActiveConversationProvider(timelineSnapshot);
+    const rememberedModel = readActiveConversationModel(timelineSnapshot);
     return {
       content,
       prompt,
       agentId: lockedProvider ?? input.agentId,
-      ...(input.model ? { model: input.model } : {}),
+      ...(input.model || rememberedModel ? { model: input.model ?? rememberedModel } : {}),
       attachments,
       commentAttachments,
       conversationId,
@@ -172,8 +173,13 @@ export class ChatSessionService implements IChatSessionService {
         this.dependencies.timeline.removeMessage(userMessage.id);
         throw error;
       }
-      if (turn.conversationId && provider) {
-        this.dependencies.timeline.setConversationProvider({ conversationId: turn.conversationId, provider });
+      const providerToRemember = provider ?? (turn.model ? turn.agentId : null);
+      if (turn.conversationId && providerToRemember) {
+        this.dependencies.timeline.setConversationProvider({
+          conversationId: turn.conversationId,
+          provider: providerToRemember,
+          ...(turn.model ? { model: turn.model } : {}),
+        });
       }
 
       this.dependencies.timeline.startAssistantRun({ runId, conversationId: turn.conversationId });
@@ -659,6 +665,12 @@ function readActiveConversationProvider(snapshot: ReturnType<IChatTimelineServic
   const activeConversation = snapshot.conversations.find((conversation) => conversation.id === snapshot.activeConversationId);
   const provider = activeConversation?.provider;
   return typeof provider === 'string' && provider.trim().length > 0 ? provider : undefined;
+}
+
+function readActiveConversationModel(snapshot: ReturnType<IChatTimelineService['getSnapshot']>): string | undefined {
+  const activeConversation = snapshot.conversations.find((conversation) => conversation.id === snapshot.activeConversationId);
+  const model = activeConversation?.model;
+  return typeof model === 'string' && model.trim().length > 0 ? model : undefined;
 }
 
 function lastEventIdForRun(messages: ReturnType<IChatTimelineService['getSnapshot']>['messages'], runId: string): number | string | null {

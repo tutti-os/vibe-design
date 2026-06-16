@@ -79,6 +79,7 @@ export interface ChatComposerProps {
   agentAvailability?: ChatComposerAgentAvailability[];
   agentModelCatalog?: ChatComposerAgentModelCatalogEntry[];
   lockedAgentId?: AgentId | null;
+  lockedModel?: string | null;
   onOpenDesignSystemPicker?(): void | Promise<void>;
   onSelectDesignSystem?(designSystemId: string | null): void | Promise<void>;
   onInstallAgent?(agentId: AgentId): void | Promise<void>;
@@ -142,6 +143,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     agentAvailability = [],
     agentModelCatalog = [],
     lockedAgentId = null,
+    lockedModel = null,
     onOpenDesignSystemPicker,
     onSelectDesignSystem,
     onInstallAgent,
@@ -222,6 +224,17 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
         setModelProvider(lockedModelProvider);
       }
     }, [lockedModelProvider]);
+
+    useEffect(() => {
+      if (!lockedModelProvider || !lockedModel) return;
+      setSelectedModelsByProvider((current) => {
+        if (current[lockedModelProvider] === lockedModel) return current;
+        return {
+          ...current,
+          [lockedModelProvider]: lockedModel,
+        };
+      });
+    }, [lockedModel, lockedModelProvider]);
 
     useEffect(() => {
       const agentId = agentIdFromModelProvider(modelProvider);
@@ -981,7 +994,7 @@ function agentIdFromModelProvider(provider: ModelProvider): AgentId {
   return provider === 'claude-code' ? 'claude' : 'codex';
 }
 
-function modelProviderFromAgentId(agentId: AgentId): ModelProvider {
+function modelProviderFromAgentId(agentId: AgentId): ActiveModelProvider {
   return agentId === 'claude' ? 'claude-code' : 'codex';
 }
 

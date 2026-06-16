@@ -366,10 +366,12 @@ describe('chat-ui.css', () => {
     const tooltipTriggerRule = ruleBody('.composer-model-menu-tooltip-trigger');
 
     expect(triggerRule).toContain('display: inline-flex');
-    expect(triggerRule).toContain('width: 178px');
-    expect(triggerRule).toContain('max-width: 52vw');
+    expect(triggerRule).toContain('flex: 0 1 auto');
+    expect(triggerRule).toContain('width: max-content');
+    expect(triggerRule).toContain('max-width: min(320px, calc(100% - 128px))');
     expect(triggerRule).toContain('padding-inline: 4px');
-    expect(triggerProviderRule).toContain('max-width: 72px');
+    expect(triggerProviderRule).toContain('flex: 0 0 auto');
+    expect(triggerProviderRule).toContain('max-width: 88px');
     expect(triggerModelRule).toContain('text-overflow: ellipsis');
     expect(triggerIconRule).toContain('color: var(--text-placeholder)');
     expect(triggerIconRule).toContain('opacity: 1');

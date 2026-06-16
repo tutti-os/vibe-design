@@ -82,6 +82,7 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
   const observedGeneratedFileEventKeysRef = React.useRef<Set<string> | null>(null);
   const observedCompletedRunKeysRef = React.useRef<Set<string> | null>(null);
   const initialTabs = initialData?.project.tabsState ?? { tabs: [], activeTabKey: null };
+  const [workspaceTabsState, setWorkspaceTabsState] = React.useState<WorkspaceTabsState>(initialTabs);
   const effectiveChatPanelWidth = compactEditorLayout ? CHAT_PANEL_COMPACT_WIDTH : chatPanelWidth;
   const chatPanelColumn = effectiveChatPanelWidth ? `${effectiveChatPanelWidth}px` : CHAT_PANEL_DEFAULT_WIDTH_CSS;
   const chatPanelAriaWidth = effectiveChatPanelWidth ?? CHAT_PANEL_DEFAULT_WIDTH;
@@ -102,6 +103,17 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
         title: t('projectEditor.designSystemFallback.title'),
       }),
     [activeDesignSystemId, designSystems, t],
+  );
+  const activeWorkspaceFilePath = React.useMemo(
+    () => activeFilePathFromTabsState(workspaceTabsState),
+    [workspaceTabsState],
+  );
+  const activeFilePreviewComments = React.useMemo(
+    () =>
+      activeWorkspaceFilePath
+        ? previewCommentSnapshot.comments.filter((comment) => comment.filePath === activeWorkspaceFilePath)
+        : [],
+    [activeWorkspaceFilePath, previewCommentSnapshot.comments],
   );
 
   React.useEffect(() => {
@@ -129,6 +141,7 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
 
   const handleTabsStateChange = React.useCallback(
     (tabsState: WorkspaceTabsState) => {
+      setWorkspaceTabsState(tabsState);
       void projects.updateProjectTabsState(projectId, tabsState).catch(() => undefined);
     },
     [projectId, projects],
@@ -521,7 +534,7 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
             agentAvailability={agentAvailability}
             agentModelCatalog={agentModelCatalog}
             commentAttachments={stagedCommentAttachments}
-            previewComments={previewCommentSnapshot.comments}
+            previewComments={activeFilePreviewComments}
             commentPanelOpen={commentPanelOpen}
             startingRun={sessionSnapshot.startingRun}
             queuedTurns={sessionSnapshot.queuedTurns}
@@ -742,6 +755,14 @@ function measureChatPanelWidth(layout: HTMLElement | null): number | null {
   const chatPanel = layout?.querySelector<HTMLElement>('[data-testid="project-chat-panel"]');
   const width = chatPanel?.getBoundingClientRect().width ?? 0;
   return width > 0 ? clampChatPanelWidth(width) : null;
+}
+
+function activeFilePathFromTabsState(tabsState: WorkspaceTabsState): string | null {
+  const activeTabKey = tabsState.activeTabKey;
+  if (!activeTabKey) return null;
+
+  const activeTab = tabsState.tabs.find((tab) => tab.key === activeTabKey || `file:${tab.path}` === activeTabKey);
+  return activeTab?.path ?? null;
 }
 
 function useElementMaxWidth(ref: React.RefObject<HTMLElement | null>, maxWidth: number): boolean {

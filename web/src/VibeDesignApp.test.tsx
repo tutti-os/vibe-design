@@ -2674,6 +2674,69 @@ describe('VibeDesignApp', () => {
     }
   });
 
+  it('shows only active-file preview comments in the left comments panel', async () => {
+    const previewCommentService = createPreviewCommentService({
+      comments: [
+        previewComment({ id: 'comment-landing', status: 'open', note: 'Tighten landing hero' }),
+        previewComment({
+          id: 'comment-pricing',
+          filePath: 'pricing.html',
+          targetId: 'pricing-heading',
+          selector: '[data-vd-id="pricing-heading"]',
+          label: 'pricing',
+          text: 'Pricing',
+          htmlHint: '<h1 data-vd-id="pricing-heading">Pricing</h1>',
+          status: 'open',
+          note: 'Revise pricing copy',
+        }),
+      ],
+      loading: false,
+      error: null,
+    });
+    const flow = createVibeDesignFlow({
+      route: { kind: 'project', projectId: 'preview-comment-project' },
+      previewCommentService,
+      projectEditor: previewCommentProjectEditorData({
+        files: [
+          {
+            name: 'landing.html',
+            path: 'landing.html',
+            kind: 'html',
+            mime: 'text/html',
+            contents: '<main><h1 data-vd-id="hero">Hero</h1></main>',
+          },
+          {
+            name: 'pricing.html',
+            path: 'pricing.html',
+            kind: 'html',
+            mime: 'text/html',
+            contents: '<main><h1 data-vd-id="pricing-heading">Pricing</h1></main>',
+          },
+        ],
+      }),
+    });
+
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      await act(async () => {
+        fireEvent.click(buttonByText(container, 'Comments 1'));
+      });
+
+      expect(container.querySelector('[data-testid="chat-preview-comment-row-comment-landing"]')?.textContent).toContain(
+        'Tighten landing hero',
+      );
+      expect(container.querySelector('[data-testid="chat-preview-comment-row-comment-pricing"]')).toBeNull();
+      expect(container.textContent).not.toContain('Revise pricing copy');
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('keeps preview comments loaded when switching project conversations', async () => {
     const previewCommentService = createPreviewCommentService({
       comments: [previewComment({ status: 'open' })],

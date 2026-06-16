@@ -191,6 +191,12 @@ export function ChatPane({
     )?.provider;
     return provider === 'claude' || provider === 'codex' ? provider : null;
   }, [visibleSnapshot.activeConversationId, visibleSnapshot.conversations]);
+  const activeConversationModel = React.useMemo(() => {
+    const model = visibleSnapshot.conversations.find(
+      (conversation) => conversation.id === visibleSnapshot.activeConversationId,
+    )?.model;
+    return typeof model === 'string' && model.trim() ? model : null;
+  }, [visibleSnapshot.activeConversationId, visibleSnapshot.conversations]);
   const activeQueuedTurns = React.useMemo(
     () => queuedTurns.filter((turn) => turn.conversationId === visibleSnapshot.activeConversationId),
     [queuedTurns, visibleSnapshot.activeConversationId],
@@ -575,6 +581,7 @@ export function ChatPane({
           agentAvailability={agentAvailability}
           agentModelCatalog={agentModelCatalog}
           lockedAgentId={activeConversationProvider}
+          lockedModel={activeConversationModel}
           activeDesignSystem={activeDesignSystem}
           designSystems={designSystems}
           designSystemPickerState={designSystemPickerState}

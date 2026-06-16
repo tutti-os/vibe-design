@@ -502,6 +502,75 @@ describe('ChatComposer', () => {
     }
   });
 
+  it('restores the remembered model for a locked provider and still allows same-provider model changes', async () => {
+    const onSend = vi.fn();
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        lockedAgentId="codex"
+        lockedModel="codex:gpt-5.5"
+        agentModelCatalog={[
+          {
+            agentId: 'codex',
+            label: 'Codex',
+            models: [
+              { id: 'default', label: 'Default' },
+              { id: 'codex:gpt-5.5', label: 'GPT-5.5' },
+            ],
+          },
+          {
+            agentId: 'claude',
+            label: 'Claude Code',
+            models: [{ id: 'claude:opus', label: 'Opus' }],
+          },
+        ]}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onSend={onSend}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      const provider = getByLabelText(container, 'Model provider');
+      expect(provider.textContent).toContain('Codex');
+      expect(provider.textContent).toContain('GPT-5.5');
+
+      await openModelMenu(container);
+
+      const claudeOption = menuItemByName('Claude Code');
+      expect(claudeOption.getAttribute('aria-disabled')).toBe('true');
+
+      const defaultOption = document.body.querySelector('[data-model-option-id="default"]');
+      expect(defaultOption).toBeInstanceOf(HTMLElement);
+      expect(defaultOption?.closest('[data-provider-models="codex"]')).toBeInstanceOf(HTMLElement);
+      expect(defaultOption?.getAttribute('aria-disabled')).not.toBe('true');
+
+      await act(async () => {
+        fireEvent.click(defaultOption!);
+      });
+      expect(provider.textContent).toContain('Default');
+
+      await changeText(getByLabelText(container, 'Message'), 'Use default Codex');
+      await act(async () => {
+        getByLabelText(container, 'Send message').click();
+      });
+      await flushAsyncWork();
+
+      expect(onSend).toHaveBeenCalledWith({
+        draft: 'Use default Codex',
+        files: [],
+        agentId: 'codex',
+        model: 'default',
+      });
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('explains why a Codex conversation cannot switch to Claude Code', () => {
     const { container, root } = renderComponent(
       <ChatComposer

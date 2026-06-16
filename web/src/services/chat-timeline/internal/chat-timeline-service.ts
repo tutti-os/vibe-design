@@ -230,13 +230,17 @@ export class ChatTimelineService implements IChatTimelineService {
 
   setConversationProvider(input: SetConversationProviderInput): void {
     const conversation = this.conversations.get(input.conversationId);
-    if (!conversation || conversation.summary.provider) {
+    if (!conversation) {
+      return;
+    }
+    if (conversation.summary.provider && conversation.summary.provider !== input.provider) {
       return;
     }
 
     conversation.summary = {
       ...conversation.summary,
       provider: input.provider,
+      ...(input.model ? { model: input.model } : {}),
       updatedAt: Date.now(),
     };
     conversation.hasHadMessages = true;
@@ -393,6 +397,7 @@ export class ChatTimelineService implements IChatTimelineService {
         id: conversationId,
         title: normalizedTitle,
         provider: null,
+        model: null,
         createdAt: now,
         updatedAt: now,
       },
@@ -429,6 +434,7 @@ export class ChatTimelineService implements IChatTimelineService {
           ...current.summary,
           title: summary.title,
           provider: summary.provider,
+          model: summary.model,
           createdAt: summary.createdAt,
           updatedAt: summary.updatedAt,
         };
