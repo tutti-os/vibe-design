@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createVibeClaudeProvider, parseClaudeAuthStatus, parseVibeClaudeStreamEvent } from './local-claude-provider.js';
 
@@ -30,6 +33,44 @@ describe('createVibeClaudeProvider', () => {
     expect(plan.args).not.toContain('--no-chrome');
     expect(plan.args).not.toEqual(expect.arrayContaining(['--permission-mode', 'bypassPermissions']));
     expect(plan.args).not.toContain('--dangerously-skip-permissions');
+  });
+
+  it('injects Claude API env from user settings when local setting sources hide parent config', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'vibe-claude-settings-'));
+    const settingsPath = join(tempDir, 'settings.json');
+    await writeFile(settingsPath, JSON.stringify({
+      env: {
+        ANTHROPIC_API_KEY: 'test-key',
+        ANTHROPIC_BASE_URL: 'https://llm.example.test/anthropic',
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: 'test-haiku',
+        ANTHROPIC_DEFAULT_OPUS_MODEL: 'test-opus',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'test-sonnet',
+        ANTHROPIC_MODEL: 'test-model',
+        UNRELATED_ENV: 'ignored',
+      },
+    }));
+
+    try {
+      const provider = createVibeClaudeProvider({ claudeSettingsPath: settingsPath });
+      const plan = await provider.buildLaunchPlan({
+        runId: 'run-1',
+        cwd: '/tmp/vibe-project',
+        prompt: 'Build a page',
+        model: 'default',
+      });
+
+      expect(plan.env).toMatchObject({
+        ANTHROPIC_API_KEY: 'test-key',
+        ANTHROPIC_BASE_URL: 'https://llm.example.test/anthropic',
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: 'test-haiku',
+        ANTHROPIC_DEFAULT_OPUS_MODEL: 'test-opus',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'test-sonnet',
+        ANTHROPIC_MODEL: 'test-model',
+      });
+      expect(plan.env).not.toHaveProperty('UNRELATED_ENV');
+    } finally {
+      await rm(tempDir, { force: true, recursive: true });
+    }
   });
 });
 
