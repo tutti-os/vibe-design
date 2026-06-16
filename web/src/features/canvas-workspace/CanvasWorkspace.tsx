@@ -362,13 +362,18 @@ export function CanvasWorkspace({
     updateTabStripScrollState();
     strip.addEventListener('scroll', updateTabStripScrollState);
     const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateTabStripScrollState);
-    resizeObserver?.observe(strip);
-    window.addEventListener('resize', updateTabStripScrollState);
+    if (resizeObserver) {
+      resizeObserver.observe(strip);
+    } else {
+      window.addEventListener('resize', updateTabStripScrollState);
+    }
 
     return () => {
       strip.removeEventListener('scroll', updateTabStripScrollState);
       resizeObserver?.disconnect();
-      window.removeEventListener('resize', updateTabStripScrollState);
+      if (!resizeObserver) {
+        window.removeEventListener('resize', updateTabStripScrollState);
+      }
     };
   }, [tabsState.tabs.length, updateTabStripScrollState]);
 
@@ -918,11 +923,14 @@ export function CanvasWorkspace({
   }
 
   function resetInteractivePreviewZoom() {
+    const latestViewportBounds = interactionViewportRef.current
+      ? readCanvasInteractionViewportBounds(interactionViewportRef.current)
+      : interactionViewportBounds;
     setInteractivePreviewScaleMode('auto');
-    setInteractivePreviewScale(
-      initializedAutoPreviewScaleRef.current
-        ?? resolveInteractivePreviewAutoScale(activeManualFrameLayout, interactionViewportBounds),
-    );
+    if (latestViewportBounds) {
+      setInteractionViewportBounds(latestViewportBounds);
+    }
+    setInteractivePreviewScale(resolveInteractivePreviewAutoScale(activeManualFrameLayout, latestViewportBounds));
   }
 
   function handleInteractionViewportScroll(event: React.UIEvent<HTMLDivElement>) {
@@ -1218,7 +1226,6 @@ export function CanvasWorkspace({
                         size="icon-sm"
                         variant="chrome"
                         aria-label={t('workspace.actions.resetZoom')}
-                        disabled={interactivePreviewScaleMode === 'auto'}
                         onClick={resetInteractivePreviewZoom}
                       >
                         <RestoreIcon size={14} />
@@ -1551,10 +1558,13 @@ function useElementMaxWidth(ref: React.RefObject<HTMLElement | null>, maxWidth: 
 
     updateMatches();
     const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateMatches);
-    resizeObserver?.observe(element);
+    if (resizeObserver) {
+      resizeObserver.observe(element);
+      return () => resizeObserver.disconnect();
+    }
+
     window.addEventListener('resize', updateMatches);
     return () => {
-      resizeObserver?.disconnect();
       window.removeEventListener('resize', updateMatches);
     };
   }, [maxWidth, ref]);
@@ -2357,11 +2367,13 @@ function HtmlDesignFilePreview({ file, files }: { file: WorkspaceFile; files: Wo
 
     const resizeObserver =
       typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateScale);
-    resizeObserver?.observe(previewContainer);
-    window.addEventListener('resize', updateScale);
+    if (resizeObserver) {
+      resizeObserver.observe(previewContainer);
+      return () => resizeObserver.disconnect();
+    }
 
+    window.addEventListener('resize', updateScale);
     return () => {
-      resizeObserver?.disconnect();
       window.removeEventListener('resize', updateScale);
     };
   }, [previewSize.height, previewSize.width]);

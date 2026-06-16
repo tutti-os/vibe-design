@@ -758,10 +758,13 @@ function useElementMaxWidth(ref: React.RefObject<HTMLElement | null>, maxWidth: 
 
     updateMatches();
     const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateMatches);
-    resizeObserver?.observe(element);
+    if (resizeObserver) {
+      resizeObserver.observe(element);
+      return () => resizeObserver.disconnect();
+    }
+
     window.addEventListener('resize', updateMatches);
     return () => {
-      resizeObserver?.disconnect();
       window.removeEventListener('resize', updateMatches);
     };
   }, [maxWidth, ref]);
