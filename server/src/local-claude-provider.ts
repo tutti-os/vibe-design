@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -15,7 +16,22 @@ import { scrubNestedClaudeSessionEnv } from './nested-session-env.js';
 
 const execFileAsync = promisify(execFile);
 
-export function createVibeClaudeProvider(): LocalAgentProviderPlugin<'local-agent', 'claude'> {
+export interface VibeClaudeProviderOptions {
+  claudeSettingsPath?: string;
+}
+
+const CLAUDE_ENV_KEYS = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  'ANTHROPIC_MODEL',
+] as const;
+
+export function createVibeClaudeProvider(
+  options: VibeClaudeProviderOptions = {},
+): LocalAgentProviderPlugin<'local-agent', 'claude'> {
   // Clear any leaked nested-session marker up front so both detection
   // (`claude --version` / `auth status`) and runs spawn a clean `claude`.
   scrubNestedClaudeSessionEnv();
@@ -37,11 +53,11 @@ export function createVibeClaudeProvider(): LocalAgentProviderPlugin<'local-agen
       };
     },
     async buildLaunchPlan(params) {
-      return buildClaudeLaunchPlan(params);
+      return buildClaudeLaunchPlan(params, options);
     },
     createAdapter() {
       return {
-        buildLaunchPlan: async (params) => buildClaudeLaunchPlan(params),
+        buildLaunchPlan: async (params) => buildClaudeLaunchPlan(params, options),
         capabilities: () => ({
           cancel: true,
           nativeResume: true,
@@ -180,7 +196,10 @@ function parseAssistantEvent(record: Record<string, unknown>): AgentEvent[] {
   return events;
 }
 
-function buildClaudeLaunchPlan(params: AgentRunParams<'local-agent', 'claude'>): LaunchPlan {
+function buildClaudeLaunchPlan(
+  params: AgentRunParams<'local-agent', 'claude'>,
+  options: VibeClaudeProviderOptions,
+): LaunchPlan {
   // If this server was launched from within a Claude Code session, the
   // CLAUDECODE marker leaks into our env and would be inherited by the spawned
   // `claude`, making it abort as a "nested session". Strip it before spawning.
@@ -192,7 +211,7 @@ function buildClaudeLaunchPlan(params: AgentRunParams<'local-agent', 'claude'>):
     'stream-json',
     '--verbose',
     '--mcp-config',
-    '{}',
+    '{"mcpServers":{}}',
     '--strict-mcp-config',
     '--setting-sources',
     'local',
@@ -212,16 +231,52 @@ function buildClaudeLaunchPlan(params: AgentRunParams<'local-agent', 'claude'>):
   }
 
   args.push('--permission-mode', 'default');
+  const env = mergeClaudeRunEnv(readClaudeSettingsEnv(options.claudeSettingsPath), params.env);
   return {
     args,
     command: resolveClaudeCommand(),
     cwd: params.cwd,
-    ...(params.env ? { env: params.env } : {}),
+    ...(Object.keys(env).length > 0 ? { env } : {}),
     prompt: composePrompt(params),
     promptInput: 'stdin',
     runId: params.runId,
     transport: 'jsonl',
   };
+}
+
+function mergeClaudeRunEnv(
+  settingsEnv: Record<string, string>,
+  explicitEnv: Record<string, string> | undefined,
+): Record<string, string> {
+  return {
+    ...settingsEnv,
+    ...(explicitEnv ?? {}),
+  };
+}
+
+function readClaudeSettingsEnv(settingsPath = join(homedir(), '.claude', 'settings.json')): Record<string, string> {
+  const settings = readJsonRecord(settingsPath);
+  const env = readRecord(settings?.env);
+  if (!env) {
+    return {};
+  }
+
+  const result: Record<string, string> = {};
+  for (const key of CLAUDE_ENV_KEYS) {
+    const value = readString(env[key]);
+    if (value) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+function readJsonRecord(file: string): Record<string, unknown> | null {
+  try {
+    return readRecord(JSON.parse(readFileSync(file, 'utf8')));
+  } catch {
+    return null;
+  }
 }
 
 async function detectClaude(): Promise<AgentDetection> {

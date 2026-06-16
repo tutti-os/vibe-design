@@ -14,9 +14,9 @@ test('validates the vibe-design Tutti app manifest contract', () => {
     validateTuttiManifest({
       appId: 'vibe-design',
       cli: { manifest: 'tutti.cli.json' },
-      description: 'Create and iterate on design prototypes inside a Tutti workspace.',
+      description: 'Create and iterate on design prototypes.',
       icon: { type: 'asset', src: 'icon.png' },
-      name: 'Vibe Design',
+      name: 'Prototype Design',
       runtime: {
         bootstrap: 'bootstrap.sh',
         healthcheckPath: '/healthz',
@@ -30,8 +30,8 @@ test('validates the vibe-design Tutti app manifest contract', () => {
     () =>
       validateTuttiManifest({
         appId: 'vibe-design',
-        description: 'Create and iterate on design prototypes inside a Tutti workspace.',
-        name: 'Vibe Design',
+        description: 'Create and iterate on design prototypes.',
+        name: 'Prototype Design',
         runtime: {
           bootstrap: '/bootstrap.sh',
           healthcheckPath: 'healthz',
@@ -41,6 +41,16 @@ test('validates the vibe-design Tutti app manifest contract', () => {
       }),
     /runtime\.bootstrap must be relative/,
   );
+});
+
+test('keeps catalog display metadata in the source Tutti app manifest', async () => {
+  const manifest = JSON.parse(await readFile(new URL('../tutti.app.json', import.meta.url), 'utf8'));
+  const zhCNManifest = JSON.parse(await readFile(new URL('../locales/zh-CN/manifest.json', import.meta.url), 'utf8'));
+
+  assert.equal(manifest.name, 'Prototype Design');
+  assert.equal(manifest.description, 'Create and iterate on design prototypes.');
+  assert.equal(zhCNManifest.name, '产品原型设计');
+  assert.equal(zhCNManifest.description, '创建并迭代产品原型设计');
 });
 
 test('exposes only read-only Tutti CLI capabilities', async () => {
@@ -134,8 +144,8 @@ test('validates required package output files and executable bootstrap', async (
     await writeFile(
       path.join(root, 'locales/zh-CN/manifest.json'),
       JSON.stringify({
-        name: 'Vibe Design',
-        description: '在 Tutti 工作区中创建并迭代设计原型。',
+        name: '产品原型设计',
+        description: '创建并迭代产品原型设计',
         tags: ['设计', '原型', '工作区'],
       }),
     );
@@ -144,13 +154,13 @@ test('validates required package output files and executable bootstrap', async (
       JSON.stringify({
         appId: 'vibe-design',
         cli: { manifest: 'tutti.cli.json' },
-        description: 'Create and iterate on design prototypes inside a Tutti workspace.',
+        description: 'Create and iterate on design prototypes.',
         icon: { type: 'asset', src: 'icon.png' },
         localizationInfo: {
           defaultLocale: 'en',
           additionalLocales: [{ locale: 'zh-CN', file: 'locales/zh-CN/manifest.json' }],
         },
-        name: 'Vibe Design',
+        name: 'Prototype Design',
         runtime: {
           bootstrap: 'bootstrap.sh',
           healthcheckPath: '/healthz',
@@ -216,8 +226,8 @@ test('rejects package output that contains installed node_modules', async () => 
     await writeFile(
       path.join(root, 'locales/zh-CN/manifest.json'),
       JSON.stringify({
-        name: 'Vibe Design',
-        description: '在 Tutti 工作区中创建并迭代设计原型。',
+        name: '产品原型设计',
+        description: '创建并迭代产品原型设计',
         tags: ['设计', '原型', '工作区'],
       }),
     );
@@ -226,13 +236,13 @@ test('rejects package output that contains installed node_modules', async () => 
       JSON.stringify({
         appId: 'vibe-design',
         cli: { manifest: 'tutti.cli.json' },
-        description: 'Create and iterate on design prototypes inside a Tutti workspace.',
+        description: 'Create and iterate on design prototypes.',
         icon: { type: 'asset', src: 'icon.png' },
         localizationInfo: {
           defaultLocale: 'en',
           additionalLocales: [{ locale: 'zh-CN', file: 'locales/zh-CN/manifest.json' }],
         },
-        name: 'Vibe Design',
+        name: 'Prototype Design',
         runtime: {
           bootstrap: 'bootstrap.sh',
           healthcheckPath: '/healthz',
