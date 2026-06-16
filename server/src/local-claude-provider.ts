@@ -192,7 +192,7 @@ function buildClaudeLaunchPlan(params: AgentRunParams<'local-agent', 'claude'>):
     'stream-json',
     '--verbose',
     '--mcp-config',
-    '{}',
+    '{"mcpServers":{}}',
     '--strict-mcp-config',
     '--setting-sources',
     'local',

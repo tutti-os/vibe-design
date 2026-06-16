@@ -14,7 +14,7 @@ describe('createVibeClaudeProvider', () => {
 
     expect(plan.args).toEqual(expect.arrayContaining([
       '--mcp-config',
-      '{}',
+      '{"mcpServers":{}}',
       '--strict-mcp-config',
       '--setting-sources',
       'local',
