@@ -30,6 +30,10 @@ export interface SubmitToolResultResult {
   error?: string;
 }
 
+export type CliServiceResult =
+  | { ok: true; value: unknown }
+  | { ok: false; status: number; code: string; message: string };
+
 export interface ServerContext {
   design: {
     runs: ChatRunService;
@@ -43,6 +47,11 @@ export interface ServerContext {
       content: string,
       isError?: boolean,
     ) => SubmitToolResultResult;
+  };
+  cli: {
+    createProject: (input: Record<string, unknown>) => Promise<CliServiceResult>;
+    updateProject: (input: Record<string, unknown>) => Promise<CliServiceResult>;
+    startSession: (input: Record<string, unknown>) => Promise<CliServiceResult>;
   };
   telemetry?: {
     reportFeedback?: (input: {

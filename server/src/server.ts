@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { isProjectId, type ProjectEditorInitialData, type VibeDesignRoute } from '@vibe-design/web';
@@ -34,17 +34,31 @@ import { registerCliRoutes } from './routes/cli-routes.js';
 import { registerCommentRoutes } from './routes/comment-routes.js';
 import { registerConversationRoutes } from './routes/conversation-routes.js';
 import { registerDesignSystemRoutes } from './routes/design-system-routes.js';
-import { ensureProject, isSafeProjectId, listProjectSummaries, registerProjectRoutes } from './routes/project-routes.js';
+import {
+  createProject,
+  ensureProject,
+  initializeProjectConversation,
+  isSafeFileName,
+  isSafeProjectId,
+  listProjectSummaries,
+  readProjectCreateInput,
+  readProjectUpdate,
+  registerProjectRoutes,
+  saveProjectFile,
+  updateProject,
+  validateDesignSystemId,
+} from './routes/project-routes.js';
 import { registerSkillsRoutes } from './routes/skills-routes.js';
 import { createChatRunService } from './runs.js';
 import { agentRegistry } from './runtimes/index.js';
 import {
   listProjectFilesFromStore,
+  sqlitePathForProjectsDir,
   type ProjectFileKind,
   type StoredConversationMessage,
   type StoredProject,
 } from './sqlite-store.js';
-import type { ServerContext, SubmitToolResultResult } from './server-context.js';
+import type { CliServiceResult, ServerContext, SubmitToolResultResult } from './server-context.js';
 import type { ChatRun, ChatRunCreateMeta, ChatRunService, RunStatus } from './types/run.js';
 
 export interface CreateServerOptions {
@@ -212,6 +226,11 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     chat: {
       submitToolResultToRun,
     },
+    cli: {
+      createProject: createCliProject,
+      updateProject: updateCliProject,
+      startSession: startCliSession,
+    },
   };
 
   app.use('/api', (req: Request, res: Response, next: NextFunction): void => {
@@ -349,6 +368,210 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       runStatus: run.status,
       startedAt: run.createdAt,
     });
+  }
+
+  async function createCliProject(input: Record<string, unknown>): Promise<CliServiceResult> {
+    const projectInput = readProjectCreateInput(normalizeCliProjectInput(input));
+    if (!projectInput) {
+      return { ok: false, status: 400, code: 'BAD_REQUEST', message: 'project prompt is required' };
+    }
+
+    try {
+      const designSystemResult = await validateDesignSystemId(ctx, projectInput.designSystemId);
+      if (!designSystemResult.ok) {
+        return {
+          ok: false,
+          status: 400,
+          code: designSystemResult.code,
+          message: designSystemResult.message,
+        };
+      }
+      const project = await createProject(ctx, projectInput);
+      const conversation = await initializeProjectConversation(ctx, project.id);
+      return {
+        ok: true,
+        value: {
+          project,
+          conversationId: conversation.id,
+          resolvedDir: sqlitePathForProjectsDir(ctx.paths.projectsDir),
+        },
+      };
+    } catch (error) {
+      return cliInternalError(error, 'project create failed');
+    }
+  }
+
+  async function updateCliProject(input: Record<string, unknown>): Promise<CliServiceResult> {
+    const projectId = readString(input['project-id'] ?? input.projectId);
+    if (!projectId || !isSafeProjectId(projectId)) {
+      return { ok: false, status: 400, code: 'BAD_REQUEST', message: 'project-id is required and must be path-safe' };
+    }
+
+    const projectUpdate = readProjectUpdate(normalizeCliProjectInput(input));
+    if (!projectUpdate) {
+      return { ok: false, status: 400, code: 'BAD_REQUEST', message: 'project update body is invalid' };
+    }
+
+    try {
+      if (projectUpdate.designSystemId !== undefined) {
+        const designSystemResult = await validateDesignSystemId(ctx, projectUpdate.designSystemId);
+        if (!designSystemResult.ok) {
+          return {
+            ok: false,
+            status: 400,
+            code: designSystemResult.code,
+            message: designSystemResult.message,
+          };
+        }
+      }
+      const project = await ensureProject(ctx, projectId);
+      return {
+        ok: true,
+        value: {
+          project: await updateProject(ctx, project, projectUpdate),
+          resolvedDir: sqlitePathForProjectsDir(ctx.paths.projectsDir),
+        },
+      };
+    } catch (error) {
+      return cliInternalError(error, 'project update failed');
+    }
+  }
+
+  async function startCliSession(input: Record<string, unknown>): Promise<CliServiceResult> {
+    const body = normalizeCliRunInput(input);
+    const projectId = readString(body.projectId);
+    if (!projectId || !isSafeProjectId(projectId)) {
+      return { ok: false, status: 400, code: 'BAD_REQUEST', message: 'projectId is required and must be path-safe' };
+    }
+
+    const persistentBodyResult = await preparePersistentRunBody(body);
+    if (!persistentBodyResult.ok) {
+      return {
+        ok: false,
+        status: persistentBodyResult.status,
+        code: persistentBodyResult.code,
+        message: persistentBodyResult.message,
+      };
+    }
+
+    const localFileResult = await saveCliLocalFiles(projectId, input.localFiles ?? input['local-files']);
+    if (!localFileResult.ok) {
+      return localFileResult;
+    }
+
+    const persistentBody = {
+      ...persistentBodyResult.body,
+      attachments: [
+        ...readAttachments(persistentBodyResult.body.attachments),
+        ...localFileResult.attachments,
+      ],
+    };
+
+    try {
+      const run = runs.create(createRunMeta(persistentBody));
+      await persistRunMessages(persistentBody, run);
+      runs.start(run, (startedRun) => startRunFromRequest(startedRun, persistentBody));
+      return {
+        ok: true,
+        value: {
+          runId: run.id,
+          conversationId: run.conversationId,
+          assistantMessageId: run.assistantMessageId,
+          provider: run.agentId,
+        },
+      };
+    } catch (error) {
+      return cliInternalError(error, 'session start failed');
+    }
+  }
+
+  async function saveCliLocalFiles(
+    projectId: string,
+    value: unknown,
+  ): Promise<{ ok: true; attachments: unknown[] } | Extract<CliServiceResult, { ok: false }>> {
+    if (value === undefined) {
+      return { ok: true, attachments: [] };
+    }
+
+    if (!Array.isArray(value)) {
+      return { ok: false, status: 400, code: 'BAD_REQUEST', message: 'localFiles must be an array' };
+    }
+
+    const attachments: unknown[] = [];
+    for (const item of value) {
+      if (!isRecord(item)) {
+        return { ok: false, status: 400, code: 'BAD_REQUEST', message: 'localFiles entries must be objects' };
+      }
+
+      const sourcePath = readString(item.path);
+      if (!sourcePath) {
+        return { ok: false, status: 400, code: 'BAD_REQUEST', message: 'localFiles path is required' };
+      }
+
+      const name = readString(item.name) ?? basename(sourcePath);
+      if (!isSafeFileName(name)) {
+        return { ok: false, status: 400, code: 'BAD_REQUEST', message: 'localFiles name must be a safe file name' };
+      }
+
+      let content: Buffer;
+      try {
+        content = await readFile(sourcePath);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return { ok: false, status: 400, code: 'LOCAL_FILE_READ_FAILED', message: `local file read failed: ${reason}` };
+      }
+
+      const file = await saveProjectFile(ctx, projectId, { name, content, uniqueName: true });
+      attachments.push({
+        path: file.path,
+        name: file.name,
+        kind: file.kind === 'image' ? 'image' : 'file',
+        size: file.size,
+        mimeType: file.mime,
+      });
+    }
+
+    return { ok: true, attachments };
+  }
+
+  function normalizeCliProjectInput(input: Record<string, unknown>): Record<string, unknown> {
+    const normalized = { ...input };
+    if (normalized.projectKind === undefined && input['project-kind'] !== undefined) {
+      normalized.projectKind = input['project-kind'];
+    }
+    if (normalized.designSystemId === undefined && input['design-system-id'] !== undefined) {
+      normalized.designSystemId = input['design-system-id'];
+    }
+    return normalized;
+  }
+
+  function normalizeCliRunInput(input: Record<string, unknown>): Record<string, unknown> {
+    const normalized = { ...input };
+    if (normalized.projectId === undefined && input['project-id'] !== undefined) {
+      normalized.projectId = input['project-id'];
+    }
+    if (normalized.conversationId === undefined && input['conversation-id'] !== undefined) {
+      normalized.conversationId = input['conversation-id'];
+    }
+    if (normalized.agentId === undefined && input['agent-id'] !== undefined) {
+      normalized.agentId = input['agent-id'];
+    }
+    if (normalized.assistantMessageId === undefined && input['assistant-message-id'] !== undefined) {
+      normalized.assistantMessageId = input['assistant-message-id'];
+    }
+    if (normalized.clientRequestId === undefined && input['client-request-id'] !== undefined) {
+      normalized.clientRequestId = input['client-request-id'];
+    }
+    return normalized;
+  }
+
+  function cliInternalError(error: unknown, fallbackMessage: string): CliServiceResult {
+    return {
+      ok: false,
+      status: 500,
+      code: 'INTERNAL',
+      message: error instanceof Error ? error.message : fallbackMessage,
+    };
   }
 
   app.post('/api/runs', async (req: Request, res: Response): Promise<void> => {

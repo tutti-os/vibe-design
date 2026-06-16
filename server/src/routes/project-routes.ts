@@ -41,7 +41,7 @@ interface ProjectFile {
   mime: string;
 }
 
-interface ProjectFileWrite {
+export interface ProjectFileWrite {
   name: string;
   content: Buffer | string;
   encoding?: BufferEncoding;
@@ -220,15 +220,7 @@ export function registerProjectRoutes(app: Express, ctx: ProjectRouteDeps): void
       }
 
       const project = await ensureProject(ctx, id);
-      const updatedProject = {
-        ...project,
-        ...(projectUpdate.designSystemId !== undefined ? { designSystemId: projectUpdate.designSystemId } : {}),
-        ...(projectUpdate.title !== undefined
-          ? { metadata: { ...project.metadata, title: projectUpdate.title } }
-          : {}),
-        updatedAt: Date.now(),
-      };
-      await writeProject(ctx.paths.projectsDir, updatedProject);
+      const updatedProject = await updateProject(ctx, project, projectUpdate);
       res.json({ project: updatedProject, resolvedDir: sqlitePathForProjectsDir(ctx.paths.projectsDir) });
     } catch (error) {
       sendInternalError(ctx, res, error, 'project update failed');
@@ -302,18 +294,7 @@ export function registerProjectRoutes(app: Express, ctx: ProjectRouteDeps): void
 
     try {
       await ensureProject(ctx, id);
-      const content = Buffer.isBuffer(fileWrite.content)
-        ? fileWrite.content
-        : Buffer.from(fileWrite.content, fileWrite.encoding ?? 'utf8');
-      const name = fileWrite.uniqueName ? await uniqueProjectFileName(ctx.paths.projectsDir, id, fileWrite.name) : fileWrite.name;
-      const relativePath = projectAssetRelativePath(name);
-      await writeProjectAsset(ctx.paths.projectsDir, id, name, content);
-      const file = upsertProjectFileInStore(ctx.paths.projectsDir, id, {
-        name,
-        path: relativePath,
-        size: content.length,
-        mime: fileWrite.mime ?? getContentType(name),
-      });
+      const file = await saveProjectFile(ctx, id, fileWrite);
       res.json({ file: withProjectFileUrl(req, id, file) });
     } catch (error) {
       sendInternalError(ctx, res, error, 'project file write failed');
@@ -477,7 +458,7 @@ async function createUniqueProjectId(projectsDir: string): Promise<string> {
   throw new Error('could not allocate project id');
 }
 
-async function createProject(ctx: ProjectRouteDeps, input: ProjectCreateInput): Promise<StoredProject> {
+export async function createProject(ctx: ProjectRouteDeps, input: ProjectCreateInput): Promise<StoredProject> {
   const id = await createUniqueProjectId(ctx.paths.projectsDir);
   const project = createDefaultProject(id, {
     title: input.title,
@@ -488,11 +469,48 @@ async function createProject(ctx: ProjectRouteDeps, input: ProjectCreateInput): 
   return project;
 }
 
-async function initializeProjectConversation(
+export async function initializeProjectConversation(
   ctx: ProjectRouteDeps,
   projectId: string,
 ) {
   return ensureDefaultConversation(ctx.paths.projectsDir, projectId);
+}
+
+export async function updateProject(
+  ctx: ProjectRouteDeps,
+  project: StoredProject,
+  projectUpdate: ProjectUpdateInput,
+): Promise<StoredProject> {
+  const updatedProject = {
+    ...project,
+    ...(projectUpdate.designSystemId !== undefined ? { designSystemId: projectUpdate.designSystemId } : {}),
+    ...(projectUpdate.title !== undefined
+      ? { metadata: { ...project.metadata, title: projectUpdate.title } }
+      : {}),
+    updatedAt: Date.now(),
+  };
+  await writeProject(ctx.paths.projectsDir, updatedProject);
+  return updatedProject;
+}
+
+export async function saveProjectFile(
+  ctx: ProjectRouteDeps,
+  projectId: string,
+  fileWrite: ProjectFileWrite,
+) {
+  await ensureProject(ctx, projectId);
+  const content = Buffer.isBuffer(fileWrite.content)
+    ? fileWrite.content
+    : Buffer.from(fileWrite.content, fileWrite.encoding ?? 'utf8');
+  const name = fileWrite.uniqueName ? await uniqueProjectFileName(ctx.paths.projectsDir, projectId, fileWrite.name) : fileWrite.name;
+  const relativePath = projectAssetRelativePath(name);
+  await writeProjectAsset(ctx.paths.projectsDir, projectId, name, content);
+  return upsertProjectFileInStore(ctx.paths.projectsDir, projectId, {
+    name,
+    path: relativePath,
+    size: content.length,
+    mime: fileWrite.mime ?? getContentType(name),
+  });
 }
 
 function createDefaultProject(
@@ -511,19 +529,19 @@ function createDefaultProject(
   };
 }
 
-interface ProjectCreateInput {
+export interface ProjectCreateInput {
   title: string;
   prompt: string;
   projectKind: string;
   designSystemId: string | null;
 }
 
-interface ProjectUpdateInput {
+export interface ProjectUpdateInput {
   title?: string;
   designSystemId?: string | null;
 }
 
-function readProjectCreateInput(bodyValue: unknown): ProjectCreateInput | null {
+export function readProjectCreateInput(bodyValue: unknown): ProjectCreateInput | null {
   const body = readRecord(bodyValue);
   if (!body) {
     return null;
@@ -542,7 +560,7 @@ function readProjectCreateInput(bodyValue: unknown): ProjectCreateInput | null {
   };
 }
 
-function readProjectUpdate(bodyValue: unknown): ProjectUpdateInput | null {
+export function readProjectUpdate(bodyValue: unknown): ProjectUpdateInput | null {
   const body = readRecord(bodyValue);
   if (!body) {
     return null;
@@ -577,7 +595,7 @@ function normalizeDesignSystemId(value: string | null): string | null {
   return trimmed ? trimmed : null;
 }
 
-async function validateDesignSystemId(
+export async function validateDesignSystemId(
   ctx: ProjectRouteDeps,
   id: string | null,
 ): Promise<
