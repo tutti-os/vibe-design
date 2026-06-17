@@ -86,6 +86,73 @@ describe('createVibeClaudeProvider', () => {
     }
   });
 
+  it('syncs user Claude credentials into the configured app-local home before detecting auth', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'vibe-claude-auth-sync-'));
+    const commandPath = join(tempDir, 'claude');
+    const userClaudeHome = join(tempDir, 'user-home');
+    const claudeHome = join(tempDir, 'claude-home');
+    const previousClaudePath = process.env.CLAUDE_CODE_PATH;
+    await mkdir(join(userClaudeHome, '.claude'), { recursive: true });
+    await writeFile(join(userClaudeHome, '.claude', '.credentials.json'), JSON.stringify({
+      claudeAiOauth: {
+        accessToken: 'source-access-token',
+        refreshToken: 'source-refresh-token',
+      },
+    }));
+    await writeFile(join(userClaudeHome, '.claude.json'), JSON.stringify({
+      oauthAccount: { accountUuid: 'account-1', emailAddress: 'user@example.test' },
+      userID: 'user-1',
+      projects: { shouldNotCopy: true },
+    }));
+    await writeFile(join(userClaudeHome, '.claude', 'settings.json'), JSON.stringify({
+      env: {
+        ANTHROPIC_API_KEY: 'source-key',
+        ANTHROPIC_BASE_URL: 'https://llm.example.test/anthropic',
+        UNRELATED_ENV: 'ignored',
+      },
+    }));
+    await writeFile(commandPath, [
+      '#!/bin/sh',
+      'if [ "$1" = "--version" ]; then',
+      '  printf "test-claude\\n"',
+      '  exit 0',
+      'fi',
+      'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then',
+      '  if [ -f "$HOME/.claude/.credentials.json" ]; then',
+      '    printf "{\\"loggedIn\\":true}\\n"',
+      '    exit 0',
+      '  fi',
+      '  printf "{\\"loggedIn\\":false}\\n"',
+      '  exit 1',
+      'fi',
+      'exit 1',
+      '',
+    ].join('\n'));
+    await chmod(commandPath, 0o755);
+
+    try {
+      process.env.CLAUDE_CODE_PATH = commandPath;
+      const provider = createVibeClaudeProvider({ claudeHome, userClaudeHome });
+      const detection = await provider.detect();
+
+      expect(detection?.authState).toBe('ok');
+      await expect(readFile(join(claudeHome, '.claude', '.credentials.json'), 'utf8')).resolves.toContain(
+        'source-access-token',
+      );
+      await expect(readFile(join(claudeHome, '.claude.json'), 'utf8')).resolves.toContain('account-1');
+      await expect(readFile(join(claudeHome, '.claude.json'), 'utf8')).resolves.not.toContain('shouldNotCopy');
+      await expect(readFile(join(claudeHome, '.claude', 'settings.json'), 'utf8')).resolves.toContain('source-key');
+      await expect(readFile(join(claudeHome, '.claude', 'settings.json'), 'utf8')).resolves.not.toContain('ignored');
+    } finally {
+      if (previousClaudePath === undefined) {
+        delete process.env.CLAUDE_CODE_PATH;
+      } else {
+        process.env.CLAUDE_CODE_PATH = previousClaudePath;
+      }
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
   it('reports missing auth when Claude auth status exits non-zero with logged-out JSON', async () => {
     const tempDir = await mkdtemp(join(tmpdir(), 'vibe-claude-home-missing-'));
     const commandPath = join(tempDir, 'claude');
