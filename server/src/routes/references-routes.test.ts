@@ -89,6 +89,7 @@ interface ListResponse {
       sizeBytes: number;
       mtimeMs: number;
       mimeType: string;
+      score?: number;
     };
   }>;
   nextCursor: string | null;
@@ -96,6 +97,16 @@ interface ListResponse {
 
 async function listReferences(api: Api, body: Record<string, unknown>): Promise<ListResponse> {
   const response = await fetch(api.url('/tutti/references/list'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  expect(response.status).toBe(200);
+  return (await response.json()) as ListResponse;
+}
+
+async function searchReferences(api: Api, body: Record<string, unknown>): Promise<ListResponse> {
+  const response = await fetch(api.url('/tutti/references/search'), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -178,5 +189,72 @@ describe('references list endpoint', () => {
     const api = await startApi();
     const result = await listReferences(api, { parentGroupId: '../escape' });
     expect(result).toEqual({ items: [], nextCursor: null });
+  });
+});
+
+describe('references search endpoint', () => {
+  it('recursively searches files across projects and returns scored references only', async () => {
+    const api = await startApi();
+    const projectA = await createProject(api, 'Build a landing page');
+    await createFile(api, projectA, 'hero.html', '<!doctype html>');
+    const projectB = await createProject(api, 'Build a dashboard');
+    await createFile(api, projectB, 'my-hero.html', '<!doctype html>');
+    await createFile(api, projectB, 'sidebar.css', 'body{}');
+
+    const result = await searchReferences(api, { query: 'hero' });
+
+    // Reference-only, no group items.
+    expect(result.items.every((item) => item.type === 'reference')).toBe(true);
+    const names = result.items.map((item) => item.reference?.displayName);
+    expect(names).toContain('hero.html');
+    expect(names).toContain('my-hero.html');
+    expect(names).not.toContain('sidebar.css');
+
+    // Prefix match ("hero.html") outranks the substring match ("my-hero.html"),
+    // and scores are within (0, 1].
+    expect(names[0]).toBe('hero.html');
+    for (const item of result.items) {
+      expect(item.reference?.score).toBeGreaterThan(0);
+      expect(item.reference?.score).toBeLessThanOrEqual(1);
+    }
+    // Locations resolve under the owning project's assets directory.
+    const heroItem = result.items.find((item) => item.reference?.displayName === 'hero.html');
+    expect(heroItem?.reference?.location).toEqual({
+      type: 'app-data-relative',
+      path: `projects/${projectA}/assets/hero.html`,
+    });
+  });
+
+  it('surfaces a project\'s files when the query matches the project title', async () => {
+    const api = await startApi();
+    const projectId = await createProject(api, 'Checkout flow redesign');
+    await createFile(api, projectId, 'page.html', '<!doctype html>');
+
+    const result = await searchReferences(api, { query: 'checkout' });
+    expect(result.items.map((item) => item.reference?.displayName)).toContain('page.html');
+  });
+
+  it('returns an empty result for a blank query', async () => {
+    const api = await startApi();
+    const projectId = await createProject(api, 'Build a landing page');
+    await createFile(api, projectId, 'index.html', '<!doctype html>');
+
+    expect(await searchReferences(api, { query: '   ' })).toEqual({ items: [], nextCursor: null });
+  });
+
+  it('paginates search results with an opaque cursor', async () => {
+    const api = await startApi();
+    const projectId = await createProject(api, 'Build a landing page');
+    await createFile(api, projectId, 'tile-a.html', '<!doctype html>');
+    await createFile(api, projectId, 'tile-b.html', '<!doctype html>');
+    await createFile(api, projectId, 'tile-c.html', '<!doctype html>');
+
+    const first = await searchReferences(api, { query: 'tile', limit: 2 });
+    expect(first.items).toHaveLength(2);
+    expect(first.nextCursor).not.toBeNull();
+
+    const second = await searchReferences(api, { query: 'tile', limit: 2, cursor: first.nextCursor });
+    expect(second.items).toHaveLength(1);
+    expect(second.nextCursor).toBeNull();
   });
 });
