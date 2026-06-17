@@ -100,6 +100,8 @@ export interface ChatComposerAgentAvailability {
   id: string;
   label: string;
   available: boolean;
+  authState?: 'ok' | 'missing' | 'expired' | 'unknown';
+  supported?: boolean;
   unavailableReason?: string;
 }
 
@@ -442,7 +444,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
 
     function renderModelProviderMenuEntry(provider: (typeof MODEL_PROVIDERS)[number]): React.ReactNode {
       const isLockedOption = providerLocked && provider.value !== lockedModelProvider;
-      const unavailableReason = unavailableReasonForProvider(provider.value, agentAvailability);
+      const availability = availabilityForProvider(provider.value, agentAvailability);
+      const unavailableReason = unavailableReasonForAvailability(availability);
       const disabledReason = provider.comingSoon
         ? t('chat.composer.comingSoon')
         : isLockedOption ? t('chat.composer.lockedModelProvider') : unavailableReason;
@@ -451,7 +454,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
         provider.value === 'claude-code' &&
         Boolean(unavailableReason) &&
         !isLockedOption &&
-        Boolean(onInstallAgent);
+        Boolean(onInstallAgent) &&
+        canInstallUnavailableAgent(availability);
 
       if (!isActiveModelProvider(provider.value)) {
         return renderDisabledModelProviderEntry(provider, disabledReason ?? t('chat.composer.comingSoon'));
@@ -1032,9 +1036,28 @@ function unavailableReasonForProvider(
   provider: ModelProvider,
   agentAvailability: ChatComposerAgentAvailability[],
 ): string | null {
+  return unavailableReasonForAvailability(availabilityForProvider(provider, agentAvailability));
+}
+
+function availabilityForProvider(
+  provider: ModelProvider,
+  agentAvailability: ChatComposerAgentAvailability[],
+): ChatComposerAgentAvailability | null {
   const agentId = agentIdFromModelProvider(provider);
-  const agent = agentAvailability.find((candidate) => candidate.id === agentId);
+  return agentAvailability.find((candidate) => candidate.id === agentId) ?? null;
+}
+
+function unavailableReasonForAvailability(agent: ChatComposerAgentAvailability | null): string | null {
   return agent && !agent.available ? agent.unavailableReason ?? `${agent.label} is unavailable.` : null;
+}
+
+function canInstallUnavailableAgent(agent: ChatComposerAgentAvailability | null): boolean {
+  if (!agent || agent.available) return false;
+  if (agent.supported === false) return true;
+  if (agent.supported === true) return false;
+
+  return agent.authState === undefined &&
+    /not installed|not available on PATH/i.test(agent.unavailableReason ?? '');
 }
 
 function readSendErrorMessage(error: unknown, fallback: string): string {

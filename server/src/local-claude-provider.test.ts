@@ -86,6 +86,42 @@ describe('createVibeClaudeProvider', () => {
     }
   });
 
+  it('reports missing auth when Claude auth status exits non-zero with logged-out JSON', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'vibe-claude-home-missing-'));
+    const commandPath = join(tempDir, 'claude');
+    const claudeHome = join(tempDir, 'claude-home');
+    const previousClaudePath = process.env.CLAUDE_CODE_PATH;
+    await writeFile(commandPath, [
+      '#!/bin/sh',
+      'if [ "$1" = "--version" ]; then',
+      '  printf "test-claude\\n"',
+      '  exit 0',
+      'fi',
+      'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then',
+      '  printf "{\\"loggedIn\\":false,\\"authMethod\\":\\"none\\"}\\n"',
+      '  exit 1',
+      'fi',
+      'exit 1',
+      '',
+    ].join('\n'));
+    await chmod(commandPath, 0o755);
+
+    try {
+      process.env.CLAUDE_CODE_PATH = commandPath;
+      const provider = createVibeClaudeProvider({ claudeHome });
+      const detection = await provider.detect();
+
+      expect(detection?.authState).toBe('missing');
+    } finally {
+      if (previousClaudePath === undefined) {
+        delete process.env.CLAUDE_CODE_PATH;
+      } else {
+        process.env.CLAUDE_CODE_PATH = previousClaudePath;
+      }
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
   it('launches Claude Code with MCP disabled while leaving other tools available', async () => {
     const provider = createVibeClaudeProvider();
     const plan = await provider.buildLaunchPlan({
