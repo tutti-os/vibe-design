@@ -191,6 +191,9 @@ function searchProjectFileReferences(projectsDir: string, options: SearchOptions
       mtimeMs: mtimeMsOf(file),
       mimeType: file.mime,
       score: roundScore(score),
+      // Owning project's title: shown as the result's context subtitle so users
+      // can tell which project a flattened search hit belongs to.
+      parentGroupLabel: project.title,
     },
   }));
 
