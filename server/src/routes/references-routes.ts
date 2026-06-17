@@ -14,6 +14,8 @@ type ReferencesRouteDeps = RouteDeps<'paths'>;
 const PROJECT_SCAN_LIMIT = 1000;
 const MAX_PAGE_LIMIT = 50;
 const DESCRIPTION_MAX_LENGTH = 140;
+// Tutti already trims the query; this is a defensive bound mirroring the daemon.
+const SEARCH_QUERY_MAX_LENGTH = 200;
 
 interface TimeRange {
   fromMs?: number;
@@ -26,6 +28,22 @@ interface ListOptions {
   offset: number;
   timeRange: TimeRange | null;
   wantsFiles: boolean;
+}
+
+interface SearchOptions {
+  query: string;
+  limit: number;
+  offset: number;
+  timeRange: TimeRange | null;
+  wantsFiles: boolean;
+}
+
+type ProjectSummary = ReturnType<typeof listProjectSummariesFromStore>[number];
+
+interface ScoredFile {
+  project: ProjectSummary;
+  file: StoredProjectFile;
+  score: number;
 }
 
 // Implements the Tutti workspace app "Reference List Runtime Protocol".
@@ -55,6 +73,30 @@ export function registerReferencesRoutes(app: Express, ctx: ReferencesRouteDeps)
     }
 
     res.json(listProjectFileReferences(ctx.paths.projectsDir, parentGroupId, options));
+  });
+
+  // Implements the Tutti "Reference Search Runtime Protocol": a recursive search
+  // across every project's assets (not a single group's direct children like the
+  // list filterText). Returns a flat, relevance-ordered list of file references
+  // with a 0..1 `score`; search never returns group items.
+  app.post('/tutti/references/search', (req: Request, res: Response) => {
+    const body = isRecord(req.body) ? req.body : {};
+    const rawQuery = readString(body.query);
+    const query = rawQuery ? rawQuery.slice(0, SEARCH_QUERY_MAX_LENGTH).toLowerCase() : '';
+    if (!query) {
+      res.json({ items: [], nextCursor: null });
+      return;
+    }
+
+    const options: SearchOptions = {
+      query,
+      limit: clamp(readInteger(body.limit, MAX_PAGE_LIMIT), 1, MAX_PAGE_LIMIT),
+      offset: decodeCursor(body.cursor),
+      timeRange: readTimeRange(body.timeRange),
+      wantsFiles: readKindsWantsFiles(body.kinds),
+    };
+
+    res.json(searchProjectFileReferences(ctx.paths.projectsDir, options));
   });
 }
 
@@ -110,6 +152,62 @@ function listProjectFileReferences(projectsDir: string, projectId: string, optio
   }));
 
   return { items, nextCursor: page.nextCursor };
+}
+
+function searchProjectFileReferences(projectsDir: string, options: SearchOptions): unknown {
+  if (!options.wantsFiles) {
+    return { items: [], nextCursor: null };
+  }
+
+  const projects = listProjectSummariesFromStore(projectsDir, PROJECT_SCAN_LIMIT);
+  const matches: ScoredFile[] = [];
+  for (const project of projects) {
+    // A matching project title surfaces its files too, ranked below direct name hits.
+    const titleScore = scoreText(project.title.toLowerCase(), options.query);
+    const files = filterFilesByRange(listProjectFilesFromStore(projectsDir, project.id), options.timeRange);
+    for (const file of files) {
+      if (!isSafeFileName(file.name)) continue;
+      const nameScore = scoreText(file.name.toLowerCase(), options.query);
+      const score = nameScore > 0 ? nameScore : titleScore * 0.5;
+      if (score <= 0) continue;
+      matches.push({ project, file, score });
+    }
+  }
+
+  // Descending relevance; stable tie-break by name so cursor paging is deterministic.
+  matches.sort((left, right) => right.score - left.score || left.file.name.localeCompare(right.file.name));
+
+  const page = paginate(matches, options.offset, options.limit);
+  const items = page.slice.map(({ project, file, score }) => ({
+    type: 'reference',
+    reference: {
+      kind: 'file',
+      displayName: file.name,
+      location: {
+        type: 'app-data-relative',
+        path: `projects/${project.id}/assets/${file.name}`,
+      },
+      sizeBytes: file.size,
+      mtimeMs: mtimeMsOf(file),
+      mimeType: file.mime,
+      score: roundScore(score),
+    },
+  }));
+
+  return { items, nextCursor: page.nextCursor };
+}
+
+// Relevance score in [0, 1]: exact > prefix > substring; 0 means no match.
+function scoreText(haystack: string, query: string): number {
+  if (!haystack) return 0;
+  if (haystack === query) return 1;
+  if (haystack.startsWith(query)) return 0.9;
+  if (haystack.includes(query)) return 0.7;
+  return 0;
+}
+
+function roundScore(score: number): number {
+  return Math.round(clamp(score, 0, 1) * 100) / 100;
 }
 
 function paginate<T>(items: T[], offset: number, limit: number): { slice: T[]; nextCursor: string | null } {
