@@ -685,9 +685,15 @@ function readAgentAvailability(data: unknown): ChatComposerAgentAvailability[] {
       id: item.id,
       label: item.label,
       available: item.available === true,
+      ...(isAgentAuthState(item.authState) ? { authState: item.authState } : {}),
+      ...(typeof item.supported === 'boolean' ? { supported: item.supported } : {}),
       ...(typeof item.unavailableReason === 'string' ? { unavailableReason: item.unavailableReason } : {}),
     }];
   });
+}
+
+function isAgentAuthState(value: unknown): value is NonNullable<ChatComposerAgentAvailability['authState']> {
+  return value === 'ok' || value === 'missing' || value === 'expired' || value === 'unknown';
 }
 
 function readApiErrorMessage(data: unknown): string | null {

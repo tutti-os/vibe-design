@@ -1,3 +1,4 @@
+import { dirname } from 'node:path';
 import type { AgentDetection } from '@tutti-os/agent-acp-kit';
 import type { RuntimeAgentDef } from './agents.js';
 import { localAgentRuntime } from './local-agent-runtime.js';
@@ -80,6 +81,9 @@ function unavailableReasonForDetection(
   }
 
   if (detection.authState === 'missing') {
+    if (agent.id === 'claude') {
+      return claudeMissingAuthReason(agent, detection);
+    }
     return `${agent.label} is not authenticated. Run ${agent.id === 'claude' ? 'claude auth login' : `${agent.id} login`} first.`;
   }
 
@@ -88,4 +92,12 @@ function unavailableReasonForDetection(
   }
 
   return null;
+}
+
+function claudeMissingAuthReason(agent: RuntimeAgentDef, detection: AgentDetection): string {
+  const claudeHome = detection.configDir ? dirname(detection.configDir) : null;
+  const loginCommand = claudeHome
+    ? `HOME="${claudeHome}" claude auth login`
+    : 'claude auth login';
+  return `${agent.label} is not authenticated for this app workspace. Run ${loginCommand} first.`;
 }

@@ -356,8 +356,9 @@ async function detectClaudeAuthState(
       timeout: 5_000,
     });
     return parseClaudeAuthStatus(stdout);
-  } catch {
-    return 'unknown';
+  } catch (error) {
+    const authState = parseClaudeAuthStatus(readExecErrorStdout(error));
+    return authState === 'unknown' ? 'unknown' : authState;
   }
 }
 
@@ -373,6 +374,18 @@ export function parseClaudeAuthStatus(stdout: string): AgentDetection['authState
   } catch {
     return 'unknown';
   }
+}
+
+function readExecErrorStdout(error: unknown): string {
+  const record = readRecord(error);
+  const stdout = record?.stdout;
+  if (typeof stdout === 'string') {
+    return stdout;
+  }
+  if (stdout instanceof Buffer) {
+    return stdout.toString('utf8');
+  }
+  return '';
 }
 
 function composePrompt(params: AgentRunParams<'local-agent', 'claude'>): string {

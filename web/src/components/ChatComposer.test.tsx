@@ -451,6 +451,47 @@ describe('ChatComposer', () => {
     }
   });
 
+  it('does not offer installation when Claude Code is installed but app-local auth is missing', async () => {
+    const onInstallAgent = vi.fn(async () => undefined);
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        agentAvailability={[
+          { id: 'codex', label: 'Codex', available: true },
+          {
+            id: 'claude',
+            label: 'Claude Code',
+            available: false,
+            authState: 'missing',
+            supported: true,
+            unavailableReason: 'Claude Code is not authenticated for this app.',
+          },
+        ]}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onInstallAgent={onInstallAgent}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      await openModelMenu(container);
+
+      expect(
+        Array.from(document.body.querySelectorAll('button')).some((button) =>
+          button.textContent?.includes('Install'),
+        ),
+      ).toBe(false);
+      expect(onInstallAgent).not.toHaveBeenCalled();
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('locks the composer model provider when the conversation already has one', async () => {
     const onSend = vi.fn();
     const { container, root } = renderComponent(
