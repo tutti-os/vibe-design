@@ -153,6 +153,69 @@ describe('createVibeClaudeProvider', () => {
     }
   });
 
+  it('syncs Anthropic API env from the current process into the app-local Claude settings', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'vibe-claude-process-env-sync-'));
+    const commandPath = join(tempDir, 'claude');
+    const userClaudeHome = join(tempDir, 'user-home');
+    const claudeHome = join(tempDir, 'claude-home');
+    const previousClaudePath = process.env.CLAUDE_CODE_PATH;
+    const previousApiKey = process.env.ANTHROPIC_API_KEY;
+    const previousBaseUrl = process.env.ANTHROPIC_BASE_URL;
+    const previousUnrelated = process.env.UNRELATED_ENV;
+    await mkdir(join(userClaudeHome, '.claude'), { recursive: true });
+    await writeFile(commandPath, [
+      '#!/bin/sh',
+      'if [ "$1" = "--version" ]; then',
+      '  printf "test-claude\\n"',
+      '  exit 0',
+      'fi',
+      'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then',
+      '  printf "{\\"loggedIn\\":true}\\n"',
+      '  exit 0',
+      'fi',
+      'exit 1',
+      '',
+    ].join('\n'));
+    await chmod(commandPath, 0o755);
+
+    try {
+      process.env.CLAUDE_CODE_PATH = commandPath;
+      process.env.ANTHROPIC_API_KEY = 'process-api-key';
+      process.env.ANTHROPIC_BASE_URL = 'https://process.example.test/anthropic';
+      process.env.UNRELATED_ENV = 'ignored';
+      const provider = createVibeClaudeProvider({ claudeHome, userClaudeHome });
+      const detection = await provider.detect();
+
+      expect(detection?.authState).toBe('ok');
+      const settings = await readFile(join(claudeHome, '.claude', 'settings.json'), 'utf8');
+      expect(settings).toContain('process-api-key');
+      expect(settings).toContain('https://process.example.test/anthropic');
+      expect(settings).not.toContain('ignored');
+    } finally {
+      if (previousClaudePath === undefined) {
+        delete process.env.CLAUDE_CODE_PATH;
+      } else {
+        process.env.CLAUDE_CODE_PATH = previousClaudePath;
+      }
+      if (previousApiKey === undefined) {
+        delete process.env.ANTHROPIC_API_KEY;
+      } else {
+        process.env.ANTHROPIC_API_KEY = previousApiKey;
+      }
+      if (previousBaseUrl === undefined) {
+        delete process.env.ANTHROPIC_BASE_URL;
+      } else {
+        process.env.ANTHROPIC_BASE_URL = previousBaseUrl;
+      }
+      if (previousUnrelated === undefined) {
+        delete process.env.UNRELATED_ENV;
+      } else {
+        process.env.UNRELATED_ENV = previousUnrelated;
+      }
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
   it('reports missing auth when Claude auth status exits non-zero with logged-out JSON', async () => {
     const tempDir = await mkdtemp(join(tmpdir(), 'vibe-claude-home-missing-'));
     const commandPath = join(tempDir, 'claude');

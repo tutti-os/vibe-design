@@ -417,7 +417,11 @@ function syncClaudeAccountState(sourceHome: string, targetHome: string): void {
 function syncClaudeSettingsEnv(sourceHome: string, targetHome: string): void {
   const sourceSettings = readJsonRecord(join(sourceHome, '.claude', 'settings.json'));
   const sourceEnv = readRecord(sourceSettings?.env);
-  if (!sourceEnv) {
+  const envSources = [
+    sourceEnv,
+    process.env,
+  ].filter((env): env is Record<string, unknown> => Boolean(env));
+  if (envSources.length === 0) {
     return;
   }
 
@@ -425,11 +429,13 @@ function syncClaudeSettingsEnv(sourceHome: string, targetHome: string): void {
   const targetSettings = readJsonRecord(targetPath) ?? {};
   const targetEnv = readRecord(targetSettings.env) ?? {};
   let changed = false;
-  for (const key of CLAUDE_ENV_KEYS) {
-    const value = readString(sourceEnv[key]);
-    if (value && targetEnv[key] === undefined) {
-      targetEnv[key] = value;
-      changed = true;
+  for (const env of envSources) {
+    for (const key of CLAUDE_ENV_KEYS) {
+      const value = readString(env[key]);
+      if (value && targetEnv[key] === undefined) {
+        targetEnv[key] = value;
+        changed = true;
+      }
     }
   }
 
