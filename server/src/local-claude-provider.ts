@@ -1,7 +1,14 @@
 import { execFile } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type {
   AgentDetection,
@@ -19,6 +26,7 @@ const execFileAsync = promisify(execFile);
 export interface VibeClaudeProviderOptions {
   claudeHome?: string;
   claudeSettingsPath?: string;
+  userClaudeHome?: string;
 }
 
 const CLAUDE_ENV_KEYS = [
@@ -29,6 +37,7 @@ const CLAUDE_ENV_KEYS = [
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_MODEL',
 ] as const;
+const CLAUDE_ACCOUNT_STATE_KEYS = ['oauthAccount', 'userID'] as const;
 
 export function createVibeClaudeProvider(
   options: VibeClaudeProviderOptions = {},
@@ -42,7 +51,7 @@ export function createVibeClaudeProvider(
     displayName: 'Claude Code',
     kind: 'local-agent',
     async detect() {
-      return detectClaude(resolveClaudeHome(options));
+      return detectClaude(resolveClaudeHome(options), options);
     },
     capabilities() {
       return {
@@ -233,6 +242,7 @@ function buildClaudeLaunchPlan(
 
   args.push('--permission-mode', 'default');
   const claudeHome = resolveClaudeHome(options);
+  syncClaudeAuthFromUserHome(claudeHome, options);
   const env = mergeClaudeRunEnv(
     claudeProcessEnv(
       claudeHome,
@@ -317,10 +327,14 @@ function readJsonRecord(file: string): Record<string, unknown> | null {
   }
 }
 
-async function detectClaude(claudeHome: string | undefined): Promise<AgentDetection> {
+async function detectClaude(
+  claudeHome: string | undefined,
+  options: VibeClaudeProviderOptions,
+): Promise<AgentDetection> {
   const configDir = join(claudeHome ?? homedir(), '.claude');
   const command = resolveClaudeCommand();
   try {
+    syncClaudeAuthFromUserHome(claudeHome, options);
     const env = claudeHome ? { ...process.env, HOME: claudeHome } : undefined;
     const { stdout } = await execFileAsync(command, ['--version'], env ? { env } : undefined);
     const authState = await detectClaudeAuthState(command, env);
@@ -345,6 +359,92 @@ async function detectClaude(claudeHome: string | undefined): Promise<AgentDetect
   }
 }
 
+function syncClaudeAuthFromUserHome(
+  claudeHome: string | undefined,
+  options: VibeClaudeProviderOptions,
+): void {
+  if (!claudeHome) {
+    return;
+  }
+
+  const sourceHome = resolveUserClaudeHome(options);
+  if (resolve(sourceHome) === resolve(claudeHome)) {
+    return;
+  }
+
+  syncClaudeCredentialsFile(sourceHome, claudeHome);
+  syncClaudeAccountState(sourceHome, claudeHome);
+  syncClaudeSettingsEnv(sourceHome, claudeHome);
+}
+
+function resolveUserClaudeHome(options: VibeClaudeProviderOptions): string {
+  return options.userClaudeHome?.trim() || homedir();
+}
+
+function syncClaudeCredentialsFile(sourceHome: string, targetHome: string): void {
+  const source = join(sourceHome, '.claude', '.credentials.json');
+  const target = join(targetHome, '.claude', '.credentials.json');
+  if (!existsSync(source) || existsSync(target)) {
+    return;
+  }
+
+  mkdirSync(dirname(target), { recursive: true });
+  copyFileSync(source, target);
+  chmodSync(target, 0o600);
+}
+
+function syncClaudeAccountState(sourceHome: string, targetHome: string): void {
+  const source = readJsonRecord(join(sourceHome, '.claude.json'));
+  if (!source) {
+    return;
+  }
+
+  const targetPath = join(targetHome, '.claude.json');
+  const target = readJsonRecord(targetPath) ?? {};
+  let changed = false;
+  for (const key of CLAUDE_ACCOUNT_STATE_KEYS) {
+    if (source[key] !== undefined && target[key] === undefined) {
+      target[key] = source[key];
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    writeJsonRecord(targetPath, target);
+  }
+}
+
+function syncClaudeSettingsEnv(sourceHome: string, targetHome: string): void {
+  const sourceSettings = readJsonRecord(join(sourceHome, '.claude', 'settings.json'));
+  const sourceEnv = readRecord(sourceSettings?.env);
+  if (!sourceEnv) {
+    return;
+  }
+
+  const targetPath = join(targetHome, '.claude', 'settings.json');
+  const targetSettings = readJsonRecord(targetPath) ?? {};
+  const targetEnv = readRecord(targetSettings.env) ?? {};
+  let changed = false;
+  for (const key of CLAUDE_ENV_KEYS) {
+    const value = readString(sourceEnv[key]);
+    if (value && targetEnv[key] === undefined) {
+      targetEnv[key] = value;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    targetSettings.env = targetEnv;
+    writeJsonRecord(targetPath, targetSettings);
+  }
+}
+
+function writeJsonRecord(file: string, value: Record<string, unknown>): void {
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+  chmodSync(file, 0o600);
+}
+
 async function detectClaudeAuthState(
   command: string,
   env: NodeJS.ProcessEnv | undefined,
@@ -356,8 +456,9 @@ async function detectClaudeAuthState(
       timeout: 5_000,
     });
     return parseClaudeAuthStatus(stdout);
-  } catch {
-    return 'unknown';
+  } catch (error) {
+    const authState = parseClaudeAuthStatus(readExecErrorStdout(error));
+    return authState === 'unknown' ? 'unknown' : authState;
   }
 }
 
@@ -373,6 +474,18 @@ export function parseClaudeAuthStatus(stdout: string): AgentDetection['authState
   } catch {
     return 'unknown';
   }
+}
+
+function readExecErrorStdout(error: unknown): string {
+  const record = readRecord(error);
+  const stdout = record?.stdout;
+  if (typeof stdout === 'string') {
+    return stdout;
+  }
+  if (stdout instanceof Buffer) {
+    return stdout.toString('utf8');
+  }
+  return '';
 }
 
 function composePrompt(params: AgentRunParams<'local-agent', 'claude'>): string {
