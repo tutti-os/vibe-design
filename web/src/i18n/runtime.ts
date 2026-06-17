@@ -8,26 +8,21 @@ import {
 
 type MaybePromise<T> = T | Promise<T>;
 
-interface TuttiAppContextSnapshot {
+interface TuttiExternalContextSnapshot {
   locale?: unknown;
   language?: unknown;
 }
 
-interface TuttiAppContext {
-  locale?: unknown;
-  language?: unknown;
-  get?(): MaybePromise<TuttiAppContextSnapshot | null | undefined>;
-  getLocale?(): MaybePromise<unknown>;
-  subscribe?(listener: (context: TuttiAppContextSnapshot | null | undefined) => void): unknown;
-  onLocaleChanged?(listener: (locale: unknown) => void): unknown;
+interface TuttiExternalApp {
+  getContext?(): MaybePromise<TuttiExternalContextSnapshot | null | undefined>;
+  subscribe?(listener: (context: TuttiExternalContextSnapshot | null | undefined) => void): unknown;
 }
 
 declare global {
   interface Window {
-    tutti?: {
-      appContext?: TuttiAppContext;
+    tuttiExternal?: {
+      app?: TuttiExternalApp;
     };
-    tuttiAppContext?: TuttiAppContext;
   }
 }
 
@@ -41,7 +36,6 @@ export function readInitialLocale(): VibeDesignLocale {
   }
 
   return resolveVibeDesignLocaleFromCandidates([
-    readHostLocaleFromStaticContext(),
     document.documentElement.lang,
     ...(navigator.languages ?? []),
     navigator.language,
@@ -49,22 +43,12 @@ export function readInitialLocale(): VibeDesignLocale {
 }
 
 export async function readHostLocale(): Promise<VibeDesignLocale | null> {
-  const appContext = getTuttiAppContext();
-  if (!appContext) return null;
+  const externalApp = getTuttiExternalApp();
+  if (typeof externalApp?.getContext !== 'function') return null;
 
-  if (typeof appContext.get === 'function') {
-    const context = await Promise.resolve(appContext.get()).catch(() => null);
-    const locale = normalizeLocaleCandidate(readLocaleCandidate(context));
-    if (locale) return locale;
-  }
-
-  const staticLocale = normalizeLocaleCandidate(readLocaleCandidate(appContext));
+  const context = await Promise.resolve(externalApp.getContext()).catch(() => null);
+  const staticLocale = normalizeLocaleCandidate(readLocaleCandidate(context));
   if (staticLocale) return staticLocale;
-
-  if (typeof appContext.getLocale === 'function') {
-    const locale = normalizeLocaleCandidate(await Promise.resolve(appContext.getLocale()).catch(() => null));
-    if (locale) return locale;
-  }
 
   return null;
 }
@@ -92,26 +76,16 @@ export function subscribeLocale(listener: (locale: VibeDesignLocale) => void): (
 }
 
 export function subscribeHostLocale(listener: (locale: VibeDesignLocale) => void): () => void {
-  const appContext = getTuttiAppContext();
-  if (typeof appContext?.subscribe === 'function') {
-    return normalizeUnsubscribe(
-      appContext.subscribe((context) => {
-        const locale = normalizeLocaleCandidate(readLocaleCandidate(context));
-        if (locale) listener(locale);
-      }),
-    );
+  const externalApp = getTuttiExternalApp();
+  if (typeof externalApp?.subscribe !== 'function') {
+    return () => {};
   }
-
-  if (typeof appContext?.onLocaleChanged === 'function') {
-    return normalizeUnsubscribe(
-      appContext.onLocaleChanged((candidate) => {
-        const locale = normalizeLocaleCandidate(candidate);
-        if (locale) listener(locale);
-      }),
-    );
-  }
-
-  return () => {};
+  return normalizeUnsubscribe(
+    externalApp.subscribe((context) => {
+      const locale = normalizeLocaleCandidate(readLocaleCandidate(context));
+      if (locale) listener(locale);
+    }),
+  );
 }
 
 export function syncDocumentLanguage(locale: VibeDesignLocale): void {
@@ -122,22 +96,14 @@ export function syncDocumentLanguage(locale: VibeDesignLocale): void {
   document.documentElement.lang = toDocumentLanguage(locale);
 }
 
-function getTuttiAppContext(): TuttiAppContext | null {
+function getTuttiExternalApp(): TuttiExternalApp | null {
   if (typeof window === 'undefined') return null;
-  return (
-    window.tutti?.appContext ??
-    window.tuttiAppContext ??
-    null
-  );
-}
-
-function readHostLocaleFromStaticContext(): string | null {
-  return readLocaleCandidate(getTuttiAppContext());
+  return window.tuttiExternal?.app ?? null;
 }
 
 function readLocaleCandidate(context: unknown): string | null {
   if (!context || typeof context !== 'object') return null;
-  const snapshot = context as TuttiAppContextSnapshot;
+  const snapshot = context as TuttiExternalContextSnapshot;
   if (typeof snapshot.locale === 'string') return snapshot.locale;
   if (typeof snapshot.language === 'string') return snapshot.language;
   return null;

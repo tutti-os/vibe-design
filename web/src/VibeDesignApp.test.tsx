@@ -224,23 +224,17 @@ function previewCommentProjectEditorData(overrides: Partial<ProjectEditorInitial
 }
 
 describe('VibeDesignApp', () => {
-  it('uses the Tutti app context locale and follows host locale changes', async () => {
-    const listeners = new Set<(context: { locale: string }) => void>();
+  it('uses the Tutti external app context locale', async () => {
     const tuttiWindow = window as typeof window & {
-      tutti?: {
-        appContext?: {
-          get(): Promise<{ locale: string }>;
-          subscribe(listener: (context: { locale: string }) => void): () => void;
+      tuttiExternal?: {
+        app?: {
+          getContext(): Promise<{ locale: string }>;
         };
       };
     };
-    tuttiWindow.tutti = {
-      appContext: {
-        get: vi.fn(async () => ({ locale: 'zh-CN' })),
-        subscribe(listener) {
-          listeners.add(listener);
-          return () => listeners.delete(listener);
-        },
+    tuttiWindow.tuttiExternal = {
+      app: {
+        getContext: vi.fn(async () => ({ locale: 'zh-CN' })),
       },
     };
 
@@ -250,40 +244,15 @@ describe('VibeDesignApp', () => {
     try {
       await waitFor(() => expect(container.textContent).toContain('新建原型'));
       expect(document.documentElement.lang).toBe('zh-CN');
-
-      act(() => {
-        for (const listener of listeners) listener({ locale: 'en' });
-      });
-
-      await waitFor(() => expect(container.textContent).toContain('New prototype'));
-      expect(document.documentElement.lang).toBe('en');
     } finally {
       cleanup(root, container);
-      delete tuttiWindow.tutti;
+      delete tuttiWindow.tuttiExternal;
       applyLocale('en');
       document.documentElement.removeAttribute('lang');
     }
   });
 
-  it('reloads dashboard design systems when the Tutti locale changes', async () => {
-    const listeners = new Set<(context: { locale: string }) => void>();
-    const tuttiWindow = window as typeof window & {
-      tutti?: {
-        appContext?: {
-          get(): Promise<{ locale: string }>;
-          subscribe(listener: (context: { locale: string }) => void): () => void;
-        };
-      };
-    };
-    tuttiWindow.tutti = {
-      appContext: {
-        get: vi.fn(async () => ({ locale: 'en' })),
-        subscribe(listener) {
-          listeners.add(listener);
-          return () => listeners.delete(listener);
-        },
-      },
-    };
+  it('reloads dashboard design systems when the app locale changes', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (url === '/api/design-systems?locale=zh-CN') {
@@ -330,9 +299,7 @@ describe('VibeDesignApp', () => {
       await waitFor(() => expect(document.body.textContent).toContain('Vibe Default'));
       expect(fetch).toHaveBeenCalledWith('/api/design-systems?locale=en');
 
-      act(() => {
-        for (const listener of listeners) listener({ locale: 'zh-CN' });
-      });
+      act(() => applyLocale('zh-CN'));
 
       await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/design-systems?locale=zh-CN'));
       await waitFor(() => expect(document.body.textContent).toContain('Vibe 默认'));
@@ -340,7 +307,6 @@ describe('VibeDesignApp', () => {
     } finally {
       cleanup(root, container);
       vi.unstubAllGlobals();
-      delete tuttiWindow.tutti;
       applyLocale('en');
       document.documentElement.removeAttribute('lang');
     }
@@ -1843,25 +1809,7 @@ describe('VibeDesignApp', () => {
     }
   });
 
-  it('reloads the selected project design system label when the Tutti locale changes', async () => {
-    const listeners = new Set<(context: { locale: string }) => void>();
-    const tuttiWindow = window as typeof window & {
-      tutti?: {
-        appContext?: {
-          get(): Promise<{ locale: string }>;
-          subscribe(listener: (context: { locale: string }) => void): () => void;
-        };
-      };
-    };
-    tuttiWindow.tutti = {
-      appContext: {
-        get: vi.fn(async () => ({ locale: 'en' })),
-        subscribe(listener) {
-          listeners.add(listener);
-          return () => listeners.delete(listener);
-        },
-      },
-    };
+  it('reloads the selected project design system label when the app locale changes', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       if (url === '/api/design-systems?locale=zh-CN') {
@@ -1914,9 +1862,7 @@ describe('VibeDesignApp', () => {
       await waitFor(() => expect(container.textContent).toContain('CapCut Creator Reference'));
       expect(fetch).toHaveBeenCalledWith('/api/design-systems?locale=en');
 
-      act(() => {
-        for (const listener of listeners) listener({ locale: 'zh-CN' });
-      });
+      act(() => applyLocale('zh-CN'));
 
       await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/design-systems?locale=zh-CN'));
       await waitFor(() => expect(container.textContent).toContain('CapCut 创作者参考'));
@@ -1925,7 +1871,6 @@ describe('VibeDesignApp', () => {
       applyLocale('en');
       cleanup(root, container);
       vi.unstubAllGlobals();
-      delete tuttiWindow.tutti;
       document.documentElement.removeAttribute('lang');
     }
   });
