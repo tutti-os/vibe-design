@@ -90,6 +90,7 @@ interface ListResponse {
       mtimeMs: number;
       mimeType: string;
       score?: number;
+      parentGroupLabel?: string;
     };
   }>;
   nextCursor: string | null;
@@ -223,6 +224,16 @@ describe('references search endpoint', () => {
       type: 'app-data-relative',
       path: `projects/${projectA}/assets/hero.html`,
     });
+
+    // Each flattened search hit carries its owning project's title as the
+    // context subtitle (parentGroupLabel), matching the root group displayName.
+    const rootGroups = await listReferences(api, {});
+    const projectATitle = rootGroups.items.find((item) => item.id === projectA)?.displayName;
+    expect(projectATitle).toBeTruthy();
+    expect(heroItem?.reference?.parentGroupLabel).toBe(projectATitle);
+    for (const item of result.items) {
+      expect(item.reference?.parentGroupLabel).toBeTruthy();
+    }
   });
 
   it('surfaces a project\'s files when the query matches the project title', async () => {
