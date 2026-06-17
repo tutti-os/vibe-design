@@ -4,12 +4,46 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createVibeClaudeProvider, parseClaudeAuthStatus, parseVibeClaudeStreamEvent } from './local-claude-provider.js';
 
+const CLAUDE_ENV_TEST_KEYS = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  'ANTHROPIC_MODEL',
+] as const;
+
+function captureClaudeEnv(): Record<string, string | undefined> {
+  return Object.fromEntries(CLAUDE_ENV_TEST_KEYS.map((key) => [key, process.env[key]]));
+}
+
+function clearClaudeEnv(): void {
+  for (const key of CLAUDE_ENV_TEST_KEYS) {
+    delete process.env[key];
+  }
+}
+
+function restoreClaudeEnv(snapshot: Record<string, string | undefined>): void {
+  for (const key of CLAUDE_ENV_TEST_KEYS) {
+    const value = snapshot[key];
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+}
+
 describe('createVibeClaudeProvider', () => {
   it('uses a Tutti app-local Claude home for runs when TUTTI_APP_DATA_DIR is set', async () => {
     const tempDir = await mkdtemp(join(tmpdir(), 'vibe-tutti-data-'));
     const previousDataDir = process.env.TUTTI_APP_DATA_DIR;
+    const previousClaudeEnv = captureClaudeEnv();
     const claudeHome = join(tempDir, 'claude-home');
+    const userClaudeHome = join(tempDir, 'user-home');
     await mkdir(join(claudeHome, '.claude'), { recursive: true });
+    await mkdir(join(userClaudeHome, '.claude'), { recursive: true });
     await writeFile(join(claudeHome, '.claude', 'settings.json'), JSON.stringify({
       env: {
         ANTHROPIC_API_KEY: 'app-local-key',
@@ -18,8 +52,9 @@ describe('createVibeClaudeProvider', () => {
     }));
 
     try {
+      clearClaudeEnv();
       process.env.TUTTI_APP_DATA_DIR = tempDir;
-      const provider = createVibeClaudeProvider();
+      const provider = createVibeClaudeProvider({ userClaudeHome });
       const plan = await provider.buildLaunchPlan({
         runId: 'run-1',
         cwd: '/tmp/vibe-project',
@@ -38,6 +73,7 @@ describe('createVibeClaudeProvider', () => {
       } else {
         process.env.TUTTI_APP_DATA_DIR = previousDataDir;
       }
+      restoreClaudeEnv(previousClaudeEnv);
       await rm(tempDir, { force: true, recursive: true });
     }
   });
@@ -212,6 +248,69 @@ describe('createVibeClaudeProvider', () => {
       } else {
         process.env.UNRELATED_ENV = previousUnrelated;
       }
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  it('refreshes switched Claude env from the user settings into the app-local Claude settings', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'vibe-claude-switched-env-sync-'));
+    const commandPath = join(tempDir, 'claude');
+    const userClaudeHome = join(tempDir, 'user-home');
+    const claudeHome = join(tempDir, 'claude-home');
+    const previousClaudePath = process.env.CLAUDE_CODE_PATH;
+    const previousClaudeEnv = captureClaudeEnv();
+    await mkdir(join(userClaudeHome, '.claude'), { recursive: true });
+    await mkdir(join(claudeHome, '.claude'), { recursive: true });
+    await writeFile(join(userClaudeHome, '.claude', 'settings.json'), JSON.stringify({
+      env: {
+        ANTHROPIC_AUTH_TOKEN: 'switched-auth-token',
+        ANTHROPIC_BASE_URL: 'https://switched.example.test/anthropic',
+        UNRELATED_ENV: 'ignored',
+      },
+    }));
+    await writeFile(join(claudeHome, '.claude', 'settings.json'), JSON.stringify({
+      env: {
+        ANTHROPIC_AUTH_TOKEN: 'old-auth-token',
+        ANTHROPIC_BASE_URL: 'https://old.example.test/anthropic',
+        EXISTING_APP_ENV: 'preserved',
+      },
+    }));
+    await writeFile(commandPath, [
+      '#!/bin/sh',
+      'if [ "$1" = "--version" ]; then',
+      '  printf "test-claude\\n"',
+      '  exit 0',
+      'fi',
+      'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then',
+      '  printf "{\\"loggedIn\\":true}\\n"',
+      '  exit 0',
+      'fi',
+      'exit 1',
+      '',
+    ].join('\n'));
+    await chmod(commandPath, 0o755);
+
+    try {
+      clearClaudeEnv();
+      process.env.CLAUDE_CODE_PATH = commandPath;
+      const provider = createVibeClaudeProvider({ claudeHome, userClaudeHome });
+      const detection = await provider.detect();
+
+      expect(detection?.authState).toBe('ok');
+      const settings = JSON.parse(await readFile(join(claudeHome, '.claude', 'settings.json'), 'utf8'));
+      expect(settings.env).toMatchObject({
+        ANTHROPIC_AUTH_TOKEN: 'switched-auth-token',
+        ANTHROPIC_BASE_URL: 'https://switched.example.test/anthropic',
+        EXISTING_APP_ENV: 'preserved',
+      });
+      expect(settings.env).not.toHaveProperty('UNRELATED_ENV');
+    } finally {
+      if (previousClaudePath === undefined) {
+        delete process.env.CLAUDE_CODE_PATH;
+      } else {
+        process.env.CLAUDE_CODE_PATH = previousClaudePath;
+      }
+      restoreClaudeEnv(previousClaudeEnv);
       await rm(tempDir, { force: true, recursive: true });
     }
   });

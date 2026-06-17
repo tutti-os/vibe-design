@@ -31,6 +31,7 @@ export interface VibeClaudeProviderOptions {
 
 const CLAUDE_ENV_KEYS = [
   'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   'ANTHROPIC_DEFAULT_OPUS_MODEL',
@@ -432,7 +433,7 @@ function syncClaudeSettingsEnv(sourceHome: string, targetHome: string): void {
   for (const env of envSources) {
     for (const key of CLAUDE_ENV_KEYS) {
       const value = readString(env[key]);
-      if (value && targetEnv[key] === undefined) {
+      if (value && targetEnv[key] !== value) {
         targetEnv[key] = value;
         changed = true;
       }
