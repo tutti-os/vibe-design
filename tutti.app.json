@@ -24,6 +24,9 @@
   "cli": {
     "manifest": "tutti.cli.json"
   },
+  "references": {
+    "listEndpoint": "/tutti/references/list"
+  },
   "author": {
     "name": "Tutti"
   },
