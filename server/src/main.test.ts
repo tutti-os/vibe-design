@@ -1359,6 +1359,39 @@ describe('createServer', () => {
     ]);
   });
 
+  it('keeps managed agent invocation credentials out of starter requests and status responses', async () => {
+    const started: Array<{ run: ChatRun; request: Record<string, unknown> }> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        startAgentRun: ({ run, request }) => {
+          started.push({ run, request });
+        },
+      }),
+    );
+
+    const createResponse = await fetch(`http://127.0.0.1:${port}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: 'project-managed-agent',
+        prompt: 'Build a small page',
+        agentId: 'codex',
+        managedAgentInvocationCredential: 'credential-run-1',
+      }),
+    });
+
+    expect(createResponse.status).toBe(202);
+    const created = await createResponse.json() as { runId: string };
+    expect(started).toHaveLength(1);
+    expect(started[0]?.run.managedAgentInvocationCredential).toBe('credential-run-1');
+    expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
+
+    const statusResponse = await fetch(`http://127.0.0.1:${port}/api/runs/${created.runId}`);
+    expect(statusResponse.status).toBe(200);
+    expect(JSON.stringify(await statusResponse.json())).not.toContain('credential-run-1');
+  });
+
   it('keeps a conversation provider locked while updating its remembered model for same-provider runs', async () => {
     const startedRequests: Record<string, unknown>[] = [];
     const port = await listenOnRandomPort(

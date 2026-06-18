@@ -1,9 +1,11 @@
 import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import {
+  MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
   type AgentEvent as AcpAgentEvent,
   type AgentRunInput as AcpAgentRunInput,
   type AgentRunMessage as AcpAgentRunMessage,
+  isManagedAgentInvocationCwd,
 } from '@tutti-os/agent-acp-kit';
 import type { AgentEvent } from './claude-stream.js';
 import { DEFAULT_AGENT_ID, type AgentRegistry } from './agents.js';
@@ -58,12 +60,15 @@ const defaultAgentRuntime: LocalAgentRuntime = localAgentRuntime;
 const MAX_AGENT_STDERR_REASON_CHARS = 4_000;
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_HISTORY_MESSAGE_CHARS = 6_000;
+const VIBE_CODEX_HOME_DIR_NAME = 'codex-home';
 
 export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   const { run, runs, request, paths } = input;
   const registry = input.registry ?? defaultAgentRegistry;
   const agentRuntime = input.agentRuntime ?? defaultAgentRuntime;
   const agentId = readString(request.agentId) ?? run.agentId ?? DEFAULT_AGENT_ID;
+  const managedAgentInvocationCredential = readString(run.managedAgentInvocationCredential);
+  run.managedAgentInvocationCredential = null;
   const agent = registry.getAgentDef(agentId);
 
   if (!agent) {
@@ -110,6 +115,17 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   ].join('\n');
   const history = await buildConversationHistory(paths.projectsDir, run, userPrompt);
   const resume = buildProviderResume(run);
+  const managedAgentInvocation = managedAgentInvocationCredential && isManagedAgentInvocationCwd(cwd)
+    ? {
+        credential: managedAgentInvocationCredential,
+        cwd,
+      }
+    : undefined;
+  const agentRunEnv = buildAgentRunEnv({
+    agentId,
+    managedAgentInvocationCredential,
+    useManagedAgentInvocation: Boolean(managedAgentInvocation),
+  });
 
   run.status = 'running';
   run.updatedAt = Date.now();
@@ -197,6 +213,8 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       ...(history.length > 0 ? { history } : {}),
       ...(readString(request.model) ? { model: readString(request.model) ?? undefined } : {}),
       ...(readString(request.reasoning) ? { reasoning: readString(request.reasoning) ?? undefined } : {}),
+      ...(agentRunEnv ? { env: agentRunEnv } : {}),
+      ...(managedAgentInvocation ? { managedAgentInvocation } : {}),
       signal: controller.signal,
       resume,
     })) {
@@ -301,8 +319,37 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
 
     runs.fail(run, 'AGENT_EXECUTION_FAILED', error instanceof Error ? error.message : String(error));
   } finally {
+    run.managedAgentInvocationCredential = null;
     run.acpSession = null;
   }
+}
+
+function buildAgentRunEnv(input: {
+  agentId: string;
+  managedAgentInvocationCredential: string | null;
+  useManagedAgentInvocation: boolean;
+}): Record<string, string> | undefined {
+  const env: Record<string, string> = {};
+  const codexHome = resolveVibeCodexHome();
+  if (input.agentId === 'codex' && codexHome) {
+    env.CODEX_HOME = codexHome;
+  }
+
+  if (input.managedAgentInvocationCredential && !input.useManagedAgentInvocation) {
+    env[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV] = input.managedAgentInvocationCredential;
+  }
+
+  return Object.keys(env).length > 0 ? env : undefined;
+}
+
+function resolveVibeCodexHome(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const explicitHome = env.VIBE_CODEX_HOME?.trim();
+  if (explicitHome) {
+    return explicitHome;
+  }
+
+  const tuttiDataDir = env.TUTTI_APP_DATA_DIR?.trim();
+  return tuttiDataDir ? join(tuttiDataDir, VIBE_CODEX_HOME_DIR_NAME) : undefined;
 }
 
 function shouldStopAfterUserInputAsk(projected: ProjectedAcpEvent, sawInlineQuestionForm: boolean): boolean {

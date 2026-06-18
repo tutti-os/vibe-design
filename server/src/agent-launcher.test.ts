@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from '@tutti-os/agent-acp-kit';
 import {
   startAgentRun,
   type LocalAgentRuntime,
@@ -238,6 +239,64 @@ describe('startAgentRun', () => {
         isError: false,
       });
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('passes managed credentials through local-agent env for app-data project cwd values', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
+    const previousDataDir = process.env.TUTTI_APP_DATA_DIR;
+    try {
+      const appDataDir = join(root, 'app-data');
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(appDataDir, 'projects');
+      await mkdir(builtInSkillsRoot, { recursive: true });
+      await mkdir(userSkillsRoot, { recursive: true });
+      process.env.TUTTI_APP_DATA_DIR = appDataDir;
+
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({
+        projectId: 'project-1',
+        agentId: 'codex',
+        managedAgentInvocationCredential: 'credential-run-1',
+      });
+      const runtime = createRecordingRuntime();
+
+      await startAgentRun({
+        run,
+        runs,
+        request: {
+          projectId: 'project-1',
+          prompt: 'Build with managed credentials',
+          agentId: 'codex',
+        },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+      });
+
+      expect(runtime.inputs).toHaveLength(1);
+      expect(runtime.inputs[0]).toMatchObject({
+        cwd: join(projectsDir, 'project-1'),
+        env: {
+          CODEX_HOME: join(appDataDir, 'codex-home'),
+          [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: 'credential-run-1',
+        },
+      });
+      expect(runtime.inputs[0]).not.toHaveProperty('managedAgentInvocation');
+      expect(run.managedAgentInvocationCredential).toBeNull();
+      expect(JSON.stringify(run.events)).not.toContain('credential-run-1');
+    } finally {
+      if (previousDataDir === undefined) {
+        delete process.env.TUTTI_APP_DATA_DIR;
+      } else {
+        process.env.TUTTI_APP_DATA_DIR = previousDataDir;
+      }
       await rm(root, { recursive: true, force: true });
     }
   });

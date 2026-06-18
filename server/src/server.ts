@@ -254,7 +254,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     return runner({
       run,
       runs,
-      request,
+      request: withoutManagedAgentInvocationCredential(request),
       paths: {
         projectsDir,
         userSkillsRoot: ctx.paths.userSkillsRoot,
@@ -1477,9 +1477,22 @@ function createRunMeta(body: Record<string, unknown>): ChatRunCreateMeta {
     agentId: body.agentId ?? DEFAULT_AGENT_ID,
     providerSessionId: body.providerSessionId,
     resumeToken: body.resumeToken,
+    managedAgentInvocationCredential: body.managedAgentInvocationCredential,
     appliedPluginSnapshotId: body.appliedPluginSnapshotId,
     pluginId: body.pluginId,
     mediaExecution: body.mediaExecution,
     toolBundle: body.toolBundle,
   };
+}
+
+function withoutManagedAgentInvocationCredential(body: Record<string, unknown>): Record<string, unknown> {
+  if (!Object.hasOwn(body, 'managedAgentInvocationCredential')) {
+    return body;
+  }
+
+  const {
+    managedAgentInvocationCredential: _managedAgentInvocationCredential,
+    ...rest
+  } = body;
+  return rest;
 }
