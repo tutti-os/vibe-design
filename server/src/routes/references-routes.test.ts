@@ -264,12 +264,12 @@ describe('references search endpoint', () => {
     await createFile(api, projectId, 'hero.css', 'body{}');
     await createFile(api, projectId, 'hero.png', 'x');
 
-    const result = await searchReferences(api, { query: 'hero', filters: ['image', 'code'] });
+    const result = await searchReferences(api, { query: 'hero', filters: ['image', 'webpage'] });
     const names = result.items.map((item) => item.reference?.displayName);
-    // css → code, png → image are kept; html → document is filtered out.
-    expect(names).toContain('hero.css');
+    // html → webpage, png → image are kept; css → other is filtered out.
+    expect(names).toContain('hero.html');
     expect(names).toContain('hero.png');
-    expect(names).not.toContain('hero.html');
+    expect(names).not.toContain('hero.css');
   });
 
   it('supports filter-only search (empty query) ordered by recency, without scores', async () => {
