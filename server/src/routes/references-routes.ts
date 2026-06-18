@@ -168,12 +168,11 @@ function searchProjectFileReferences(projectsDir: string, options: SearchOptions
   const projects = listProjectSummariesFromStore(projectsDir, PROJECT_SCAN_LIMIT);
   const matches: MatchedFile[] = [];
   for (const project of projects) {
-    // A matching project title surfaces its files too, ranked below direct name hits.
-    const titleScore = options.query ? scoreText(project.title.toLowerCase(), options.query) : 0;
     const files = filterFilesByRange(listProjectFilesFromStore(projectsDir, project.id), options.timeRange);
     for (const file of files) {
       if (!isSafeFileName(file.name)) continue;
-      // OR semantics across the requested file-type categories.
+      // Result = intersection of the file-name query and the file-type filters.
+      // OR semantics across the requested categories.
       if (options.filters && !options.filters.has(categoryOf(file.name))) continue;
       if (!options.query) {
         // Filter-only search: every file passing the category/time filters is a
@@ -181,8 +180,8 @@ function searchProjectFileReferences(projectsDir: string, options: SearchOptions
         matches.push({ project, file, score: null });
         continue;
       }
-      const nameScore = scoreText(file.name.toLowerCase(), options.query);
-      const score = nameScore > 0 ? nameScore : titleScore * 0.5;
+      // The query matches against the file name only, never the project title.
+      const score = scoreText(file.name.toLowerCase(), options.query);
       if (score <= 0) continue;
       matches.push({ project, file, score });
     }
