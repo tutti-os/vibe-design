@@ -236,21 +236,78 @@ describe('references search endpoint', () => {
     }
   });
 
-  it('surfaces a project\'s files when the query matches the project title', async () => {
+  it('matches the query against file names only, not the project title', async () => {
     const api = await startApi();
     const projectId = await createProject(api, 'Checkout flow redesign');
     await createFile(api, projectId, 'page.html', '<!doctype html>');
+    await createFile(api, projectId, 'checkout.html', '<!doctype html>');
 
     const result = await searchReferences(api, { query: 'checkout' });
-    expect(result.items.map((item) => item.reference?.displayName)).toContain('page.html');
+    const names = result.items.map((item) => item.reference?.displayName);
+    // The file named "checkout.html" matches; "page.html" does not, even though
+    // its project title contains "checkout".
+    expect(names).toEqual(['checkout.html']);
   });
 
-  it('returns an empty result for a blank query', async () => {
+  it('returns an empty result for a blank query with no filters', async () => {
     const api = await startApi();
     const projectId = await createProject(api, 'Build a landing page');
     await createFile(api, projectId, 'index.html', '<!doctype html>');
 
     expect(await searchReferences(api, { query: '   ' })).toEqual({ items: [], nextCursor: null });
+  });
+
+  it('restricts query matches to the requested file-type categories (OR semantics)', async () => {
+    const api = await startApi();
+    const projectId = await createProject(api, 'Build a landing page');
+    await createFile(api, projectId, 'hero.html', '<!doctype html>');
+    await createFile(api, projectId, 'hero.css', 'body{}');
+    await createFile(api, projectId, 'hero.png', 'x');
+
+    const result = await searchReferences(api, { query: 'hero', filters: ['image', 'webpage'] });
+    const names = result.items.map((item) => item.reference?.displayName);
+    // html → webpage, png → image are kept; css → other is filtered out.
+    expect(names).toContain('hero.html');
+    expect(names).toContain('hero.png');
+    expect(names).not.toContain('hero.css');
+  });
+
+  it('supports filter-only search (empty query) ordered by recency, without scores', async () => {
+    const api = await startApi();
+    const projectId = await createProject(api, 'Build a landing page');
+    await createFile(api, projectId, 'a.png', 'x');
+    await createFile(api, projectId, 'b.png', 'y');
+    await createFile(api, projectId, 'notes.md', 'hi');
+
+    const result = await searchReferences(api, { filters: ['image'] });
+    const names = result.items.map((item) => item.reference?.displayName);
+    expect(names).toEqual(expect.arrayContaining(['a.png', 'b.png']));
+    expect(names).not.toContain('notes.md');
+    // Newest-created file comes first; filter-only results carry no relevance score.
+    expect(names[0]).toBe('b.png');
+    for (const item of result.items) {
+      expect(item.reference?.score).toBeUndefined();
+    }
+  });
+
+  it('ignores unknown filter ids and returns empty when no query remains', async () => {
+    const api = await startApi();
+    const projectId = await createProject(api, 'Build a landing page');
+    await createFile(api, projectId, 'index.html', '<!doctype html>');
+
+    expect(await searchReferences(api, { filters: ['banana'] })).toEqual({ items: [], nextCursor: null });
+  });
+
+  it('treats files with no recognized extension as the "other" category', async () => {
+    const api = await startApi();
+    const projectId = await createProject(api, 'Build a landing page');
+    await createFile(api, projectId, 'README', 'plain');
+    await createFile(api, projectId, 'index.html', '<!doctype html>');
+
+    const result = await searchReferences(api, { filters: ['other'] });
+    const names = result.items.map((item) => item.reference?.displayName);
+    expect(names).toContain('README');
+    expect(names).not.toContain('index.html');
   });
 
   it('paginates search results with an opaque cursor', async () => {
