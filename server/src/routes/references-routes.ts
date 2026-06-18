@@ -257,15 +257,16 @@ function mtimeMsOf(file: StoredProjectFile): number {
 
 // Global file-type categories from the Tutti reference search protocol. Every
 // file resolves to exactly one; unrecognized extensions fall into `other`.
-type FileCategory = 'image' | 'document' | 'spreadsheet' | 'code' | 'media' | 'archive' | 'other';
+// Authoritative source: Tutti packages/workspace/file-reference/src/core/referenceFilterCategories.ts.
+// `document` includes spreadsheets; audio/code/archive extensions are not listed
+// and therefore resolve to `other`.
+type FileCategory = 'image' | 'video' | 'document' | 'webpage' | 'other';
 
 const KNOWN_CATEGORIES = new Set<FileCategory>([
   'image',
+  'video',
   'document',
-  'spreadsheet',
-  'code',
-  'media',
-  'archive',
+  'webpage',
   'other',
 ]);
 
@@ -273,18 +274,13 @@ const KNOWN_CATEGORIES = new Set<FileCategory>([
 const EXTENSION_CATEGORY: Readonly<Record<string, FileCategory>> = {
   png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', svg: 'image',
   bmp: 'image', ico: 'image', tiff: 'image', tif: 'image', avif: 'image', heic: 'image',
+  mp4: 'video', mov: 'video', avi: 'video', mkv: 'video', webm: 'video', m4v: 'video',
   pdf: 'document', doc: 'document', docx: 'document', md: 'document', markdown: 'document',
-  txt: 'document', rtf: 'document', odt: 'document', html: 'document', htm: 'document',
-  xls: 'spreadsheet', xlsx: 'spreadsheet', csv: 'spreadsheet', tsv: 'spreadsheet', ods: 'spreadsheet',
-  js: 'code', jsx: 'code', mjs: 'code', cjs: 'code', ts: 'code', tsx: 'code', json: 'code',
-  css: 'code', scss: 'code', sass: 'code', less: 'code', py: 'code', rb: 'code', go: 'code',
-  rs: 'code', java: 'code', c: 'code', h: 'code', cpp: 'code', cc: 'code', hpp: 'code',
-  cs: 'code', php: 'code', swift: 'code', kt: 'code', sh: 'code', bash: 'code', zsh: 'code',
-  yml: 'code', yaml: 'code', toml: 'code', xml: 'code', sql: 'code', vue: 'code', svelte: 'code',
-  mp4: 'media', mov: 'media', avi: 'media', mkv: 'media', webm: 'media', mp3: 'media',
-  wav: 'media', flac: 'media', aac: 'media', ogg: 'media', m4a: 'media', m4v: 'media',
-  zip: 'archive', tar: 'archive', gz: 'archive', tgz: 'archive', rar: 'archive',
-  '7z': 'archive', bz2: 'archive', xz: 'archive',
+  txt: 'document', rtf: 'document', odt: 'document', pages: 'document', key: 'document',
+  ppt: 'document', pptx: 'document',
+  xls: 'document', xlsx: 'document', csv: 'document', tsv: 'document', ods: 'document',
+  numbers: 'document',
+  html: 'webpage', htm: 'webpage', mhtml: 'webpage', url: 'webpage', webloc: 'webpage',
 };
 
 function categoryOf(fileName: string): FileCategory {
