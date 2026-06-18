@@ -236,13 +236,17 @@ describe('references search endpoint', () => {
     }
   });
 
-  it('surfaces a project\'s files when the query matches the project title', async () => {
+  it('matches the query against file names only, not the project title', async () => {
     const api = await startApi();
     const projectId = await createProject(api, 'Checkout flow redesign');
     await createFile(api, projectId, 'page.html', '<!doctype html>');
+    await createFile(api, projectId, 'checkout.html', '<!doctype html>');
 
     const result = await searchReferences(api, { query: 'checkout' });
-    expect(result.items.map((item) => item.reference?.displayName)).toContain('page.html');
+    const names = result.items.map((item) => item.reference?.displayName);
+    // The file named "checkout.html" matches; "page.html" does not, even though
+    // its project title contains "checkout".
+    expect(names).toEqual(['checkout.html']);
   });
 
   it('returns an empty result for a blank query with no filters', async () => {
