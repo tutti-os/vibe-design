@@ -38,15 +38,15 @@
     {
       "path": ["session-start"],
       "summary": "Send a message and run the agent",
-      "description": "Send a prompt into a project conversation and run the agent to completion, then return the full agent conversation messages. When conversation-id is omitted, a conversation is created automatically before sending. This call is synchronous: it waits for the run to finish.",
+      "description": "Send a prompt into a project conversation and run the agent to completion, then return the full agent conversation messages. When conversation-id is omitted, a conversation is created automatically before sending. Provider availability is checked first; if the requested agent is unavailable the call automatically falls back to another available provider (see agentSwitched in the result). This call is synchronous: it waits for the run to finish.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "project-id": { "type": "string", "description": "Project id." },
           "prompt": { "type": "string", "description": "Message to send to the agent (alias: message)." },
           "conversation-id": { "type": "string", "description": "Optional conversation id. When omitted, a conversation is created and the message is sent to it." },
-          "agent-id": { "type": "string", "description": "Optional agent/provider id." },
-          "model": { "type": "string", "description": "Optional model id." }
+          "agent-id": { "type": "string", "description": "Optional agent type / provider id (e.g. codex or claude). Defaults to the server default. If the chosen provider is unavailable the call falls back to another available provider." },
+          "model": { "type": "string", "description": "Optional model id (provider-specific; dropped if the provider is switched by fallback)." }
         },
         "required": ["project-id"]
       },
