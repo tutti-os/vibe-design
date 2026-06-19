@@ -71,6 +71,19 @@ test('exposes the expected Tutti CLI capabilities', async () => {
   assert.equal(commandPaths.some((command) => /update|delete|rename|project-data|project-get/.test(command)), false);
 });
 
+test('command handler timeouts stay within the Tutti release tooling bounds', async () => {
+  // The publish pipeline rejects any handler.timeoutMs outside [1000, 300000].
+  const manifest = JSON.parse(await readFile(new URL('../tutti.cli.json', import.meta.url), 'utf8'));
+  for (const command of manifest.commands) {
+    const timeoutMs = command.handler?.timeoutMs;
+    if (timeoutMs === undefined) continue;
+    assert.ok(
+      Number.isInteger(timeoutMs) && timeoutMs >= 1000 && timeoutMs <= 300000,
+      `${command.path.join(' ')} handler.timeoutMs must be between 1000 and 300000, got ${timeoutMs}`,
+    );
+  }
+});
+
 test('plans only files that belong in the Tutti app package root', () => {
   const relativeFiles = [
     '.git/config',
