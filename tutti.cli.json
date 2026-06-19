@@ -19,6 +19,41 @@
       "handler": { "kind": "http", "method": "POST", "path": "/tutti/cli/projects", "timeoutMs": 30000 }
     },
     {
+      "path": ["project-create"],
+      "summary": "Create a Prototype Design project",
+      "description": "Create a new project from a prompt and initialize its default conversation. Returns the project and the created conversationId.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "prompt": { "type": "string", "description": "Design prompt describing the prototype to build." },
+          "title": { "type": "string", "description": "Optional project title. Defaults to the prompt." },
+          "project-kind": { "type": "string", "description": "Optional project kind." },
+          "design-system-id": { "type": "string", "description": "Optional design system id to apply." }
+        },
+        "required": ["prompt"]
+      },
+      "output": { "defaultMode": "json", "json": true },
+      "handler": { "kind": "http", "method": "POST", "path": "/tutti/cli/project-create", "timeoutMs": 30000 }
+    },
+    {
+      "path": ["session-start"],
+      "summary": "Send a message and run the agent",
+      "description": "Send a prompt into a project conversation and run the agent to completion, then return the full agent conversation messages. When conversation-id is omitted, a conversation is created automatically before sending. This call is synchronous: it waits for the run to finish.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project-id": { "type": "string", "description": "Project id." },
+          "prompt": { "type": "string", "description": "Message to send to the agent (alias: message)." },
+          "conversation-id": { "type": "string", "description": "Optional conversation id. When omitted, a conversation is created and the message is sent to it." },
+          "agent-id": { "type": "string", "description": "Optional agent/provider id." },
+          "model": { "type": "string", "description": "Optional model id." }
+        },
+        "required": ["project-id"]
+      },
+      "output": { "defaultMode": "json", "json": true },
+      "handler": { "kind": "http", "method": "POST", "path": "/tutti/cli/session-start", "timeoutMs": 600000 }
+    },
+    {
       "path": ["conversations"],
       "summary": "List project conversations",
       "description": "List conversations for one project.",
