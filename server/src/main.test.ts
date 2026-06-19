@@ -752,6 +752,39 @@ describe('createServer', () => {
     expect((startedRequests[0] as { model?: unknown }).model ?? null).toBeNull();
   });
 
+  it('switches codex to claude when codex is unavailable', async () => {
+    const startedRequests: Record<string, unknown>[] = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentAvailability: async () => [
+          { id: 'codex', label: 'Codex', available: false, unavailableReason: 'Codex is not installed.' },
+          { id: 'claude', label: 'Claude Code', available: true },
+        ],
+        startAgentRun: ({ run, runs, request }) => {
+          startedRequests.push(request);
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+    const created = await postCli(port, 'project-create', { prompt: 'Build a prototype.' });
+    const projectId = ((created.body.value as Record<string, unknown>).project as { id: string }).id;
+
+    // No agent-id provided, so the default (codex) is requested and should switch to claude.
+    const started = await postCli(port, 'session-start', {
+      'project-id': projectId,
+      prompt: 'Default provider is down.',
+    });
+
+    expect(started.body.value).toMatchObject({
+      provider: 'claude',
+      requestedProvider: 'codex',
+      agentSwitched: true,
+      status: 'succeeded',
+    });
+    expect(startedRequests[0]).toMatchObject({ agentId: 'claude' });
+  });
+
   it('keeps the requested provider when it is available', async () => {
     const startedRequests: Record<string, unknown>[] = [];
     const port = await listenOnRandomPort(

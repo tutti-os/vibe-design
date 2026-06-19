@@ -523,21 +523,23 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     requestedId: string,
   ): Promise<{ ok: true; agentId: string; switched: boolean } | Extract<CliServiceResult, { ok: false }>> {
     const agents = await safeDetectAgentAvailability(detectAgentAvailability);
+
+    // Try the requested provider first, then a deterministic fallback order:
+    // the default provider (codex), then any remaining provider (e.g. claude).
+    // First match wins; if none are available the call fails.
+    const preferenceOrder = [requestedId, DEFAULT_AGENT_ID, ...agents.map((agent) => agent.id)];
+    for (const candidateId of preferenceOrder) {
+      const candidate = agents.find((agent) => agent.id === candidateId);
+      if (candidate?.available) {
+        return { ok: true, agentId: candidate.id, switched: candidate.id !== requestedId };
+      }
+    }
+
     const requested = agents.find((agent) => agent.id === requestedId);
-    if (requested?.available) {
-      return { ok: true, agentId: requestedId, switched: false };
-    }
-
-    const available = agents.filter((agent) => agent.available);
-    if (available.length === 0) {
-      const reason = requested?.unavailableReason
-        ? `${requested.unavailableReason} No alternative agent provider is available.`
-        : 'No agent provider is available.';
-      return { ok: false, status: 409, code: 'AGENT_UNAVAILABLE', message: reason };
-    }
-
-    const fallback = available.find((agent) => agent.id === DEFAULT_AGENT_ID) ?? available[0];
-    return { ok: true, agentId: fallback.id, switched: true };
+    const reason = requested?.unavailableReason
+      ? `${requested.unavailableReason} No alternative agent provider is available.`
+      : 'No agent provider is available.';
+    return { ok: false, status: 409, code: 'AGENT_UNAVAILABLE', message: reason };
   }
 
   async function saveCliLocalFiles(
