@@ -837,6 +837,56 @@ describe('createServer', () => {
     expect(startedAgents).toEqual(['codex']);
   });
 
+  it('starts a new conversation when the requested provider differs from a locked conversation', async () => {
+    const startedAgents: Array<string | null> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentAvailability: async () => [
+          { id: 'codex', label: 'Codex', available: true },
+          { id: 'claude', label: 'Claude Code', available: true },
+        ],
+        startAgentRun: ({ run, runs, request }) => {
+          startedAgents.push((request.agentId as string | undefined) ?? null);
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+    const createdProject = await postCli(port, 'project-create', { prompt: 'A login page' });
+    const projectId = ((createdProject.body.value as Record<string, unknown>).project as { id: string }).id;
+    const codexConversationId = (createdProject.body.value as { conversationId: string }).conversationId;
+
+    // First run locks the conversation to codex.
+    await postCli(port, 'session-start', {
+      'project-id': projectId,
+      'conversation-id': codexConversationId,
+      'agent-id': 'codex',
+      prompt: 'Build with codex',
+    });
+
+    // Re-targeting the same conversation with Claude Code would collide with the codex lock; the
+    // call transparently runs in a fresh conversation instead of failing.
+    const started = await postCli(port, 'session-start', {
+      'project-id': projectId,
+      'conversation-id': codexConversationId,
+      'agent-id': 'claude',
+      prompt: 'Now build with Claude Code',
+    });
+
+    expect(started.status).toBe(200);
+    expect(started.body.value).toMatchObject({
+      provider: 'claude',
+      status: 'succeeded',
+      agentFallback: {
+        from: 'codex',
+        to: 'claude',
+        stage: 'conversation-locked',
+      },
+    });
+    expect((started.body.value as { conversationId: string }).conversationId).not.toBe(codexConversationId);
+    expect(startedAgents).toEqual(['codex', 'claude']);
+  });
+
   it('serves the dashboard page at the root route', async () => {
     const port = await listenOnRandomPort(createServer({ runtimeDir: await createRuntimeDir() }));
 
