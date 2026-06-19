@@ -606,8 +606,9 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: testRuntimeDir,
-        startAgentRun: ({ request }) => {
+        startAgentRun: ({ run, runs, request }) => {
           startedRequests.push(request);
+          runs.finish(run, 'succeeded');
         },
       }),
     );
@@ -653,7 +654,14 @@ describe('createServer', () => {
       conversationId,
       assistantMessageId: expect.stringMatching(/^assistant-[0-9a-f-]{8}$/),
       provider: 'claude',
+      status: 'succeeded',
     });
+    // session-start runs synchronously and returns the agent conversation verbatim.
+    const sessionMessages = (started.body.value as { messages: Array<{ role: string; content: string }> }).messages;
+    expect(Array.isArray(sessionMessages)).toBe(true);
+    expect(sessionMessages).toContainEqual(
+      expect.objectContaining({ role: 'user', content: 'Use the uploaded reference image.' }),
+    );
     await expect(readFile(join(testRuntimeDir, 'projects', projectId, 'assets', 'reference.png'), 'utf8')).resolves.toBe('local-image-bytes');
     expect(startedRequests).toEqual([
       expect.objectContaining({

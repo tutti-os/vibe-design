@@ -480,6 +480,12 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       const run = runs.create(createRunMeta(persistentBody));
       await persistRunMessages(persistentBody, run);
       runs.start(run, (startedRun) => startRunFromRequest(startedRun, persistentBody));
+      // Run synchronously to completion, then return the agent conversation verbatim.
+      const status = await runs.wait(run);
+      const messages =
+        run.projectId && run.conversationId
+          ? await listConversationMessages(ctx.paths.projectsDir, run.projectId, run.conversationId)
+          : null;
       return {
         ok: true,
         value: {
@@ -487,6 +493,10 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
           conversationId: run.conversationId,
           assistantMessageId: run.assistantMessageId,
           provider: run.agentId,
+          status: status.status,
+          error: status.error,
+          errorCode: status.errorCode,
+          messages,
         },
       };
     } catch (error) {
