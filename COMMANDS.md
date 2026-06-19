@@ -44,7 +44,8 @@ tutti --json vibe-design session-start \
   --project-id <projectId> \
   --prompt "Create index.html: a modern SaaS pricing page with three tiers, a monthly/annual toggle, and an FAQ. Single file, inline CSS, no external deps."
 #    -> { "runId": "...", "conversationId": "...", "assistantMessageId": "...",
-#         "provider": "claude", "status": "succeeded", "messages": [ ...verbatim agent messages... ] }
+#         "provider": "claude", "status": "succeeded", "agentFallback": null,
+#         "messages": [ ...verbatim agent messages... ] }
 
 # 3. List the files the agent generated.
 tutti --json vibe-design files --project-id <projectId>
@@ -58,12 +59,17 @@ Notes:
 
 - `session-start` blocks until the run finishes and returns `status` (`succeeded` | `failed` | `canceled`) plus the conversation `messages` exactly as stored, so you usually don't need a separate `conversation-messages` call.
 - Omit `--conversation-id` to create a conversation and send in one call; pass it to target an existing conversation (e.g. to continue iterating).
-- The agent provider defaults to the server's `DEFAULT_AGENT_ID`. Pick one explicitly with `--agent-id claude|codex` (and optionally `--model`). The chosen provider must be installed and authenticated in the app runtime; otherwise the call returns `status: "failed"` with the auth error in the assistant message.
+- The agent provider defaults to the server's `DEFAULT_AGENT_ID` (Codex). Pick one explicitly with `--agent-id claude|codex` (and optionally `--model`). The chosen provider must be installed and authenticated in the app runtime.
+- **Codex → Claude Code fallback.** When Codex is the provider but is broken, `session-start` automatically switches to Claude Code so the prototype still gets built:
+  - If Codex is detected unavailable *before* the run starts, the session is launched on Claude Code directly.
+  - If Codex starts but then fails because it is broken (e.g. `401 Unauthorized: Missing bearer or basic authentication`, missing API key, or a connection error), a **new conversation** is created and the same prompt is retried on Claude Code.
+  - Either way the result includes an `agentFallback` object — `{ from, to, stage, reason, message }` — describing the switch, and `provider` reflects the provider that actually ran (`claude`). `agentFallback` is `null` when no fallback happened. Because the in-run fallback uses a fresh conversation, the returned `conversationId` can differ from one you passed in.
+  - If you already know Codex is down, skip it from the start with `--agent-id claude`. Fallback only triggers for the default Codex provider and only when Claude Code is available; if neither provider is usable the call returns an `AGENT_UNAVAILABLE` error.
 - The generated page is delivered as a project file asset, not as page markup in the command output — retrieve it with `files` / `file-get` (or the static `url`).
 
 ## Conversation Context
 
-- `tutti vibe-design session-start --project-id <id> [--prompt <text>] [--conversation-id <id>] [--agent-id <id>] [--model <id>]`: send a message and run the agent to completion. Creates the conversation when `--conversation-id` is omitted. Returns `{ runId, conversationId, assistantMessageId, provider, status, messages }`; `--message` is accepted as an alias for `--prompt`.
+- `tutti vibe-design session-start --project-id <id> [--prompt <text>] [--conversation-id <id>] [--agent-id <id>] [--model <id>]`: send a message and run the agent to completion. Creates the conversation when `--conversation-id` is omitted. Returns `{ runId, conversationId, assistantMessageId, provider, status, agentFallback, messages }`; `--message` is accepted as an alias for `--prompt`. `agentFallback` is non-null when Codex was unavailable/broken and the run was switched to Claude Code (see the Codex → Claude Code fallback note above).
 - `tutti vibe-design conversations --project-id <id>`: list project conversations.
 - `tutti vibe-design conversation-messages --project-id <id> --conversation-id <id>`: return messages in one conversation.
 
