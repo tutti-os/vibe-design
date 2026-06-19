@@ -453,6 +453,19 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       return { ok: false, status: 400, code: 'BAD_REQUEST', message: 'projectId is required and must be path-safe' };
     }
 
+    // Check the requested provider's availability before sending; fall back to
+    // another available provider instead of failing the call.
+    const requestedProvider = readString(body.agentId) ?? DEFAULT_AGENT_ID;
+    const agentResolution = await resolveAvailableCliAgent(requestedProvider);
+    if (!agentResolution.ok) {
+      return agentResolution;
+    }
+    body.agentId = agentResolution.agentId;
+    if (agentResolution.switched) {
+      // The requested provider's model does not carry over to a different provider.
+      delete body.model;
+    }
+
     const persistentBodyResult = await preparePersistentRunBody(body);
     if (!persistentBodyResult.ok) {
       return {
@@ -493,6 +506,8 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
           conversationId: run.conversationId,
           assistantMessageId: run.assistantMessageId,
           provider: run.agentId,
+          requestedProvider,
+          agentSwitched: agentResolution.switched,
           status: status.status,
           error: status.error,
           errorCode: status.errorCode,
@@ -502,6 +517,27 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     } catch (error) {
       return cliInternalError(error, 'session start failed');
     }
+  }
+
+  async function resolveAvailableCliAgent(
+    requestedId: string,
+  ): Promise<{ ok: true; agentId: string; switched: boolean } | Extract<CliServiceResult, { ok: false }>> {
+    const agents = await safeDetectAgentAvailability(detectAgentAvailability);
+    const requested = agents.find((agent) => agent.id === requestedId);
+    if (requested?.available) {
+      return { ok: true, agentId: requestedId, switched: false };
+    }
+
+    const available = agents.filter((agent) => agent.available);
+    if (available.length === 0) {
+      const reason = requested?.unavailableReason
+        ? `${requested.unavailableReason} No alternative agent provider is available.`
+        : 'No agent provider is available.';
+      return { ok: false, status: 409, code: 'AGENT_UNAVAILABLE', message: reason };
+    }
+
+    const fallback = available.find((agent) => agent.id === DEFAULT_AGENT_ID) ?? available[0];
+    return { ok: true, agentId: fallback.id, switched: true };
   }
 
   async function saveCliLocalFiles(

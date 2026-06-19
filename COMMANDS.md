@@ -58,12 +58,13 @@ Notes:
 
 - `session-start` blocks until the run finishes and returns `status` (`succeeded` | `failed` | `canceled`) plus the conversation `messages` exactly as stored, so you usually don't need a separate `conversation-messages` call.
 - Omit `--conversation-id` to create a conversation and send in one call; pass it to target an existing conversation (e.g. to continue iterating).
-- The agent provider defaults to the server's `DEFAULT_AGENT_ID`. Pick one explicitly with `--agent-id claude|codex` (and optionally `--model`). The chosen provider must be installed and authenticated in the app runtime; otherwise the call returns `status: "failed"` with the auth error in the assistant message.
+- The agent provider defaults to the server's `DEFAULT_AGENT_ID`. Pick one explicitly with `--agent-id claude|codex` (and optionally `--model`).
+- Provider availability is checked before sending. If the requested provider is unavailable (not installed / not authenticated), `session-start` automatically falls back to another available provider instead of failing. The response reports both `requestedProvider` and the provider that actually ran (`provider`), plus `agentSwitched: true` when a fallback happened. When a fallback occurs the requested `--model` is dropped (it is provider-specific) and the fallback provider's default model is used. If no provider is available at all, the call returns `409 AGENT_UNAVAILABLE`.
 - The generated page is delivered as a project file asset, not as page markup in the command output — retrieve it with `files` / `file-get` (or the static `url`).
 
 ## Conversation Context
 
-- `tutti vibe-design session-start --project-id <id> [--prompt <text>] [--conversation-id <id>] [--agent-id <id>] [--model <id>]`: send a message and run the agent to completion. Creates the conversation when `--conversation-id` is omitted. Returns `{ runId, conversationId, assistantMessageId, provider, status, messages }`; `--message` is accepted as an alias for `--prompt`.
+- `tutti vibe-design session-start --project-id <id> [--prompt <text>] [--conversation-id <id>] [--agent-id <id>] [--model <id>]`: send a message and run the agent to completion. Creates the conversation when `--conversation-id` is omitted. Falls back to an available provider when the requested one is unavailable. Returns `{ runId, conversationId, assistantMessageId, provider, requestedProvider, agentSwitched, status, messages }`; `--message` is accepted as an alias for `--prompt`.
 - `tutti vibe-design conversations --project-id <id>`: list project conversations.
 - `tutti vibe-design conversation-messages --project-id <id> --conversation-id <id>`: return messages in one conversation.
 

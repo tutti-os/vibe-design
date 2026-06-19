@@ -38,7 +38,7 @@
     {
       "path": ["session-start"],
       "summary": "Send a message and run the agent",
-      "description": "Send a prompt into a project conversation and run the agent to completion, then return the full agent conversation messages. When conversation-id is omitted, a conversation is created automatically before sending. This call is synchronous: it waits for the run to finish.",
+      "description": "Send a prompt into a project conversation and run the agent to completion, then return the full agent conversation messages. When conversation-id is omitted, a conversation is created automatically before sending. Provider availability is checked first; if the requested agent is unavailable the call automatically falls back to another available provider (see agentSwitched in the result). This call is synchronous: it waits for the run to finish.",
       "inputSchema": {
         "type": "object",
         "properties": {

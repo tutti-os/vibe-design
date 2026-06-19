@@ -713,6 +713,97 @@ describe('createServer', () => {
     expect(messagePayload.messages[1]).toMatchObject({ role: 'assistant' });
   });
 
+  it('falls back to an available provider when the requested one is unavailable', async () => {
+    const startedRequests: Record<string, unknown>[] = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentAvailability: async () => [
+          { id: 'codex', label: 'Codex', available: true },
+          { id: 'claude', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not authenticated.' },
+        ],
+        startAgentRun: ({ run, runs, request }) => {
+          startedRequests.push(request);
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+    const created = await postCli(port, 'project-create', { prompt: 'Build a prototype.' });
+    const projectId = ((created.body.value as Record<string, unknown>).project as { id: string }).id;
+
+    const started = await postCli(port, 'session-start', {
+      'project-id': projectId,
+      prompt: 'Use the unavailable provider.',
+      'agent-id': 'claude',
+      model: 'sonnet',
+    });
+
+    expect(started.status).toBe(200);
+    expect(started.body.value).toMatchObject({
+      provider: 'codex',
+      requestedProvider: 'claude',
+      agentSwitched: true,
+      status: 'succeeded',
+    });
+    // The switched run drops the requested provider's model and runs the fallback.
+    expect(startedRequests).toEqual([
+      expect.objectContaining({ projectId, agentId: 'codex' }),
+    ]);
+    expect((startedRequests[0] as { model?: unknown }).model ?? null).toBeNull();
+  });
+
+  it('keeps the requested provider when it is available', async () => {
+    const startedRequests: Record<string, unknown>[] = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        startAgentRun: ({ run, runs, request }) => {
+          startedRequests.push(request);
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+    const created = await postCli(port, 'project-create', { prompt: 'Build a prototype.' });
+    const projectId = ((created.body.value as Record<string, unknown>).project as { id: string }).id;
+
+    const started = await postCli(port, 'session-start', {
+      'project-id': projectId,
+      prompt: 'Use claude.',
+      'agent-id': 'claude',
+    });
+
+    expect(started.body.value).toMatchObject({
+      provider: 'claude',
+      requestedProvider: 'claude',
+      agentSwitched: false,
+    });
+    expect(startedRequests[0]).toMatchObject({ agentId: 'claude' });
+  });
+
+  it('returns AGENT_UNAVAILABLE from session-start when no provider is available', async () => {
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentAvailability: async () => [
+          { id: 'codex', label: 'Codex', available: false, unavailableReason: 'Codex is not installed.' },
+          { id: 'claude', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not authenticated.' },
+        ],
+        startAgentRun: ({ run, runs }) => {
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+    const created = await postCli(port, 'project-create', { prompt: 'Build a prototype.' });
+    const projectId = ((created.body.value as Record<string, unknown>).project as { id: string }).id;
+
+    const started = await postCliStatus(port, 'session-start', {
+      'project-id': projectId,
+      prompt: 'No provider available.',
+    });
+
+    expect(started).toBe(409);
+  });
+
   it('serves the dashboard page at the root route', async () => {
     const port = await listenOnRandomPort(createServer({ runtimeDir: await createRuntimeDir() }));
 
