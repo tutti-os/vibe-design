@@ -418,6 +418,110 @@ describe('createVibeClaudeProvider', () => {
       await rm(tempDir, { force: true, recursive: true });
     }
   });
+
+  it('refreshes a stale app-local credential when the user credential is fresher', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'vibe-claude-cred-refresh-'));
+    const userClaudeHome = join(tempDir, 'user-home');
+    const claudeHome = join(tempDir, 'claude-home');
+    await mkdir(join(userClaudeHome, '.claude'), { recursive: true });
+    await mkdir(join(claudeHome, '.claude'), { recursive: true });
+    const credPath = join(claudeHome, '.claude', '.credentials.json');
+    await writeFile(credPath, JSON.stringify({
+      claudeAiOauth: { accessToken: 'stale-app-token', expiresAt: 1000 },
+    }));
+    await writeFile(join(userClaudeHome, '.claude', '.credentials.json'), JSON.stringify({
+      claudeAiOauth: { accessToken: 'fresh-user-token', expiresAt: 5000 },
+    }));
+
+    try {
+      const provider = createVibeClaudeProvider({
+        claudeHome,
+        userClaudeHome,
+        readKeychainCredentials: () => null,
+      });
+      await provider.buildLaunchPlan({
+        runId: 'run-1',
+        cwd: '/tmp/vibe-project',
+        prompt: 'Build a page',
+        model: 'default',
+      });
+
+      const written = await readFile(credPath, 'utf8');
+      expect(written).toContain('fresh-user-token');
+      expect(written).not.toContain('stale-app-token');
+    } finally {
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  it('keeps the app-local credential when it is fresher than the user credential', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'vibe-claude-cred-keep-'));
+    const userClaudeHome = join(tempDir, 'user-home');
+    const claudeHome = join(tempDir, 'claude-home');
+    await mkdir(join(userClaudeHome, '.claude'), { recursive: true });
+    await mkdir(join(claudeHome, '.claude'), { recursive: true });
+    const credPath = join(claudeHome, '.claude', '.credentials.json');
+    await writeFile(credPath, JSON.stringify({
+      claudeAiOauth: { accessToken: 'self-refreshed-token', expiresAt: 9000 },
+    }));
+    await writeFile(join(userClaudeHome, '.claude', '.credentials.json'), JSON.stringify({
+      claudeAiOauth: { accessToken: 'older-user-token', expiresAt: 3000 },
+    }));
+
+    try {
+      const provider = createVibeClaudeProvider({
+        claudeHome,
+        userClaudeHome,
+        readKeychainCredentials: () => null,
+      });
+      await provider.buildLaunchPlan({
+        runId: 'run-1',
+        cwd: '/tmp/vibe-project',
+        prompt: 'Build a page',
+        model: 'default',
+      });
+
+      const written = await readFile(credPath, 'utf8');
+      expect(written).toContain('self-refreshed-token');
+      expect(written).not.toContain('older-user-token');
+    } finally {
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  it('seeds from the Keychain credential when it is fresher than the user file', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'vibe-claude-cred-keychain-'));
+    const userClaudeHome = join(tempDir, 'user-home');
+    const claudeHome = join(tempDir, 'claude-home');
+    await mkdir(join(userClaudeHome, '.claude'), { recursive: true });
+    await mkdir(join(claudeHome, '.claude'), { recursive: true });
+    const credPath = join(claudeHome, '.claude', '.credentials.json');
+    await writeFile(join(userClaudeHome, '.claude', '.credentials.json'), JSON.stringify({
+      claudeAiOauth: { accessToken: 'stale-file-token', expiresAt: 2000 },
+    }));
+
+    try {
+      const provider = createVibeClaudeProvider({
+        claudeHome,
+        userClaudeHome,
+        readKeychainCredentials: () => JSON.stringify({
+          claudeAiOauth: { accessToken: 'fresh-keychain-token', expiresAt: 8000 },
+        }),
+      });
+      await provider.buildLaunchPlan({
+        runId: 'run-1',
+        cwd: '/tmp/vibe-project',
+        prompt: 'Build a page',
+        model: 'default',
+      });
+
+      const written = await readFile(credPath, 'utf8');
+      expect(written).toContain('fresh-keychain-token');
+      expect(written).not.toContain('stale-file-token');
+    } finally {
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
 });
 
 describe('parseVibeClaudeStreamEvent', () => {
