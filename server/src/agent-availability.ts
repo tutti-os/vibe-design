@@ -46,8 +46,8 @@ export interface AgentFallback {
   fromAgentId: string;
   /** Provider we switched to instead. */
   toAgentId: string;
-  /** When the switch happened relative to the agent run. */
-  stage: 'pre-session' | 'in-session';
+  /** When/why the switch happened relative to the agent run. */
+  stage: 'pre-session' | 'in-session' | 'conversation-locked';
   /** Human-readable reason the original provider was abandoned. */
   reason: string;
 }
