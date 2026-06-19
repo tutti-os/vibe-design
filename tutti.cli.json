@@ -51,7 +51,7 @@
         "required": ["project-id"]
       },
       "output": { "defaultMode": "json", "json": true },
-      "handler": { "kind": "http", "method": "POST", "path": "/tutti/cli/session-start", "timeoutMs": 600000 }
+      "handler": { "kind": "http", "method": "POST", "path": "/tutti/cli/session-start", "timeoutMs": 300000 }
     },
     {
       "path": ["conversations"],
