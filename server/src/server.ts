@@ -9,6 +9,7 @@ import { DEFAULT_AGENT_ID } from './agents.js';
 import {
   detectLocalAgentAvailability,
   findUnavailableAgent,
+  PRIMARY_AGENT_ID,
   resolvePreSessionFallback,
   resolveRunFailureFallback,
   unavailableAgentsForDetectionFailure,
@@ -482,7 +483,28 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       attemptBody = switched.body;
     }
 
-    const first = await executeCliRun(projectId, attemptBody, localAttachments);
+    let first = await executeCliRun(projectId, attemptBody, localAttachments);
+
+    // The requested provider may not match the conversation it was pointed at (e.g. retrying with
+    // Claude Code on a conversation already locked to codex). A conversation can't mix providers,
+    // so transparently start a fresh conversation with the requested provider instead of failing.
+    if (!first.ok && first.code === 'CONVERSATION_PROVIDER_LOCKED' && !fallback) {
+      const requested = readString(attemptBody.agentId) ?? requestedProvider;
+      const switched = await createCliFallbackConversation(projectId, attemptBody, requested);
+      if (switched.ok) {
+        const retry = await executeCliRun(projectId, switched.body, localAttachments);
+        if (retry.ok) {
+          fallback = {
+            fromAgentId: lockedProviderFromMessage(first.message) ?? PRIMARY_AGENT_ID,
+            toAgentId: requested,
+            stage: 'conversation-locked',
+            reason: first.message,
+          };
+          first = retry;
+        }
+      }
+    }
+
     if (!first.ok) {
       return first;
     }
@@ -595,16 +617,23 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   }
 
   function describeAgentFallback(fallback: AgentFallback): Record<string, unknown> {
+    const message =
+      fallback.stage === 'pre-session'
+        ? `${fallback.fromAgentId} was unavailable, so the session was started with ${fallback.toAgentId} instead.`
+        : fallback.stage === 'conversation-locked'
+          ? `The conversation was locked to ${fallback.fromAgentId}, so a new conversation was started with ${fallback.toAgentId}.`
+          : `${fallback.fromAgentId} failed mid-run, so a new conversation was started with ${fallback.toAgentId}.`;
     return {
       from: fallback.fromAgentId,
       to: fallback.toAgentId,
       stage: fallback.stage,
       reason: fallback.reason,
-      message:
-        fallback.stage === 'pre-session'
-          ? `${fallback.fromAgentId} was unavailable, so the session was started with ${fallback.toAgentId} instead.`
-          : `${fallback.fromAgentId} failed mid-run, so a new conversation was started with ${fallback.toAgentId}.`,
+      message,
     };
+  }
+
+  function lockedProviderFromMessage(message: string): string | null {
+    return /already uses provider (\S+)/.exec(message)?.[1] ?? null;
   }
 
   async function saveCliLocalFiles(
