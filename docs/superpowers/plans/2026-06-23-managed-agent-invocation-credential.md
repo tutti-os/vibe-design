@@ -74,7 +74,7 @@ Do not put the credential into SSR HTML, `window.__VIBE_DESIGN_INITIAL__`, cooki
 ### tsh/tsh
 
 - Create `apps/tsh-desktop/src/app/main/websiteWindow/managedAgentInvocationCredentialHeader.ts`
-  - Owns trusted host/scheme/path checks and builds `loadURL` `extraHeaders` for project page navigation.
+  - Owns loopback host/scheme/path checks and builds `loadURL` `extraHeaders` for project page navigation.
 - Create `apps/tsh-desktop/src/app/main/websiteWindow/managedAgentInvocationCredentialHeader.spec.ts`
   - Covers allowed/disallowed navigation URL matching and header redaction behavior.
 - Modify `apps/tsh-desktop/src/app/main/websiteWindow/websiteWindowNavigationOps.ts`
@@ -188,8 +188,9 @@ Do not register an Electron `webRequest.onBeforeSendHeaders` handler for post-hy
 
 Inject `X-Tutti-Agent-Credential` only when all are true:
 
-- `contents.loadURL(...)` is opening the trusted vibe-design host
-- scheme is `https` for production or `http` for localhost
+- `contents.loadURL(...)` is opening a loopback host: `localhost`, `127.0.0.1`, or `[::1]`
+- scheme is `http` or `https`, but non-loopback hosts are rejected
+- production hosted origins require a future explicit trusted origin registry before they can receive this header
 - path is exactly `GET /project/:projectId`
 - the Website runtime can be resolved to the room that owns the credential
 

@@ -34,6 +34,19 @@ describe('getManagedAgentInvocationCredential', () => {
     await expect(getManagedAgentInvocationCredential()).resolves.toBe('credential-run-2');
   });
 
+  it('falls back to window.__tsh when window.tutti has no credential method', async () => {
+    (globalThis as { window?: unknown }).window = {
+      tutti: {},
+      __tsh: {
+        agent: {
+          getManagedAgentInvocationCredential: () => ({ credential: 'credential-run-3' }),
+        },
+      },
+    };
+
+    await expect(getManagedAgentInvocationCredential()).resolves.toBe('credential-run-3');
+  });
+
   it('does not surface bridge failures', async () => {
     (globalThis as { window?: unknown }).window = {
       tutti: {

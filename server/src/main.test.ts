@@ -677,10 +677,12 @@ describe('createServer', () => {
     const localFilePath = join(testRuntimeDir, 'reference.png');
     await writeFile(localFilePath, 'local-image-bytes', 'utf8');
     const startedRequests: Record<string, unknown>[] = [];
+    const startedRuns: ChatRun[] = [];
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: testRuntimeDir,
         startAgentRun: ({ run, runs, request }) => {
+          startedRuns.push(run);
           startedRequests.push(request);
           runs.finish(run, 'succeeded');
         },
@@ -720,6 +722,7 @@ describe('createServer', () => {
       toolBundle: {
         id: 'media-tools',
       },
+      managedAgentInvocationCredential: 'credential-cli-1',
     });
 
     expect(started.status).toBe(200);
@@ -737,6 +740,8 @@ describe('createServer', () => {
       expect.objectContaining({ role: 'user', content: 'Use the uploaded reference image.' }),
     );
     await expect(readFile(join(testRuntimeDir, 'projects', projectId, 'assets', 'reference.png'), 'utf8')).resolves.toBe('local-image-bytes');
+    expect(startedRuns[0]?.managedAgentInvocationCredential).toBe('credential-cli-1');
+    expect(startedRequests[0]).not.toHaveProperty('managedAgentInvocationCredential');
     expect(startedRequests).toEqual([
       expect.objectContaining({
         projectId,
@@ -1649,6 +1654,37 @@ describe('createServer', () => {
     const statusResponse = await fetch(`http://127.0.0.1:${port}/api/runs/${created.runId}`);
     expect(statusResponse.status).toBe(200);
     expect(JSON.stringify(await statusResponse.json())).not.toContain('credential-run-1');
+  });
+
+  it('keeps managed agent invocation credentials out of legacy chat starter requests', async () => {
+    const started: Array<{ run: ChatRun; request: Record<string, unknown> }> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        startAgentRun: ({ run, runs, request }) => {
+          started.push({ run, request });
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: 'project-managed-agent-chat',
+        prompt: 'Build a small page',
+        agentId: 'codex',
+        managedAgentInvocationCredential: 'credential-chat-1',
+      }),
+    });
+    const streamText = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(started).toHaveLength(1);
+    expect(started[0]?.run.managedAgentInvocationCredential).toBe('credential-chat-1');
+    expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
+    expect(streamText).not.toContain('credential-chat-1');
   });
 
   it('keeps a conversation provider locked while updating its remembered model for same-provider runs', async () => {

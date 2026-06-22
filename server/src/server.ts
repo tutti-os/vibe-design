@@ -583,7 +583,9 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     try {
       const run = runs.create(createRunMeta(persistentBody));
       await persistRunMessages(persistentBody, run);
-      runs.start(run, (startedRun) => startRunFromRequest(startedRun, persistentBody));
+      runs.start(run, (startedRun) => (
+        startRunFromRequest(startedRun, withoutManagedAgentInvocationCredential(persistentBody))
+      ));
       // Run synchronously to completion, then return the agent conversation verbatim.
       const status = await runs.wait(run);
       const messages =
@@ -790,7 +792,9 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const run = runs.create(createRunMeta(persistentBody));
     await persistRunMessages(persistentBody, run);
     runs.stream(run, req, res);
-    runs.start(run, (startedRun) => startRunFromRequest(startedRun, persistentBody));
+    runs.start(run, (startedRun) => (
+      startRunFromRequest(startedRun, withoutManagedAgentInvocationCredential(persistentBody))
+    ));
   });
 
   app.get('/api/agents/models', async (req: Request, res: Response): Promise<void> => {

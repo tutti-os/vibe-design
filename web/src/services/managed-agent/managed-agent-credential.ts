@@ -1,10 +1,12 @@
 interface ManagedAgentCredentialBridge {
   agent?: {
-    getManagedAgentInvocationCredential?: () =>
-      | { credential?: unknown }
-      | Promise<{ credential?: unknown }>;
+    getManagedAgentInvocationCredential?: ManagedAgentCredentialGetter;
   };
 }
+
+type ManagedAgentCredentialGetter = () =>
+  | { credential?: unknown }
+  | Promise<{ credential?: unknown }>;
 
 declare global {
   interface Window {
@@ -14,8 +16,7 @@ declare global {
 }
 
 export async function getManagedAgentInvocationCredential(): Promise<string | null> {
-  const bridge = getManagedAgentCredentialBridge();
-  const getCredential = bridge?.agent?.getManagedAgentInvocationCredential;
+  const getCredential = getManagedAgentCredentialGetter();
   if (typeof getCredential !== 'function') {
     return null;
   }
@@ -25,10 +26,17 @@ export async function getManagedAgentInvocationCredential(): Promise<string | nu
   return typeof credential === 'string' && credential.trim() ? credential : null;
 }
 
-function getManagedAgentCredentialBridge(): ManagedAgentCredentialBridge | null {
+function getManagedAgentCredentialGetter(): ManagedAgentCredentialGetter | null {
   if (typeof window === 'undefined') {
     return null;
   }
 
-  return window.tutti ?? window.__tsh ?? null;
+  const bridges = [window.tutti, window.__tsh];
+  for (const bridge of bridges) {
+    const getCredential = bridge?.agent?.getManagedAgentInvocationCredential;
+    if (typeof getCredential === 'function') {
+      return getCredential;
+    }
+  }
+  return null;
 }
