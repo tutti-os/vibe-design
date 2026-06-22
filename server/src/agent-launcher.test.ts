@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from '@tutti-os/agent-acp-kit';
 import { describe, expect, it } from 'vitest';
 import {
   startAgentRun,
@@ -237,6 +238,48 @@ describe('startAgentRun', () => {
         content: 'total 8\n',
         isError: false,
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('passes managed agent invocation credentials to the ACP runtime transiently', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
+    try {
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(root, 'projects');
+      await mkdir(builtInSkillsRoot, { recursive: true });
+      await mkdir(userSkillsRoot, { recursive: true });
+
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({
+        projectId: 'project-managed-agent',
+        agentId: 'codex',
+        managedAgentInvocationCredential: 'credential-run-1',
+      });
+      const runtime = createRecordingRuntime();
+
+      await startAgentRun({
+        run,
+        runs,
+        request: {
+          projectId: 'project-managed-agent',
+          prompt: 'Reply',
+          agentId: 'codex',
+        },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+      });
+
+      expect(runtime.inputs[0]?.env?.[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).toBe('credential-run-1');
+      expect(runtime.inputs[0]?.managedAgentInvocation).toBeUndefined();
+      expect(run.managedAgentInvocationCredential).toBeNull();
     } finally {
       await rm(root, { recursive: true, force: true });
     }

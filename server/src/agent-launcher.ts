@@ -1,9 +1,11 @@
 import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import {
+  MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
   type AgentEvent as AcpAgentEvent,
   type AgentRunInput as AcpAgentRunInput,
   type AgentRunMessage as AcpAgentRunMessage,
+  isManagedAgentInvocationCwd,
 } from '@tutti-os/agent-acp-kit';
 import type { AgentEvent } from './claude-stream.js';
 import { DEFAULT_AGENT_ID, type AgentRegistry } from './agents.js';
@@ -110,6 +112,8 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   ].join('\n');
   const history = await buildConversationHistory(paths.projectsDir, run, userPrompt);
   const resume = buildProviderResume(run);
+  const managedAgentInvocationCredential = readString(run.managedAgentInvocationCredential);
+  run.managedAgentInvocationCredential = null;
 
   run.status = 'running';
   run.updatedAt = Date.now();
@@ -188,7 +192,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       return false;
     };
 
-    for await (const event of agentRuntime.run({
+    const agentRunInput: AcpAgentRunInput = {
       runId: run.id,
       provider: agentId,
       cwd,
@@ -199,7 +203,10 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       ...(readString(request.reasoning) ? { reasoning: readString(request.reasoning) ?? undefined } : {}),
       signal: controller.signal,
       resume,
-    })) {
+      ...createManagedAgentInvocationRunInput(managedAgentInvocationCredential, cwd),
+    };
+
+    for await (const event of agentRuntime.run(agentRunInput)) {
       if (event.type === 'file_write') {
         const materializedFile = await materializeAcpFileWrite(paths.projectsDir, projectId, cwd, event.path);
         if (materializedFile) {
@@ -409,6 +416,25 @@ function projectAcpAgentEvent(event: AcpAgentEvent): ProjectedAcpEvent | null {
     default:
       return null;
   }
+}
+
+function createManagedAgentInvocationRunInput(
+  credential: string | null,
+  cwd: string,
+): Pick<AcpAgentRunInput, 'env' | 'managedAgentInvocation'> {
+  if (!credential) {
+    return {};
+  }
+
+  if (isManagedAgentInvocationCwd(cwd)) {
+    return { managedAgentInvocation: { credential, cwd } };
+  }
+
+  return {
+    env: {
+      [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: credential,
+    },
+  };
 }
 
 function buildProviderResume(run: ChatRun): AcpAgentRunInput['resume'] {

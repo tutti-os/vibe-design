@@ -3,6 +3,7 @@ import { access, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/p
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV, type DetectContext } from '@tutti-os/agent-acp-kit';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServer, resolveRuntimeConfig } from './main';
 import {
@@ -27,13 +28,13 @@ type TestCreateServer = (options?: {
   runtimeDir?: string;
   builtInDesignSystemsRoot?: string;
   userDesignSystemsRoot?: string;
-  detectAgentAvailability?: () => Promise<Array<{
+  detectAgentAvailability?: (context?: DetectContext) => Promise<Array<{
     id: string;
     label: string;
     available: boolean;
     unavailableReason?: string;
   }>>;
-  detectAgentModelCatalog?: () => Promise<Array<{
+  detectAgentModelCatalog?: (context?: DetectContext) => Promise<Array<{
     id: string;
     label: string;
     models: Array<{ id: string; label: string; description?: string }>;
@@ -295,6 +296,45 @@ describe('createServer', () => {
     });
   });
 
+  it('passes the managed agent credential header to SSR availability detection without leaking it', async () => {
+    const runtimeRoot = await createRuntimeDir();
+    const observedContexts: Array<DetectContext | undefined> = [];
+    writeProjectToStore(join(runtimeRoot, 'projects'), {
+      id: 'project-managed-agent-ssr',
+      designSystemId: null,
+      createdAt: 1,
+      updatedAt: 2,
+      tabsState: { tabs: [], activeTabKey: null },
+      metadata: {
+        title: 'Managed agent SSR',
+        prompt: 'Check managed agents.',
+        projectKind: 'prototype',
+      },
+    });
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: runtimeRoot,
+        detectAgentAvailability: async (context) => {
+          observedContexts.push(context);
+          return [
+            { id: 'codex', label: 'Codex', available: true },
+            { id: 'claude', label: 'Claude Code', available: true },
+          ];
+        },
+      }),
+    );
+
+    const response = await fetch(`http://127.0.0.1:${port}/project/project-managed-agent-ssr`, {
+      headers: { 'X-Tutti-Agent-Credential': 'credential-ssr-1' },
+    });
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(observedContexts[0]?.env?.[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).toBe('credential-ssr-1');
+    expect(html).not.toContain('credential-ssr-1');
+    expect(JSON.stringify(readInitialDataFromHtml(html))).not.toContain('credential-ssr-1');
+  });
+
   it('lists model catalogs from agent runtime detection', async () => {
     const port = await listenOnRandomPort(
       createTestServer({
@@ -343,6 +383,34 @@ describe('createServer', () => {
         },
       ],
     });
+  });
+
+  it('passes an explicit managed agent credential header to model catalog detection without leaking it', async () => {
+    const observedContexts: Array<DetectContext | undefined> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentModelCatalog: async (context) => {
+          observedContexts.push(context);
+          return [
+            {
+              id: 'codex',
+              label: 'Codex',
+              models: [{ id: 'default', label: 'Default' }],
+            },
+          ];
+        },
+      }),
+    );
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/agents/models`, {
+      headers: { 'X-Tutti-Agent-Credential': 'credential-models-1' },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(observedContexts[0]?.env?.[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).toBe('credential-models-1');
+    expect(JSON.stringify(body)).not.toContain('credential-models-1');
   });
 
   it('reports an assistant message as running while its run is still live', async () => {
@@ -1539,6 +1607,48 @@ describe('createServer', () => {
         skillId: 'landing',
       }),
     ]);
+  });
+
+  it('keeps managed agent invocation credentials out of starter requests and status responses', async () => {
+    const started: Array<{ run: ChatRun; request: Record<string, unknown> }> = [];
+    const observedContexts: Array<DetectContext | undefined> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentAvailability: async (context) => {
+          observedContexts.push(context);
+          return [
+            { id: 'codex', label: 'Codex', available: true },
+            { id: 'claude', label: 'Claude Code', available: true },
+          ];
+        },
+        startAgentRun: ({ run, request }) => {
+          started.push({ run, request });
+        },
+      }),
+    );
+
+    const createResponse = await fetch(`http://127.0.0.1:${port}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: 'project-managed-agent',
+        prompt: 'Build a small page',
+        agentId: 'codex',
+        managedAgentInvocationCredential: 'credential-run-1',
+      }),
+    });
+
+    expect(createResponse.status).toBe(202);
+    const created = await createResponse.json() as { runId: string };
+    expect(started).toHaveLength(1);
+    expect(observedContexts[0]?.env?.[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).toBe('credential-run-1');
+    expect(started[0]?.run.managedAgentInvocationCredential).toBe('credential-run-1');
+    expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
+
+    const statusResponse = await fetch(`http://127.0.0.1:${port}/api/runs/${created.runId}`);
+    expect(statusResponse.status).toBe(200);
+    expect(JSON.stringify(await statusResponse.json())).not.toContain('credential-run-1');
   });
 
   it('keeps a conversation provider locked while updating its remembered model for same-provider runs', async () => {

@@ -158,6 +158,7 @@ export function createChatRunService(options: CreateChatRunServiceOptions): Chat
       pluginId: readString(meta.pluginId),
       mediaExecution: meta.mediaExecution ?? null,
       toolBundle: meta.toolBundle ?? null,
+      managedAgentInvocationCredential: readString(meta.managedAgentInvocationCredential),
       status: 'queued',
       createdAt: now,
       updatedAt: now,
