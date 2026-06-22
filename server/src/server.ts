@@ -2,6 +2,10 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
+  type DetectContext,
+} from '@tutti-os/agent-acp-kit';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { isProjectId, type ProjectEditorInitialData, type VibeDesignRoute } from '@vibe-design/web';
 import { renderPage } from '@vibe-design/web/render-page';
@@ -100,6 +104,7 @@ const CHAT_UI_CSS_PATHS = [
   resolve(SERVER_DIR, '../../web/dist/assets/chat-ui.css'),
   resolve(REPO_ROOT, 'web/src/components/chat-ui.css'),
 ];
+const MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER = 'x-tutti-agent-credential';
 
 export function createServer(options: CreateServerOptions = {}): http.Server {
   const app = express();
@@ -277,7 +282,13 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     }
 
     const requestedProvider = readString(body.agentId) ?? DEFAULT_AGENT_ID;
-    const unavailableAgent = findUnavailableAgent(await safeDetectAgentAvailability(detectAgentAvailability), requestedProvider);
+    const unavailableAgent = findUnavailableAgent(
+      await safeDetectAgentAvailability(
+        detectAgentAvailability,
+        createManagedAgentDetectContext(readManagedAgentInvocationCredentialBody(body)),
+      ),
+      requestedProvider,
+    );
     if (unavailableAgent) {
       return {
         ok: false,
@@ -610,7 +621,9 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       assistantMessageId: run.assistantMessageId,
       provider: run.agentId,
     });
-    runs.start(run, (startedRun) => startRunFromRequest(startedRun, persistentBody));
+    runs.start(run, (startedRun) => (
+      startRunFromRequest(startedRun, withoutManagedAgentInvocationCredential(persistentBody))
+    ));
   });
 
   app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
@@ -638,8 +651,11 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     runs.start(run, (startedRun) => startRunFromRequest(startedRun, persistentBody));
   });
 
-  app.get('/api/agents/models', async (_req: Request, res: Response): Promise<void> => {
-    const modelCatalog = await safeDetectAgentModelCatalog(detectAgentModelCatalog);
+  app.get('/api/agents/models', async (req: Request, res: Response): Promise<void> => {
+    const modelCatalog = await safeDetectAgentModelCatalog(
+      detectAgentModelCatalog,
+      createManagedAgentDetectContext(readManagedAgentInvocationCredentialHeader(req)),
+    );
     res.json({
       agents: modelCatalog.map((agent) => ({
         id: agent.id,
@@ -775,7 +791,10 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const projectEditor = await createProjectEditorInitialData(
       projectsDir,
       project,
-      await safeDetectAgentAvailability(detectAgentAvailability),
+      await safeDetectAgentAvailability(
+        detectAgentAvailability,
+        createManagedAgentDetectContext(readManagedAgentInvocationCredentialHeader(req)),
+      ),
       runs,
     );
     sendNoStore(res);
@@ -865,17 +884,20 @@ async function createProjectEditorInitialData(
   };
 }
 
-async function safeDetectAgentAvailability(detectAgentAvailability: DetectAgentAvailability): Promise<AgentAvailability[]> {
+async function safeDetectAgentAvailability(
+  detectAgentAvailability: DetectAgentAvailability,
+  context?: DetectContext,
+): Promise<AgentAvailability[]> {
   try {
-    return await detectAgentAvailability();
+    return await detectAgentAvailability(context);
   } catch (error) {
     return unavailableAgentsForDetectionFailure(error);
   }
 }
 
-async function safeDetectAgentModelCatalog(detectAgentModelCatalog: DetectAgentModelCatalog) {
+async function safeDetectAgentModelCatalog(detectAgentModelCatalog: DetectAgentModelCatalog, context?: DetectContext) {
   try {
-    return await detectAgentModelCatalog();
+    return await detectAgentModelCatalog(context);
   } catch {
     return fallbackAgentModelCatalog();
   }
@@ -1483,6 +1505,27 @@ function createRunMeta(body: Record<string, unknown>): ChatRunCreateMeta {
     mediaExecution: body.mediaExecution,
     toolBundle: body.toolBundle,
   };
+}
+
+function createManagedAgentDetectContext(credential: string | null): DetectContext | undefined {
+  if (!credential) {
+    return undefined;
+  }
+
+  return {
+    env: {
+      ...process.env,
+      [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: credential,
+    },
+  };
+}
+
+function readManagedAgentInvocationCredentialHeader(req: Request): string | null {
+  return readString(req.get(MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER));
+}
+
+function readManagedAgentInvocationCredentialBody(body: Record<string, unknown>): string | null {
+  return readString(body.managedAgentInvocationCredential);
 }
 
 function withoutManagedAgentInvocationCredential(body: Record<string, unknown>): Record<string, unknown> {

@@ -32,6 +32,7 @@ export interface ChatRun {
   pluginId: string | null;
   mediaExecution: unknown;
   toolBundle: unknown;
+  managedAgentInvocationCredential: string | null;
   status: RunStatus;
   createdAt: number;
   updatedAt: number;
@@ -65,6 +66,7 @@ export interface ChatRunCreateMeta {
   pluginId?: unknown;
   mediaExecution?: unknown;
   toolBundle?: unknown;
+  managedAgentInvocationCredential?: unknown;
 }
 
 export interface RunStatusBody {

@@ -1,8 +1,8 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
 import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from '@tutti-os/agent-acp-kit';
+import { describe, expect, it } from 'vitest';
 import {
   startAgentRun,
   type LocalAgentRuntime,

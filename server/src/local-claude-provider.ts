@@ -14,6 +14,7 @@ import type {
   AgentDetection,
   AgentEvent,
   AgentRunParams,
+  DetectContext,
   LaunchPlan,
   LocalAgentProviderPlugin,
   RawAgentStream,
@@ -51,8 +52,8 @@ export function createVibeClaudeProvider(
     id: 'claude',
     displayName: 'Claude Code',
     kind: 'local-agent',
-    async detect() {
-      return detectClaude(resolveClaudeHome(options), options);
+    async detect(context) {
+      return detectClaude(resolveClaudeHome(options), options, context);
     },
     capabilities() {
       return {
@@ -331,14 +332,23 @@ function readJsonRecord(file: string): Record<string, unknown> | null {
 async function detectClaude(
   claudeHome: string | undefined,
   options: VibeClaudeProviderOptions,
+  context?: DetectContext,
 ): Promise<AgentDetection> {
   const configDir = join(claudeHome ?? homedir(), '.claude');
   const command = resolveClaudeCommand();
   try {
     syncClaudeAuthFromUserHome(claudeHome, options);
-    const env = claudeHome ? { ...process.env, HOME: claudeHome } : undefined;
-    const { stdout } = await execFileAsync(command, ['--version'], env ? { env } : undefined);
-    const authState = await detectClaudeAuthState(command, env);
+    const env = mergeClaudeDetectEnv(context?.env, claudeHome);
+    const execOptions = {
+      ...(context?.cwd ? { cwd: context.cwd } : {}),
+      ...(env ? { env } : {}),
+    };
+    const { stdout } = await execFileAsync(
+      command,
+      ['--version'],
+      Object.keys(execOptions).length > 0 ? execOptions : undefined,
+    );
+    const authState = await detectClaudeAuthState(command, env, context?.cwd);
     return {
       authState,
       configDir,
@@ -358,6 +368,21 @@ async function detectClaude(
       version: 'not-installed',
     };
   }
+}
+
+function mergeClaudeDetectEnv(
+  contextEnv: Record<string, string | undefined> | undefined,
+  claudeHome: string | undefined,
+): NodeJS.ProcessEnv | undefined {
+  if (!contextEnv && !claudeHome) {
+    return undefined;
+  }
+
+  return {
+    ...process.env,
+    ...(contextEnv ?? {}),
+    ...(claudeHome ? { HOME: claudeHome } : {}),
+  };
 }
 
 function syncClaudeAuthFromUserHome(
@@ -455,9 +480,11 @@ function writeJsonRecord(file: string, value: Record<string, unknown>): void {
 async function detectClaudeAuthState(
   command: string,
   env: NodeJS.ProcessEnv | undefined,
+  cwd: string | undefined,
 ): Promise<AgentDetection['authState']> {
   try {
     const { stdout } = await execFileAsync(command, ['auth', 'status'], {
+      ...(cwd ? { cwd } : {}),
       ...(env ? { env } : {}),
       maxBuffer: 128 * 1024,
       timeout: 5_000,

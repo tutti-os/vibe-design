@@ -1,13 +1,29 @@
+import { getManagedAgentInvocationCredential } from '../../managed-agent/managed-agent-credential';
 import type { IRunService } from '../run-service.interface';
 import type { CreateRunInput, CreateRunResult, IDisposable, RunApi, RunStreamHandlers } from '../run-types';
 
 export class RunService implements IRunService {
   readonly _serviceBrand = undefined;
 
-  constructor(private readonly api: RunApi) {}
+  constructor(
+    private readonly api: RunApi,
+    private readonly readManagedAgentInvocationCredential = getManagedAgentInvocationCredential,
+  ) {}
 
-  createRun(input: CreateRunInput): Promise<CreateRunResult> {
-    return this.api.createRun(input);
+  async createRun(input: CreateRunInput): Promise<CreateRunResult> {
+    if (input.managedAgentInvocationCredential) {
+      return this.api.createRun(input);
+    }
+
+    const credential = await this.readManagedAgentInvocationCredential();
+    if (!credential) {
+      return this.api.createRun(input);
+    }
+
+    return this.api.createRun({
+      ...input,
+      managedAgentInvocationCredential: credential,
+    });
   }
 
   streamRun(runId: string, handlers: RunStreamHandlers, lastEventId?: number | string | null): IDisposable {

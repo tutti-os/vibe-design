@@ -1,5 +1,5 @@
 import { dirname } from 'node:path';
-import type { AgentDetection } from '@tutti-os/agent-acp-kit';
+import type { AgentDetection, DetectContext } from '@tutti-os/agent-acp-kit';
 import type { RuntimeAgentDef } from './agents.js';
 import { localAgentRuntime } from './local-agent-runtime.js';
 import { agentRegistry } from './runtimes/index.js';
@@ -14,10 +14,10 @@ export interface AgentAvailability {
   version?: string;
 }
 
-export type DetectAgentAvailability = () => Promise<AgentAvailability[]>;
+export type DetectAgentAvailability = (context?: DetectContext) => Promise<AgentAvailability[]>;
 
-export async function detectLocalAgentAvailability(): Promise<AgentAvailability[]> {
-  const detections = await localAgentRuntime.detect();
+export async function detectLocalAgentAvailability(context?: DetectContext): Promise<AgentAvailability[]> {
+  const detections = await localAgentRuntime.detect(context);
   const byProvider = new Map<string, (typeof detections)[number]>();
   for (const detection of detections) {
     byProvider.set(detection.provider, detection);

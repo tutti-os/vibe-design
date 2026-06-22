@@ -204,7 +204,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       return false;
     };
 
-    for await (const event of agentRuntime.run({
+    const agentRunInput: AcpAgentRunInput = {
       runId: run.id,
       provider: agentId,
       cwd,
@@ -217,7 +217,9 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       ...(managedAgentInvocation ? { managedAgentInvocation } : {}),
       signal: controller.signal,
       resume,
-    })) {
+    };
+
+    for await (const event of agentRuntime.run(agentRunInput)) {
       if (event.type === 'file_write') {
         const materializedFile = await materializeAcpFileWrite(paths.projectsDir, projectId, cwd, event.path);
         if (materializedFile) {
