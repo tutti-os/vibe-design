@@ -1,7 +1,7 @@
 import { request as httpRequest, type Server } from 'node:http';
 import { access, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
@@ -638,6 +638,9 @@ describe('createServer', () => {
         },
       ],
     });
+    const listedAbsolutePath = (files.body.value as { files: Array<{ absolutePath: string }> }).files[0].absolutePath;
+    expect(isAbsolute(listedAbsolutePath)).toBe(true);
+    expect(listedAbsolutePath.endsWith(`projects/${projectId}/assets/hero.html`)).toBe(true);
 
     const staticFile = await fetch(`http://127.0.0.1:${port}/static/projects/${projectId}/assets/hero.html`);
     expect(staticFile.status).toBe(200);
@@ -650,6 +653,9 @@ describe('createServer', () => {
       encoding: 'utf8',
       file: { name: 'hero.html' },
     });
+    const fetchedAbsolutePath = (fileContent.body.value as { file: { absolutePath: string } }).file.absolutePath;
+    expect(isAbsolute(fetchedAbsolutePath)).toBe(true);
+    expect(fetchedAbsolutePath).toBe(listedAbsolutePath);
 
     const comments = await postCli(port, 'comments', { 'project-id': projectId });
     expect(comments.status).toBe(200);
@@ -725,9 +731,10 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: testRuntimeDir,
-        startAgentRun: ({ run, request }) => {
+        startAgentRun: ({ run, runs, request }) => {
           startedRuns.push(run);
           startedRequests.push(request);
+          runs.finish(run, 'succeeded');
         },
       }),
     );
@@ -774,7 +781,14 @@ describe('createServer', () => {
       conversationId,
       assistantMessageId: expect.stringMatching(/^assistant-[0-9a-f-]{8}$/),
       provider: 'claude',
+      status: 'succeeded',
     });
+    // session-start runs synchronously and returns the agent conversation verbatim.
+    const sessionMessages = (started.body.value as { messages: Array<{ role: string; content: string }> }).messages;
+    expect(Array.isArray(sessionMessages)).toBe(true);
+    expect(sessionMessages).toContainEqual(
+      expect.objectContaining({ role: 'user', content: 'Use the uploaded reference image.' }),
+    );
     await expect(readFile(join(testRuntimeDir, 'projects', projectId, 'assets', 'reference.png'), 'utf8')).resolves.toBe('local-image-bytes');
     expect(startedRuns[0]?.managedAgentInvocationCredential).toBe('credential-cli-1');
     expect(startedRequests[0]).not.toHaveProperty('managedAgentInvocationCredential');
@@ -826,6 +840,174 @@ describe('createServer', () => {
       ],
     });
     expect(messagePayload.messages[1]).toMatchObject({ role: 'assistant' });
+  });
+
+  it('falls back to Claude Code before the run when codex is unavailable up front', async () => {
+    const startedAgents: Array<string | null> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentAvailability: async () => [
+          { id: 'codex', label: 'Codex', available: false, unavailableReason: 'Codex is not authenticated.' },
+          { id: 'claude', label: 'Claude Code', available: true },
+        ],
+        startAgentRun: ({ run, runs, request }) => {
+          startedAgents.push((request.agentId as string | undefined) ?? null);
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+    const createdProject = await postCli(port, 'project-create', { prompt: 'A login page' });
+    const projectId = ((createdProject.body.value as Record<string, unknown>).project as { id: string }).id;
+
+    const started = await postCli(port, 'session-start', {
+      'project-id': projectId,
+      prompt: 'Build a modern login page',
+    });
+
+    expect(started.status).toBe(200);
+    expect(started.body.value).toMatchObject({
+      provider: 'claude',
+      status: 'succeeded',
+      agentFallback: {
+        from: 'codex',
+        to: 'claude',
+        stage: 'pre-session',
+        reason: 'Codex is not authenticated.',
+      },
+    });
+    // Codex is never started; only Claude Code runs.
+    expect(startedAgents).toEqual(['claude']);
+  });
+
+  it('retries on Claude Code in a new conversation when a codex run breaks mid-session', async () => {
+    const startedAgents: Array<string | null> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentAvailability: async () => [
+          { id: 'codex', label: 'Codex', available: true },
+          { id: 'claude', label: 'Claude Code', available: true },
+        ],
+        startAgentRun: ({ run, runs, request }) => {
+          const agentId = (request.agentId as string | undefined) ?? null;
+          startedAgents.push(agentId);
+          if (agentId === 'codex') {
+            runs.fail(run, 'AGENT_EXECUTION_FAILED', '401 Unauthorized: Missing bearer or basic authentication');
+            return;
+          }
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+    const createdProject = await postCli(port, 'project-create', { prompt: 'A login page' });
+    const projectId = ((createdProject.body.value as Record<string, unknown>).project as { id: string }).id;
+    const codexConversationId = (createdProject.body.value as { conversationId: string }).conversationId;
+
+    const started = await postCli(port, 'session-start', {
+      'project-id': projectId,
+      'conversation-id': codexConversationId,
+      'agent-id': 'codex',
+      prompt: 'Build a modern login page',
+    });
+
+    expect(started.status).toBe(200);
+    expect(started.body.value).toMatchObject({
+      provider: 'claude',
+      status: 'succeeded',
+      agentFallback: {
+        from: 'codex',
+        to: 'claude',
+        stage: 'in-session',
+      },
+    });
+    // The fallback runs in a fresh conversation, not the codex-locked one.
+    expect((started.body.value as { conversationId: string }).conversationId).not.toBe(codexConversationId);
+    expect(startedAgents).toEqual(['codex', 'claude']);
+  });
+
+  it('reports no fallback and surfaces the failure when codex breaks and Claude Code is unavailable', async () => {
+    const startedAgents: Array<string | null> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentAvailability: async () => [
+          { id: 'codex', label: 'Codex', available: true },
+          { id: 'claude', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not installed.' },
+        ],
+        startAgentRun: ({ run, runs, request }) => {
+          startedAgents.push((request.agentId as string | undefined) ?? null);
+          runs.fail(run, 'AGENT_EXECUTION_FAILED', '401 Unauthorized: Missing bearer or basic authentication');
+        },
+      }),
+    );
+    const createdProject = await postCli(port, 'project-create', { prompt: 'A login page' });
+    const projectId = ((createdProject.body.value as Record<string, unknown>).project as { id: string }).id;
+
+    const started = await postCli(port, 'session-start', {
+      'project-id': projectId,
+      'agent-id': 'codex',
+      prompt: 'Build a modern login page',
+    });
+
+    expect(started.status).toBe(200);
+    expect(started.body.value).toMatchObject({
+      provider: 'codex',
+      status: 'failed',
+      agentFallback: null,
+    });
+    // Codex runs once; there is no usable provider to fall back to.
+    expect(startedAgents).toEqual(['codex']);
+  });
+
+  it('starts a new conversation when the requested provider differs from a locked conversation', async () => {
+    const startedAgents: Array<string | null> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentAvailability: async () => [
+          { id: 'codex', label: 'Codex', available: true },
+          { id: 'claude', label: 'Claude Code', available: true },
+        ],
+        startAgentRun: ({ run, runs, request }) => {
+          startedAgents.push((request.agentId as string | undefined) ?? null);
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+    const createdProject = await postCli(port, 'project-create', { prompt: 'A login page' });
+    const projectId = ((createdProject.body.value as Record<string, unknown>).project as { id: string }).id;
+    const codexConversationId = (createdProject.body.value as { conversationId: string }).conversationId;
+
+    // First run locks the conversation to codex.
+    await postCli(port, 'session-start', {
+      'project-id': projectId,
+      'conversation-id': codexConversationId,
+      'agent-id': 'codex',
+      prompt: 'Build with codex',
+    });
+
+    // Re-targeting the same conversation with Claude Code would collide with the codex lock; the
+    // call transparently runs in a fresh conversation instead of failing.
+    const started = await postCli(port, 'session-start', {
+      'project-id': projectId,
+      'conversation-id': codexConversationId,
+      'agent-id': 'claude',
+      prompt: 'Now build with Claude Code',
+    });
+
+    expect(started.status).toBe(200);
+    expect(started.body.value).toMatchObject({
+      provider: 'claude',
+      status: 'succeeded',
+      agentFallback: {
+        from: 'codex',
+        to: 'claude',
+        stage: 'conversation-locked',
+      },
+    });
+    expect((started.body.value as { conversationId: string }).conversationId).not.toBe(codexConversationId);
+    expect(startedAgents).toEqual(['codex', 'claude']);
   });
 
   it('serves the dashboard page at the root route', async () => {

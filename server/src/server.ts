@@ -14,8 +14,12 @@ import { DEFAULT_AGENT_ID } from './agents.js';
 import {
   detectLocalAgentAvailability,
   findUnavailableAgent,
+  PRIMARY_AGENT_ID,
+  resolvePreSessionFallback,
+  resolveRunFailureFallback,
   unavailableAgentsForDetectionFailure,
   type AgentAvailability,
+  type AgentFallback,
   type DetectAgentAvailability,
 } from './agent-availability.js';
 import {
@@ -31,6 +35,7 @@ import { reconcileProjectFilesFromDisk } from './project-file-reconciler.js';
 import {
   bindConversationProvider,
   createAssistantMessageId,
+  createConversation,
   createUserMessageId,
   ensureDefaultConversation,
   isSafeConversationId,
@@ -468,6 +473,99 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       return { ok: false, status: 400, code: 'BAD_REQUEST', message: 'projectId is required and must be path-safe' };
     }
 
+    // Local files are uploaded once and shared across the initial attempt and any fallback retry.
+    const localFileResult = await saveCliLocalFiles(projectId, input.localFiles ?? input['local-files']);
+    if (!localFileResult.ok) {
+      return localFileResult;
+    }
+    const localAttachments = localFileResult.attachments;
+
+    const requestedProvider = readString(body.agentId) ?? DEFAULT_AGENT_ID;
+
+    // Pre-session fallback: if we can already tell the requested provider (codex) is unavailable
+    // and Claude Code is ready, switch before creating the run instead of failing the call.
+    let fallback = resolvePreSessionFallback(
+      await safeDetectAgentAvailability(detectAgentAvailability),
+      requestedProvider,
+    );
+
+    let attemptBody = body;
+    if (fallback) {
+      const switched = await createCliFallbackConversation(projectId, body, fallback.toAgentId);
+      if (!switched.ok) {
+        return switched;
+      }
+      attemptBody = switched.body;
+    }
+
+    let first = await executeCliRun(projectId, attemptBody, localAttachments);
+
+    // The requested provider may not match the conversation it was pointed at (e.g. retrying with
+    // Claude Code on a conversation already locked to codex). A conversation can't mix providers,
+    // so transparently start a fresh conversation with the requested provider instead of failing.
+    if (!first.ok && first.code === 'CONVERSATION_PROVIDER_LOCKED' && !fallback) {
+      const requested = readString(attemptBody.agentId) ?? requestedProvider;
+      const switched = await createCliFallbackConversation(projectId, attemptBody, requested);
+      if (switched.ok) {
+        const retry = await executeCliRun(projectId, switched.body, localAttachments);
+        if (retry.ok) {
+          fallback = {
+            fromAgentId: lockedProviderFromMessage(first.message) ?? PRIMARY_AGENT_ID,
+            toAgentId: requested,
+            stage: 'conversation-locked',
+            reason: first.message,
+          };
+          first = retry;
+        }
+      }
+    }
+
+    if (!first.ok) {
+      return first;
+    }
+
+    // In-session fallback: codex started but failed in a way that means the provider itself is
+    // broken (auth/install/connectivity). Retry the same prompt on Claude Code in a fresh
+    // conversation, since the original conversation is now locked to codex.
+    if (!fallback && first.value.status === 'failed') {
+      const inSession = resolveRunFailureFallback(
+        await safeDetectAgentAvailability(detectAgentAvailability),
+        first.value.provider ?? requestedProvider,
+        { errorCode: first.value.errorCode, error: first.value.error },
+      );
+      if (inSession) {
+        const switched = await createCliFallbackConversation(projectId, body, inSession.toAgentId);
+        if (switched.ok) {
+          const retry = await executeCliRun(projectId, switched.body, localAttachments);
+          if (retry.ok) {
+            return { ok: true, value: { ...retry.value, agentFallback: describeAgentFallback(inSession) } };
+          }
+        }
+      }
+    }
+
+    return {
+      ok: true,
+      value: { ...first.value, agentFallback: fallback ? describeAgentFallback(fallback) : null },
+    };
+  }
+
+  interface CliRunValue {
+    runId: string;
+    conversationId: string | null;
+    assistantMessageId: string | null;
+    provider: string | null;
+    status: ChatRun['status'];
+    error: string | null;
+    errorCode: string | null;
+    messages: unknown;
+  }
+
+  async function executeCliRun(
+    projectId: string,
+    body: Record<string, unknown>,
+    localAttachments: unknown[],
+  ): Promise<{ ok: true; value: CliRunValue } | Extract<CliServiceResult, { ok: false }>> {
     const persistentBodyResult = await preparePersistentRunBody(body);
     if (!persistentBodyResult.ok) {
       return {
@@ -478,16 +576,11 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       };
     }
 
-    const localFileResult = await saveCliLocalFiles(projectId, input.localFiles ?? input['local-files']);
-    if (!localFileResult.ok) {
-      return localFileResult;
-    }
-
     const persistentBody = {
       ...persistentBodyResult.body,
       attachments: [
         ...readAttachments(persistentBodyResult.body.attachments),
-        ...localFileResult.attachments,
+        ...localAttachments,
       ],
     };
 
@@ -495,6 +588,12 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       const run = runs.create(createRunMeta(persistentBody));
       await persistRunMessages(persistentBody, run);
       runs.start(run, (startedRun) => startRunFromRequest(startedRun, persistentBody));
+      // Run synchronously to completion, then return the agent conversation verbatim.
+      const status = await runs.wait(run);
+      const messages =
+        run.projectId && run.conversationId
+          ? await listConversationMessages(ctx.paths.projectsDir, run.projectId, run.conversationId)
+          : null;
       return {
         ok: true,
         value: {
@@ -502,11 +601,54 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
           conversationId: run.conversationId,
           assistantMessageId: run.assistantMessageId,
           provider: run.agentId,
+          status: status.status,
+          error: status.error,
+          errorCode: status.errorCode,
+          messages,
         },
       };
     } catch (error) {
       return cliInternalError(error, 'session start failed');
     }
+  }
+
+  // When we fall back to another provider we always run in a brand-new conversation: the original
+  // (or default) conversation may already be locked to the requested provider.
+  async function createCliFallbackConversation(
+    projectId: string,
+    body: Record<string, unknown>,
+    toAgentId: string,
+  ): Promise<{ ok: true; body: Record<string, unknown> } | Extract<CliServiceResult, { ok: false }>> {
+    try {
+      await ensureProject(ctx, projectId);
+      const conversation = await createConversation(ctx.paths.projectsDir, projectId, readString(body.title));
+      return {
+        ok: true,
+        body: { ...body, agentId: toAgentId, conversationId: conversation.id },
+      };
+    } catch (error) {
+      return cliInternalError(error, 'fallback conversation creation failed');
+    }
+  }
+
+  function describeAgentFallback(fallback: AgentFallback): Record<string, unknown> {
+    const message =
+      fallback.stage === 'pre-session'
+        ? `${fallback.fromAgentId} was unavailable, so the session was started with ${fallback.toAgentId} instead.`
+        : fallback.stage === 'conversation-locked'
+          ? `The conversation was locked to ${fallback.fromAgentId}, so a new conversation was started with ${fallback.toAgentId}.`
+          : `${fallback.fromAgentId} failed mid-run, so a new conversation was started with ${fallback.toAgentId}.`;
+    return {
+      from: fallback.fromAgentId,
+      to: fallback.toAgentId,
+      stage: fallback.stage,
+      reason: fallback.reason,
+      message,
+    };
+  }
+
+  function lockedProviderFromMessage(message: string): string | null {
+    return /already uses provider (\S+)/.exec(message)?.[1] ?? null;
   }
 
   async function saveCliLocalFiles(
@@ -589,7 +731,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     return normalized;
   }
 
-  function cliInternalError(error: unknown, fallbackMessage: string): CliServiceResult {
+  function cliInternalError(error: unknown, fallbackMessage: string): Extract<CliServiceResult, { ok: false }> {
     return {
       ok: false,
       status: 500,

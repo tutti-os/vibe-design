@@ -64,6 +64,7 @@ export function registerCliRoutes(app: Express, ctx: CliRouteDeps): void {
       files: listProjectFilesFromStore(ctx.paths.projectsDir, projectId)
         .map((file) => ({
           ...file,
+          absolutePath: projectAssetPath(ctx.paths.projectsDir, projectId, file.name),
           url: projectFileStaticUrl(req, projectId, file.name),
         })),
     });
@@ -80,10 +81,11 @@ export function registerCliRoutes(app: Express, ctx: CliRouteDeps): void {
       sendCliError(res, 404, 'FILE_NOT_FOUND', 'file not found');
       return;
     }
-    const content = await readFile(projectAssetPath(ctx.paths.projectsDir, projectId, name));
+    const absolutePath = projectAssetPath(ctx.paths.projectsDir, projectId, name);
+    const content = await readFile(absolutePath);
     const text = shouldReturnUtf8(file.mime, file.kind);
     sendCliJson(res, {
-      file,
+      file: { ...file, absolutePath },
       encoding: text ? 'utf8' : 'base64',
       content: text ? content.toString('utf8') : content.toString('base64'),
     });
@@ -152,7 +154,7 @@ function readRequiredSafeFileName(res: Response, input: CliInput): string | null
 }
 
 function projectAssetPath(projectsDir: string, projectId: string, name: string): string {
-  return path.join(projectsDir, projectId, 'assets', name);
+  return path.resolve(projectsDir, projectId, 'assets', name);
 }
 
 function projectFileStaticUrl(req: Request, projectId: string, name: string): string {

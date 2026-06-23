@@ -633,6 +633,70 @@ describe('CanvasWorkspace', () => {
     expect(screen.getByTestId('canvas-preview-srcdoc')).toBeTruthy();
   });
 
+  it('opens URL-backed HTML previews in the Tutti browser bridge', () => {
+    const openUrl = vi.fn(async () => undefined);
+    const tuttiWindow = window as typeof window & {
+      tuttiExternal?: {
+        browser?: {
+          openUrl(input: { url: string }): Promise<void>;
+        };
+      };
+    };
+    tuttiWindow.tuttiExternal = {
+      browser: { openUrl },
+    };
+
+    try {
+      render(
+        <CanvasWorkspace
+          files={[
+            {
+              ...files[0]!,
+              url: 'https://preview.example/project/landing.html',
+            },
+          ]}
+        />,
+      );
+
+      openDesignFile('landing.html');
+      fireEvent.click(screen.getByRole('button', { name: 'Open landing.html in Tutti browser' }));
+
+      expect(openUrl).toHaveBeenCalledWith({
+        url: 'https://preview.example/project/landing.html',
+      });
+    } finally {
+      delete tuttiWindow.tuttiExternal;
+    }
+  });
+
+  it('falls back to a new browser window for URL-backed HTML previews outside Tutti', () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+
+    try {
+      render(
+        <CanvasWorkspace
+          files={[
+            {
+              ...files[0]!,
+              url: 'https://preview.example/project/landing.html',
+            },
+          ]}
+        />,
+      );
+
+      openDesignFile('landing.html');
+      fireEvent.click(screen.getByRole('button', { name: 'Open landing.html in Tutti browser' }));
+
+      expect(open).toHaveBeenCalledWith(
+        'https://preview.example/project/landing.html',
+        '_blank',
+        'noopener,noreferrer',
+      );
+    } finally {
+      open.mockRestore();
+    }
+  });
+
   it('uses the scale-aware preview scrollbar when active html file surfaces keep a stable iframe height', () => {
     render(<CanvasWorkspace files={files} />);
 
