@@ -381,6 +381,65 @@ describe('createServer', () => {
     expect(JSON.stringify(readInitialDataFromHtml(html))).not.toContain('credential-ssr-1');
   });
 
+  it('reuses the first managed agent availability detection result for project SSR', async () => {
+    const runtimeRoot = await createRuntimeDir();
+    let detectCalls = 0;
+    writeProjectToStore(join(runtimeRoot, 'projects'), {
+      id: 'project-managed-agent-availability-cache',
+      designSystemId: null,
+      createdAt: 1,
+      updatedAt: 2,
+      tabsState: { tabs: [], activeTabKey: null },
+      metadata: {
+        title: 'Managed agent availability cache',
+        prompt: 'Check managed agents.',
+        projectKind: 'prototype',
+      },
+    });
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: runtimeRoot,
+        detectAgentAvailability: async () => {
+          detectCalls += 1;
+          if (detectCalls > 1) {
+            return [
+              {
+                id: 'codex',
+                label: 'Codex',
+                available: false,
+                unavailableReason: 'Unable to run codex --version: context canceled',
+              },
+              { id: 'claude', label: 'Claude Code', available: true },
+            ];
+          }
+          return [
+            { id: 'codex', label: 'Codex', available: true },
+            { id: 'claude', label: 'Claude Code', available: true },
+          ];
+        },
+      }),
+    );
+
+    const first = await fetch(`http://127.0.0.1:${port}/project/project-managed-agent-availability-cache`, {
+      headers: { [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-ssr-cache-1' },
+    });
+    const second = await fetch(`http://127.0.0.1:${port}/project/project-managed-agent-availability-cache`, {
+      headers: { [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-ssr-cache-2' },
+    });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(detectCalls).toBe(1);
+    expect(readInitialDataFromHtml(await second.text())).toMatchObject({
+      projectEditor: {
+        agentAvailability: [
+          { id: 'codex', label: 'Codex', available: true },
+          { id: 'claude', label: 'Claude Code', available: true },
+        ],
+      },
+    });
+  });
+
   it('lists model catalogs from agent runtime detection', async () => {
     const port = await listenOnRandomPort(
       createTestServer({
@@ -462,6 +521,49 @@ describe('createServer', () => {
       cwd: runtimeRoot,
     });
     expect(JSON.stringify(body)).not.toContain('credential-models-1');
+  });
+
+  it('reuses the first managed agent model catalog detection result', async () => {
+    let detectCalls = 0;
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentModelCatalog: async () => {
+          detectCalls += 1;
+          return [
+            {
+              id: 'codex',
+              label: 'Codex',
+              models: [
+                {
+                  id: detectCalls === 1 ? 'gpt-5.5' : 'transient-fallback',
+                  label: detectCalls === 1 ? 'GPT-5.5' : 'Transient fallback',
+                },
+              ],
+            },
+          ];
+        },
+      }),
+    );
+
+    const first = await fetch(`http://127.0.0.1:${port}/api/agents/models`, {
+      headers: { [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-model-cache-1' },
+    });
+    const second = await fetch(`http://127.0.0.1:${port}/api/agents/models`, {
+      headers: { [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-model-cache-2' },
+    });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(detectCalls).toBe(1);
+    expect(await second.json()).toMatchObject({
+      agents: [
+        {
+          id: 'codex',
+          models: [{ id: 'gpt-5.5', label: 'GPT-5.5' }],
+        },
+      ],
+    });
   });
 
   it('reports an assistant message as running while its run is still live', async () => {
