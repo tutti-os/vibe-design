@@ -12,28 +12,33 @@ export function createManagedAgentInvocation(
     return undefined;
   }
 
+  const resolvedCwd = resolveManagedAgentInvocationCwd(cwd, env);
+  if (!resolvedCwd) {
+    return undefined;
+  }
+
   return {
     credential,
-    cwd: resolveManagedAgentInvocationCwd(cwd, env),
+    cwd: resolvedCwd,
   };
 }
 
 export function resolveManagedAgentInvocationCwd(
   cwd: string | undefined,
   env: NodeJS.ProcessEnv = process.env,
-): string {
+): string | null {
   const candidate = cwd?.trim();
   if (!candidate) {
-    return MANAGED_WORKSPACE_ROOT;
+    return null;
   }
 
-  const workspaceRoot = firstNonEmpty(env.TUTTI_WORKSPACE_ROOT, env.NEXTOP_WORKSPACE_ROOT);
+  const workspaceRoot = firstNonEmpty(env.TUTTI_WORKSPACE_ROOT);
   const workspaceRelative = workspaceRoot ? relativeInside(candidate, workspaceRoot) : null;
   if (workspaceRelative !== null) {
     return joinManagedWorkspace(workspaceRelative);
   }
 
-  const dataRoot = firstNonEmpty(env.TUTTI_APP_DATA_DIR, env.NEXTOP_APP_DATA_DIR);
+  const dataRoot = firstNonEmpty(env.TUTTI_APP_DATA_DIR);
   const dataRelative = dataRoot ? relativeInside(candidate, dataRoot) : null;
   if (dataRelative !== null) {
     return joinManagedWorkspace(dataRelative);
@@ -44,7 +49,7 @@ export function resolveManagedAgentInvocationCwd(
     return stripWorkspaceIdSegment(normalized, env);
   }
 
-  return MANAGED_WORKSPACE_ROOT;
+  return null;
 }
 
 function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
@@ -81,7 +86,7 @@ function normalizePosixPath(value: string): string {
 }
 
 function stripWorkspaceIdSegment(cwd: string, env: NodeJS.ProcessEnv): string {
-  const workspaceId = firstNonEmpty(env.TUTTI_WORKSPACE_ID, env.NEXTOP_WORKSPACE_ID, env.TSH_WORKSPACE_ID);
+  const workspaceId = firstNonEmpty(env.TUTTI_WORKSPACE_ID, env.TSH_WORKSPACE_ID);
   if (!workspaceId) {
     return cwd;
   }

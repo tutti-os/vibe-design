@@ -1,11 +1,10 @@
 import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises';
-import { basename, dirname, extname, isAbsolute, join, normalize, posix, relative, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import {
   MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
   type AgentEvent as AcpAgentEvent,
   type AgentRunInput as AcpAgentRunInput,
   type AgentRunMessage as AcpAgentRunMessage,
-  isManagedAgentInvocationCwd,
   isManagedAgentInvocationProviderId,
 } from '@tutti-os/agent-acp-kit';
 import type { AgentEvent } from './claude-stream.js';
@@ -37,6 +36,8 @@ export interface AgentRunRequest {
 
 export interface AgentRunPaths {
   projectsDir: string;
+  appDataDir?: string;
+  agentRunsDir?: string;
   userSkillsRoot: string;
   builtInSkillsRoot: string;
   userDesignSystemsRoot?: string;
@@ -64,8 +65,7 @@ const MAX_AGENT_STDERR_REASON_CHARS = 4_000;
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_HISTORY_MESSAGE_CHARS = 6_000;
 const VIBE_CODEX_HOME_DIR_NAME = 'codex-home';
-const MANAGED_AGENT_RUNS_DIR = '/workspace/.vibe-agent-runs';
-const LOCAL_AGENT_RUNS_DIR_NAME = '.vibe-agent-runs';
+const AGENT_RUNS_DIR_NAME = '.vibe-agent-runs';
 
 export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   const { run, runs, request, paths } = input;
@@ -97,9 +97,13 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     runId: run.id,
     managed,
     projectWorkspaceDir,
-    appDataDir: resolveAppDataDir(),
+    agentRunsDir: resolveAgentRunsDir(paths),
   });
   const cwd = runDirectory.cwd;
+  const managedInvocationEnv = createManagedInvocationPathEnv(paths);
+  const managedAgentInvocation = managed
+    ? createManagedAgentInvocation(managedAgentInvocationCredential, cwd, managedInvocationEnv)
+    : undefined;
 
   const locale = readString(request.locale) ?? undefined;
   const skill = await resolveRequestedSkill(request, paths);
@@ -122,8 +126,8 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     designSystemImportMode: activeDesignSystem?.importMode,
     projectWorkspaceDir: cwd,
   });
-  const managedPromptProjectWorkspaceDir = managed && runDirectory.useManagedAgentInvocation
-    ? resolveManagedAgentInvocationCwd(projectWorkspaceDir)
+  const managedPromptProjectWorkspaceDir = managedAgentInvocation
+    ? (resolveManagedAgentInvocationCwd(projectWorkspaceDir, managedInvocationEnv) ?? projectWorkspaceDir)
     : projectWorkspaceDir;
   const prompt = [
     userPrompt,
@@ -133,11 +137,9 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   ].join('\n');
   const history = await buildConversationHistory(paths.projectsDir, run, userPrompt);
   const resume = buildProviderResume(run);
-  const managedAgentInvocation = managed && runDirectory.useManagedAgentInvocation
-    ? createManagedAgentInvocation(managedAgentInvocationCredential, cwd)
-    : undefined;
   const agentRunEnv = buildAgentRunEnv({
     agentId,
+    appDataDir: resolveAgentAppDataDir(paths),
     managedAgentInvocationCredential,
     useManagedAgentInvocation: Boolean(managedAgentInvocation),
   });
@@ -343,7 +345,6 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
 
 export interface AgentRunDirectory {
   cwd: string;
-  useManagedAgentInvocation: boolean;
 }
 
 export async function createAgentRunDirectory(input: {
@@ -351,73 +352,58 @@ export async function createAgentRunDirectory(input: {
   runId: string;
   managed: boolean;
   projectWorkspaceDir: string;
-  appDataDir?: string;
-  managedRunsDir?: string;
+  agentRunsDir?: string;
   mkdirRunDir?: (path: string) => Promise<void>;
 }): Promise<AgentRunDirectory> {
   if (!input.managed) {
     return {
       cwd: input.projectWorkspaceDir,
-      useManagedAgentInvocation: false,
     };
   }
 
   const mkdirRunDir = input.mkdirRunDir ?? ((path: string) => mkdir(path, { recursive: true }).then(() => undefined));
-  const managedRunDir = createManagedAgentRunCwd(input.agentId, input.runId, input.managedRunsDir);
-  try {
-    await mkdirRunDir(managedRunDir);
-    return {
-      cwd: managedRunDir,
-      useManagedAgentInvocation: isManagedAgentInvocationCwd(managedRunDir),
-    };
-  } catch (error) {
-    if (!isManagedRunRootUnavailable(error)) {
-      throw error;
-    }
-  }
-
-  const fallbackRunDir = createLocalAgentRunCwd(input.agentId, input.runId, input.appDataDir, input.projectWorkspaceDir);
-  await mkdirRunDir(fallbackRunDir);
+  const runDir = createAgentRunCwd(
+    input.agentId,
+    input.runId,
+    input.agentRunsDir ?? join(dirname(input.projectWorkspaceDir), AGENT_RUNS_DIR_NAME),
+  );
+  await mkdirRunDir(runDir);
   return {
-    cwd: fallbackRunDir,
-    useManagedAgentInvocation: false,
+    cwd: runDir,
   };
 }
 
-function createManagedAgentRunCwd(agentId: string, runId: string, managedRunsDir = MANAGED_AGENT_RUNS_DIR): string {
-  return posix.join(managedRunsDir, `${safeRunDirSegment(agentId)}-${safeRunDirSegment(runId)}`);
+function createAgentRunCwd(agentId: string, runId: string, runsDir: string): string {
+  return join(runsDir, `${safeRunDirSegment(agentId)}-${safeRunDirSegment(runId)}`);
 }
 
-function createLocalAgentRunCwd(
-  agentId: string,
-  runId: string,
-  appDataDir: string | undefined,
-  projectWorkspaceDir: string,
-): string {
-  const runsRoot = appDataDir ? join(appDataDir, LOCAL_AGENT_RUNS_DIR_NAME) : join(projectWorkspaceDir, LOCAL_AGENT_RUNS_DIR_NAME);
-  return join(runsRoot, `${safeRunDirSegment(agentId)}-${safeRunDirSegment(runId)}`);
+function resolveAgentRunsDir(paths: AgentRunPaths): string {
+  return paths.agentRunsDir ?? join(resolveAgentAppDataDir(paths), AGENT_RUNS_DIR_NAME);
+}
+
+function resolveAgentAppDataDir(paths: AgentRunPaths): string {
+  return paths.appDataDir ?? dirname(paths.projectsDir);
+}
+
+function createManagedInvocationPathEnv(paths: AgentRunPaths): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    TUTTI_APP_DATA_DIR: resolveAgentAppDataDir(paths),
+  };
 }
 
 function safeRunDirSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
-function isManagedRunRootUnavailable(error: unknown): boolean {
-  const code = (error as NodeJS.ErrnoException).code;
-  return code === 'EACCES' || code === 'ENOENT' || code === 'ENOTDIR' || code === 'EPERM' || code === 'EROFS';
-}
-
-function resolveAppDataDir(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  return env.TUTTI_APP_DATA_DIR?.trim() || env.NEXTOP_APP_DATA_DIR?.trim() || undefined;
-}
-
 function buildAgentRunEnv(input: {
   agentId: string;
+  appDataDir: string;
   managedAgentInvocationCredential: string | null;
   useManagedAgentInvocation: boolean;
 }): Record<string, string> | undefined {
   const env: Record<string, string> = {};
-  const codexHome = resolveVibeCodexHome();
+  const codexHome = resolveVibeCodexHome(input.appDataDir);
   if (input.agentId === 'codex' && codexHome) {
     env.CODEX_HOME = codexHome;
   }
@@ -429,14 +415,12 @@ function buildAgentRunEnv(input: {
   return Object.keys(env).length > 0 ? env : undefined;
 }
 
-function resolveVibeCodexHome(env: NodeJS.ProcessEnv = process.env): string | undefined {
+function resolveVibeCodexHome(appDataDir: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
   const explicitHome = env.VIBE_CODEX_HOME?.trim();
   if (explicitHome) {
     return explicitHome;
   }
-
-  const tuttiDataDir = env.TUTTI_APP_DATA_DIR?.trim();
-  return tuttiDataDir ? join(tuttiDataDir, VIBE_CODEX_HOME_DIR_NAME) : undefined;
+  return join(appDataDir, VIBE_CODEX_HOME_DIR_NAME);
 }
 
 function shouldStopAfterUserInputAsk(projected: ProjectedAcpEvent, sawInlineQuestionForm: boolean): boolean {

@@ -126,6 +126,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   const userDataDir = process.env.TUTTI_APP_DATA_DIR ?? runtimeDir;
   const projectsDir = join(runtimeDir, 'projects');
   const runsLogDir = join(runtimeDir, 'runs');
+  const agentRunsDir = join(runtimeDir, '.vibe-agent-runs');
   const detectAgentAvailability = options.detectAgentAvailability ?? detectLocalAgentAvailability;
   const detectAgentModelCatalog = options.detectAgentModelCatalog ?? detectLocalAgentModelCatalog;
   const installClaudeCode = options.installClaudeCode ?? installLocalClaudeCode;
@@ -229,6 +230,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       runtimeDir,
       projectsDir,
       runsLogDir,
+      agentRunsDir,
       userSkillsRoot: options.userSkillsRoot ?? process.env.VIBE_USER_SKILLS_DIR ?? join(userDataDir, 'skills'),
       builtInSkillsRoot: options.builtInSkillsRoot ?? process.env.VIBE_BUILTIN_SKILLS_DIR ?? join(REPO_ROOT, 'skills'),
       userDesignSystemsRoot:
@@ -262,6 +264,8 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       request: withoutManagedAgentInvocationCredential(request),
       paths: {
         projectsDir,
+        appDataDir: runtimeDir,
+        agentRunsDir,
         userSkillsRoot: ctx.paths.userSkillsRoot,
         builtInSkillsRoot: ctx.paths.builtInSkillsRoot,
         userDesignSystemsRoot: ctx.paths.userDesignSystemsRoot,
@@ -285,7 +289,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const unavailableAgent = findUnavailableAgent(
       await safeDetectAgentAvailability(
         detectAgentAvailability,
-        createManagedAgentDetectContext(readManagedAgentInvocationCredentialBody(body)),
+        createManagedAgentDetectContext(readManagedAgentInvocationCredentialBody(body), runtimeDir),
       ),
       requestedProvider,
     );
@@ -666,7 +670,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   app.get('/api/agents/models', async (req: Request, res: Response): Promise<void> => {
     const modelCatalog = await safeDetectAgentModelCatalog(
       detectAgentModelCatalog,
-      createManagedAgentDetectContext(readManagedAgentInvocationCredentialHeader(req)),
+      createManagedAgentDetectContext(readManagedAgentInvocationCredentialHeader(req), runtimeDir),
     );
     res.json({
       agents: modelCatalog.map((agent) => ({
@@ -805,7 +809,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       project,
       await safeDetectAgentAvailability(
         detectAgentAvailability,
-        createManagedAgentDetectContext(readManagedAgentInvocationCredentialHeader(req)),
+        createManagedAgentDetectContext(readManagedAgentInvocationCredentialHeader(req), runtimeDir),
       ),
       runs,
     );
@@ -1545,17 +1549,20 @@ function createRunMeta(body: Record<string, unknown>): ChatRunCreateMeta {
   };
 }
 
-function createManagedAgentDetectContext(credential: string | null): DetectContext | undefined {
+function createManagedAgentDetectContext(credential: string | null, appDataDir: string): DetectContext | undefined {
   if (!credential) {
     return undefined;
   }
 
+  const env = {
+    ...process.env,
+    TUTTI_APP_DATA_DIR: appDataDir,
+    [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: credential,
+  };
+
   return {
-    env: {
-      ...process.env,
-      [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: credential,
-    },
-    managedAgentInvocation: createManagedAgentInvocation(credential, '/workspace'),
+    env,
+    managedAgentInvocation: createManagedAgentInvocation(credential, appDataDir, env),
   };
 }
 

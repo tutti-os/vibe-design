@@ -19,6 +19,7 @@ import type { ChatSessionSnapshot } from './services/chat-session/chat-session-t
 import { IChatTimelineService } from './services/chat-timeline/chat-timeline-service.interface';
 import type { ChatTimelineSnapshot, GeneratedFileEntry } from './services/chat-timeline/chat-timeline-types';
 import { getManagedAgentInvocationCredential } from './services/managed-agent/managed-agent-credential';
+import { MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER } from './services/managed-agent/managed-agent-constants';
 import type {
   ChatComposerAgentAvailability,
   ChatComposerAgentModelCatalogEntry,
@@ -43,7 +44,6 @@ const CHAT_PANEL_DEFAULT_WIDTH_CSS = `clamp(${CHAT_PANEL_DEFAULT_WIDTH}px, 29vw,
 const CHAT_PANEL_KEYBOARD_STEP = 24;
 const PROJECT_EDITOR_COMPACT_WIDTH = 1540;
 const PROJECT_PREVIEW_COVER_NAME = 'cover.svg';
-const MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER = 'X-TSH-Managed-Agent-Credential';
 
 interface SubscribableSnapshotService<TSnapshot> {
   subscribe(listener: () => void): () => void;

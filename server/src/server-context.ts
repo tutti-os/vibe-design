@@ -18,6 +18,7 @@ export interface PathDeps {
   runtimeDir: string;
   projectsDir: string;
   runsLogDir: string;
+  agentRunsDir: string;
   userSkillsRoot: string;
   builtInSkillsRoot: string;
   userDesignSystemsRoot: string;
