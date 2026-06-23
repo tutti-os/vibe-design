@@ -61,6 +61,21 @@ function getByLabelText(container: HTMLElement, label: string): HTMLElement {
   return element;
 }
 
+async function changeText(element: HTMLElement, value: string): Promise<void> {
+  await act(async () => {
+    element.textContent = value;
+    fireEvent.input(element);
+  });
+}
+
+async function selectFiles(element: HTMLElement, files: File[]): Promise<void> {
+  if (!(element instanceof HTMLInputElement)) throw new Error('Expected input');
+  await act(async () => {
+    Object.defineProperty(element, 'files', { value: files, configurable: true });
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
 function tabButtonByText(container: HTMLElement, text: string): HTMLButtonElement {
   const button = [...container.querySelectorAll<HTMLButtonElement>('button[role="tab"]')].find(
     (candidate) => candidate.textContent?.trim() === text,
@@ -1694,6 +1709,119 @@ describe('VibeDesignApp', () => {
     }
   });
 
+  it('imports an uploaded design.md as the active project design style before sending the turn', async () => {
+    const sendTurn = vi.fn(async () => undefined);
+    const updateProjectDesignSystem = vi.fn(async (projectId: string, designSystemId: string | null) => ({
+      id: projectId,
+      title: 'Project',
+      prompt: 'Project',
+      projectKind: 'prototype',
+      designSystemId,
+      createdAt: 1,
+      updatedAt: 2,
+    }));
+    const projectService: IProjectService = {
+      _serviceBrand: undefined,
+      async createProject(input) {
+        return {
+          id: 'design-md-project',
+          title: input.prompt,
+          prompt: input.prompt,
+          projectKind: input.projectKind,
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      },
+      async updateProjectTabsState() {},
+      async updateProjectTitle(projectId, title) {
+        return {
+          id: projectId,
+          title,
+          prompt: 'Project',
+          projectKind: 'prototype',
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      },
+      updateProjectDesignSystem,
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (url === '/api/design-systems' && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { title: string; body: string; status: string };
+        expect(body).toMatchObject({
+          title: 'Project design style',
+          body: '# Uploaded Design\n\nUse a sharp editorial layout.',
+          status: 'draft',
+        });
+        return Response.json(
+          {
+            designSystem: {
+              id: 'user:project-design-style',
+              title: body.title,
+              category: 'Design style',
+              summary: 'Imported from design.md.',
+              swatches: [],
+              source: 'user',
+            },
+          },
+          { status: 201 },
+        );
+      }
+      if (url === '/api/agents/models') {
+        return Response.json({ agents: [] });
+      }
+      return Response.json({ designSystems: [] });
+    });
+    vi.stubGlobal('fetch', fetch);
+    const flow = createVibeDesignFlow({
+      route: { kind: 'project', projectId: 'design-md-project' },
+      projectEditor: {
+        project: { id: 'design-md-project', tabsState: { tabs: [], activeTabKey: null } },
+        files: [],
+        conversations: [{ id: 'conversation-1', title: 'Project', createdAt: 1, updatedAt: 1 }],
+        activeConversationId: 'conversation-1',
+        messages: [],
+      },
+      chatSessionService: createTestChatSessionService(sendTurn),
+      projectService,
+    });
+
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      const designFile = new File(
+        ['# Uploaded Design\n\nUse a sharp editorial layout.'],
+        'design.md',
+        { type: 'text/markdown' },
+      );
+
+      await selectFiles(getByLabelText(container, 'Import files'), [designFile]);
+      await changeText(getByLabelText(container, 'Message'), 'Build the page with this style');
+      await act(async () => {
+        getByLabelText(container, 'Send message').click();
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalledWith('/api/design-systems', expect.objectContaining({ method: 'POST' }));
+      });
+      await waitFor(() => {
+        expect(updateProjectDesignSystem).toHaveBeenCalledWith('design-md-project', 'user:project-design-style');
+      });
+      expect(sendTurn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          draft: 'Build the page with this style',
+          files: [],
+        }),
+      );
+      await waitFor(() => expect(container.textContent).toContain('Project design style'));
+    } finally {
+      vi.unstubAllGlobals();
+      cleanup(root, container);
+    }
+  });
+
   it('renders dashboard design system picker options without official badges', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       Response.json({
@@ -3031,6 +3159,50 @@ describe('VibeDesignApp', () => {
       expect(layout!.style.gridTemplateColumns).toBe('360px minmax(0, 1fr)');
       expect(resizeHandle!.style.left).toBe('360px');
       expect(resizeHandle!.getAttribute('aria-valuenow')).toBe('360');
+    } finally {
+      cleanup(root, container);
+      rectSpy.mockRestore();
+    }
+  });
+
+  it('resizes the project chat panel in compact project editor widths after user drag', async () => {
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.dataset.testid === 'project-editor-layout') {
+        return { width: 1400, height: 720, top: 0, left: 0, right: 1400, bottom: 720, x: 0, y: 0, toJSON: () => ({}) };
+      }
+
+      if (this.dataset.testid === 'project-chat-panel') {
+        return { width: 360, height: 720, top: 0, left: 0, right: 360, bottom: 720, x: 0, y: 0, toJSON: () => ({}) };
+      }
+
+      return { width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) };
+    });
+    const flow = createVibeDesignFlow({
+      route: { kind: 'project', projectId: 'compact-resizable-project' },
+    });
+
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      const layout = container.querySelector<HTMLElement>('[data-testid="project-editor-layout"]');
+      const resizeHandle = container.querySelector<HTMLElement>('[role="separator"][aria-label="Resize chat panel"]');
+
+      expect(layout).not.toBeNull();
+      expect(resizeHandle).not.toBeNull();
+      expect(layout!.style.gridTemplateColumns).toBe('360px minmax(0, 1fr)');
+
+      await act(async () => {
+        fireEvent.pointerDown(resizeHandle!, { clientX: 360 });
+      });
+      await act(async () => {
+        fireEvent.pointerMove(window, { clientX: 520 });
+        fireEvent.pointerUp(window);
+      });
+
+      expect(layout!.style.gridTemplateColumns).toBe('520px minmax(0, 1fr)');
+      expect(resizeHandle!.getAttribute('aria-valuenow')).toBe('520');
     } finally {
       cleanup(root, container);
       rectSpy.mockRestore();

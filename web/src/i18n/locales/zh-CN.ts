@@ -563,9 +563,15 @@ export const zhCN = {
     },
     errors: {
       backgroundImageUpload: '无法上传背景图片。',
+      designStyleImport: '无法将 design.md 导入为设计风格。',
       designSystemsLoad: '无法加载设计风格',
       previewCommentsSend: '无法发送预览评论。',
       visualCommentUpload: '无法上传视觉评论截图。',
+    },
+    importedDesignStyle: {
+      category: '设计风格',
+      summary: '从 design.md 导入。',
+      title: '项目设计风格',
     },
     resizeChatPanel: '调整聊天面板宽度',
   },
@@ -620,6 +626,7 @@ export const zhCN = {
       closeTab: '关闭标签页 {{name}}',
       commentsWithCount: '评论 {{count}}',
       openFile: '打开 {{name}}',
+      openInTuttiBrowser: '在 Tutti 浏览器中打开 {{name}}',
       openCommentsPanel: '打开评论面板，{{count}} 条活跃评论',
       resetZoom: '重置画布缩放',
       scrollTabsLeft: '向左滚动工作区标签页',
