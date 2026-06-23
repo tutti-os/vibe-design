@@ -1708,6 +1708,16 @@ describe('createServer', () => {
       error: { code: 'BAD_REQUEST' },
     });
 
+    const previewProxyOriginResponse = await fetch(`http://127.0.0.1:${port}/api/projects`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: 'http://localhost:33793',
+      },
+      body: JSON.stringify({ prompt: 'hello through preview proxy', projectKind: 'prototype' }),
+    });
+    expect(previewProxyOriginResponse.status).toBe(201);
+
     const crossOriginResponse = await fetch(`http://127.0.0.1:${port}/api/runs`, {
       method: 'POST',
       headers: {

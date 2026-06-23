@@ -1463,12 +1463,21 @@ function isAllowedOrigin(origin: string | undefined, host: string | undefined): 
     }
 
     const requestHost = parseHost(host);
-    return (
+    // TSH's Website runtime preview proxy preserves the browser Origin
+    // but rewrites Host to the app service port. Both sides stay loopback,
+    // so allow that local proxy hop while still rejecting external origins.
+    if (
       requestHost !== null &&
-      parsedOrigin.port === requestHost.port &&
+      (parsedOrigin.protocol === 'http:' || parsedOrigin.protocol === 'https:') &&
+      parsedOrigin.port !== '' &&
+      requestHost.port !== '' &&
       isLoopbackHost(parsedOrigin.hostname) &&
       isLoopbackHost(requestHost.hostname)
-    );
+    ) {
+      return true;
+    }
+
+    return false;
   } catch {
     return false;
   }
