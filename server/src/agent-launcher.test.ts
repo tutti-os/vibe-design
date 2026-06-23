@@ -1,7 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from '@tutti-os/agent-acp-kit';
 import { describe, expect, it } from 'vitest';
 import {
   startAgentRun,
@@ -243,7 +242,7 @@ describe('startAgentRun', () => {
     }
   });
 
-  it('passes managed credentials through local-agent env for app-data project cwd values', async () => {
+  it('passes managed credentials through managed invocation for app-data project cwd values', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     const previousDataDir = process.env.TUTTI_APP_DATA_DIR;
     try {
@@ -285,10 +284,12 @@ describe('startAgentRun', () => {
         cwd: join(projectsDir, 'project-1'),
         env: {
           CODEX_HOME: join(appDataDir, 'codex-home'),
-          [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: 'credential-run-1',
+        },
+        managedAgentInvocation: {
+          credential: 'credential-run-1',
+          cwd: '/workspace/projects/project-1',
         },
       });
-      expect(runtime.inputs[0]).not.toHaveProperty('managedAgentInvocation');
       expect(run.managedAgentInvocationCredential).toBeNull();
       expect(JSON.stringify(run.events)).not.toContain('credential-run-1');
     } finally {

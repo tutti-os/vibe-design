@@ -5,7 +5,7 @@ import {
   type AgentEvent as AcpAgentEvent,
   type AgentRunInput as AcpAgentRunInput,
   type AgentRunMessage as AcpAgentRunMessage,
-  isManagedAgentInvocationCwd,
+  isManagedAgentInvocationProviderId,
 } from '@tutti-os/agent-acp-kit';
 import type { AgentEvent } from './claude-stream.js';
 import { DEFAULT_AGENT_ID, type AgentRegistry } from './agents.js';
@@ -21,6 +21,7 @@ import {
 } from './conversations.js';
 import { composeSystemPrompt, type ComposeInput } from './prompts/system.js';
 import { localAgentRuntime } from './local-agent-runtime.js';
+import { createManagedAgentInvocation } from './managed-agent-invocation.js';
 import { findSkillById, listSkills, type SkillInfo } from './skills.js';
 import {
   readAvailableDesignSystemDetail,
@@ -115,11 +116,8 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   ].join('\n');
   const history = await buildConversationHistory(paths.projectsDir, run, userPrompt);
   const resume = buildProviderResume(run);
-  const managedAgentInvocation = managedAgentInvocationCredential && isManagedAgentInvocationCwd(cwd)
-    ? {
-        credential: managedAgentInvocationCredential,
-        cwd,
-      }
+  const managedAgentInvocation = isManagedAgentInvocationProviderId(agentId)
+    ? createManagedAgentInvocation(managedAgentInvocationCredential, cwd)
     : undefined;
   const agentRunEnv = buildAgentRunEnv({
     agentId,

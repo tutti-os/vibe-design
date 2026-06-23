@@ -373,6 +373,10 @@ describe('createServer', () => {
 
     expect(response.status).toBe(200);
     expect(observedContexts[0]?.env?.[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).toBe('credential-ssr-1');
+    expect(observedContexts[0]?.managedAgentInvocation).toEqual({
+      credential: 'credential-ssr-1',
+      cwd: '/workspace',
+    });
     expect(html).not.toContain('credential-ssr-1');
     expect(JSON.stringify(readInitialDataFromHtml(html))).not.toContain('credential-ssr-1');
   });
@@ -452,6 +456,10 @@ describe('createServer', () => {
 
     expect(response.status).toBe(200);
     expect(observedContexts[0]?.env?.[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).toBe('credential-models-1');
+    expect(observedContexts[0]?.managedAgentInvocation).toEqual({
+      credential: 'credential-models-1',
+      cwd: '/workspace',
+    });
     expect(JSON.stringify(body)).not.toContain('credential-models-1');
   });
 
@@ -1508,6 +1516,10 @@ describe('createServer', () => {
     const created = await createResponse.json() as { runId: string };
     expect(started).toHaveLength(1);
     expect(observedContexts[0]?.env?.[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).toBe('credential-run-1');
+    expect(observedContexts[0]?.managedAgentInvocation).toEqual({
+      credential: 'credential-run-1',
+      cwd: '/workspace',
+    });
     expect(started[0]?.run.managedAgentInvocationCredential).toBe('credential-run-1');
     expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
 

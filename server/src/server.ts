@@ -61,6 +61,7 @@ import {
 import { registerReferencesRoutes } from './routes/references-routes.js';
 import { registerSkillsRoutes } from './routes/skills-routes.js';
 import { createChatRunService } from './runs.js';
+import { createManagedAgentInvocation } from './managed-agent-invocation.js';
 import {
   listProjectFilesFromStore,
   sqlitePathForProjectsDir,
@@ -1544,6 +1545,7 @@ function createManagedAgentDetectContext(credential: string | null): DetectConte
       ...process.env,
       [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: credential,
     },
+    managedAgentInvocation: createManagedAgentInvocation(credential, '/workspace'),
   };
 }
 
