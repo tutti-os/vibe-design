@@ -245,7 +245,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   };
 
   app.use('/api', (req: Request, res: Response, next: NextFunction): void => {
-    if (!isMutatingMethod(req.method) || isAllowedOrigin(req.get('origin'), req.get('host'))) {
+    if (!isMutatingMethod(req.method) || isAllowedOrigin(req.get('origin'), req.get('host'), req.get('sec-fetch-site'))) {
       next();
       return;
     }
@@ -1447,7 +1447,7 @@ function isMutatingMethod(method: string): boolean {
   return method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
 }
 
-function isAllowedOrigin(origin: string | undefined, host: string | undefined): boolean {
+function isAllowedOrigin(origin: string | undefined, host: string | undefined, secFetchSite?: string): boolean {
   if (!origin) {
     return true;
   }
@@ -1464,16 +1464,23 @@ function isAllowedOrigin(origin: string | undefined, host: string | undefined): 
 
     const requestHost = parseHost(host);
     // TSH's Website runtime preview proxy preserves the browser Origin
-    // but rewrites Host to the app service port. Both sides stay loopback,
-    // so allow that local proxy hop while still rejecting external origins.
-    if (
-      requestHost !== null &&
+    // but rewrites Host to the app service upstream. For local app services,
+    // both sides are loopback. For sandbox/remote previews, Chromium still
+    // marks the browser-to-proxy request as same-origin.
+    const hasLoopbackOrigin =
       (parsedOrigin.protocol === 'http:' || parsedOrigin.protocol === 'https:') &&
       parsedOrigin.port !== '' &&
+      isLoopbackHost(parsedOrigin.hostname);
+    if (
+      hasLoopbackOrigin &&
+      requestHost !== null &&
       requestHost.port !== '' &&
-      isLoopbackHost(parsedOrigin.hostname) &&
       isLoopbackHost(requestHost.hostname)
     ) {
+      return true;
+    }
+
+    if (hasLoopbackOrigin && requestHost !== null && isSameOriginFetchSite(secFetchSite)) {
       return true;
     }
 
@@ -1493,7 +1500,17 @@ function parseHost(host: string): { hostname: string; port: string } | null {
 }
 
 function isLoopbackHost(hostname: string): boolean {
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]';
+  const normalized = hostname.toLowerCase().replace(/^\[(.*)\]$/, '$1');
+  return (
+    normalized === 'localhost' ||
+    normalized === '0.0.0.0' ||
+    normalized.startsWith('127.') ||
+    normalized === '::1'
+  );
+}
+
+function isSameOriginFetchSite(value: string | undefined): boolean {
+  return value?.trim().toLowerCase() === 'same-origin';
 }
 
 function resolveProjectRoute(projectId: string): VibeDesignRoute | null {

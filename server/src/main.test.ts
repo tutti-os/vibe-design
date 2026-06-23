@@ -1,4 +1,4 @@
-import type { Server } from 'node:http';
+import { request as httpRequest, type Server } from 'node:http';
 import { access, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -227,6 +227,44 @@ async function postCliStatus(port: number, command: string, input: Record<string
   });
   await response.text();
   return response.status;
+}
+
+async function postJsonWithHeaders(
+  port: number,
+  path: string,
+  headers: Record<string, string>,
+  body: Record<string, unknown>,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const payload = JSON.stringify(body);
+  return await new Promise((resolve, reject) => {
+    const request = httpRequest(
+      {
+        hostname: '127.0.0.1',
+        port,
+        path,
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'content-length': String(Buffer.byteLength(payload)),
+          ...headers,
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        response.on('error', reject);
+        response.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          resolve({
+            status: response.statusCode ?? 0,
+            body: text ? JSON.parse(text) as Record<string, unknown> : {},
+          });
+        });
+      },
+    );
+    request.on('error', reject);
+    request.end(payload);
+  });
 }
 
 function readInitialDataFromHtml(html: string): Record<string, unknown> {
@@ -1717,6 +1755,44 @@ describe('createServer', () => {
       body: JSON.stringify({ prompt: 'hello through preview proxy', projectKind: 'prototype' }),
     });
     expect(previewProxyOriginResponse.status).toBe(201);
+
+    const remotePreviewHostResponse = await postJsonWithHeaders(
+      port,
+      '/api/projects',
+      {
+        host: '33793-i4vtfk8xfk5cmnenyetku.e2b.app',
+        origin: 'http://localhost:33793',
+        'sec-fetch-site': 'same-origin',
+      },
+      { prompt: 'hello through remote preview host', projectKind: 'prototype' },
+    );
+    expect(remotePreviewHostResponse.status).toBe(201);
+
+    const wildcardPreviewHostResponse = await postJsonWithHeaders(
+      port,
+      '/api/projects',
+      {
+        host: '0.0.0.0:33793',
+        origin: 'http://localhost:33793',
+      },
+      { prompt: 'hello through wildcard preview host', projectKind: 'prototype' },
+    );
+    expect(wildcardPreviewHostResponse.status).toBe(201);
+
+    const spoofedPreviewOriginResponse = await postJsonWithHeaders(
+      port,
+      '/api/projects',
+      {
+        host: '33793-i4vtfk8xfk5cmnenyetku.e2b.app',
+        origin: 'http://localhost:33793',
+        'sec-fetch-site': 'cross-site',
+      },
+      { prompt: 'hello through spoofed preview origin', projectKind: 'prototype' },
+    );
+    expect(spoofedPreviewOriginResponse.status).toBe(403);
+    expect(spoofedPreviewOriginResponse.body).toMatchObject({
+      error: { code: 'FORBIDDEN_ORIGIN' },
+    });
 
     const crossOriginResponse = await fetch(`http://127.0.0.1:${port}/api/runs`, {
       method: 'POST',
