@@ -122,3 +122,57 @@ textarea:focus,
 textarea:focus-visible {
   border-color: var(--border-2);
 }
+
+.dashboard-prompt-input {
+  min-width: 0;
+}
+
+.dashboard-prompt-input .tiptap,
+.dashboard-prompt-input__editor {
+  background: transparent;
+}
+
+.dashboard-composer-square-button {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  border: 1px solid var(--border-1);
+  border-radius: var(--project-radius-lg);
+  background: var(--background-fronted);
+  color: var(--text-secondary);
+  box-shadow: var(--project-shadow-raised);
+}
+
+.dashboard-composer-square-button:hover {
+  border-color: var(--border-2);
+  background: var(--background-fronted);
+  color: var(--text-primary);
+}
+
+.dashboard-staged-image {
+  display: inline-flex;
+  max-width: 190px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--project-radius-lg);
+  background: var(--background);
+  padding: 4px 6px 4px 4px;
+}
+
+.dashboard-staged-image__remove {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: var(--project-radius-pill);
+  background: transparent;
+  color: var(--text-tertiary);
+}
+
+.dashboard-staged-image__remove:hover {
+  background: var(--transparency-hover);
+  color: var(--text-primary);
+}

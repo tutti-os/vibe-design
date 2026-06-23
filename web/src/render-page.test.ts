@@ -16,7 +16,7 @@ describe('renderPage', () => {
     expect(html).not.toContain('Wireframe');
     expect(html).not.toContain('High fidelity');
     expect(html).toContain('Design style');
-    expect(html).toContain('Set up design style');
+    expect(html).toContain('None');
     expect(html).toContain('Search designs');
     expect(html).not.toContain('Community');
     expect(html).not.toContain('Chat 事件流');

@@ -11,6 +11,8 @@ export class ProjectService implements IProjectService {
       prompt: input.prompt.trim(),
       projectKind: input.projectKind,
       ...(input.designSystemId ? { designSystemId: input.designSystemId } : {}),
+      ...(input.agentId ? { agentId: input.agentId } : {}),
+      ...(input.model ? { model: input.model } : {}),
     });
   }
 
