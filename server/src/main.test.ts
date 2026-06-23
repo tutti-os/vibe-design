@@ -1503,7 +1503,10 @@ describe('createServer', () => {
 
     const createResponse = await fetch(`http://127.0.0.1:${port}/api/runs`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-header-ignored',
+      },
       body: JSON.stringify({
         projectId: 'project-managed-agent',
         prompt: 'Build a small page',
@@ -1526,6 +1529,53 @@ describe('createServer', () => {
     const statusResponse = await fetch(`http://127.0.0.1:${port}/api/runs/${created.runId}`);
     expect(statusResponse.status).toBe(200);
     expect(JSON.stringify(await statusResponse.json())).not.toContain('credential-run-1');
+  });
+
+  it('uses managed agent invocation credentials from request headers when creating runs', async () => {
+    const started: Array<{ run: ChatRun; request: Record<string, unknown> }> = [];
+    const observedContexts: Array<DetectContext | undefined> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentAvailability: async (context) => {
+          observedContexts.push(context);
+          return [
+            { id: 'codex', label: 'Codex', available: true },
+          ];
+        },
+        startAgentRun: ({ run, request }) => {
+          started.push({ run, request });
+        },
+      }),
+    );
+
+    const createResponse = await fetch(`http://127.0.0.1:${port}/api/runs`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-run-header-1',
+      },
+      body: JSON.stringify({
+        projectId: 'project-managed-agent-header',
+        prompt: 'Build a small page',
+        agentId: 'codex',
+      }),
+    });
+
+    expect(createResponse.status).toBe(202);
+    const created = await createResponse.json() as { runId: string };
+    expect(started).toHaveLength(1);
+    expect(observedContexts[0]?.env?.[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).toBe('credential-run-header-1');
+    expect(observedContexts[0]?.managedAgentInvocation).toEqual({
+      credential: 'credential-run-header-1',
+      cwd: '/workspace',
+    });
+    expect(started[0]?.run.managedAgentInvocationCredential).toBe('credential-run-header-1');
+    expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
+
+    const statusResponse = await fetch(`http://127.0.0.1:${port}/api/runs/${created.runId}`);
+    expect(statusResponse.status).toBe(200);
+    expect(JSON.stringify(await statusResponse.json())).not.toContain('credential-run-header-1');
   });
 
   it('keeps managed agent invocation credentials out of legacy chat starter requests', async () => {
@@ -1557,6 +1607,51 @@ describe('createServer', () => {
     expect(started[0]?.run.managedAgentInvocationCredential).toBe('credential-chat-1');
     expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
     expect(streamText).not.toContain('credential-chat-1');
+  });
+
+  it('uses managed agent invocation credentials from request headers for legacy chat', async () => {
+    const started: Array<{ run: ChatRun; request: Record<string, unknown> }> = [];
+    const observedContexts: Array<DetectContext | undefined> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentAvailability: async (context) => {
+          observedContexts.push(context);
+          return [
+            { id: 'codex', label: 'Codex', available: true },
+          ];
+        },
+        startAgentRun: ({ run, runs, request }) => {
+          started.push({ run, request });
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/chat`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-chat-header-1',
+      },
+      body: JSON.stringify({
+        projectId: 'project-managed-agent-chat-header',
+        prompt: 'Build a small page',
+        agentId: 'codex',
+      }),
+    });
+    const streamText = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(started).toHaveLength(1);
+    expect(observedContexts[0]?.env?.[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).toBe('credential-chat-header-1');
+    expect(observedContexts[0]?.managedAgentInvocation).toEqual({
+      credential: 'credential-chat-header-1',
+      cwd: '/workspace',
+    });
+    expect(started[0]?.run.managedAgentInvocationCredential).toBe('credential-chat-header-1');
+    expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
+    expect(streamText).not.toContain('credential-chat-header-1');
   });
 
   it('keeps a conversation provider locked while updating its remembered model for same-provider runs', async () => {

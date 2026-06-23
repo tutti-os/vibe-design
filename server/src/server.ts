@@ -606,7 +606,12 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       return;
     }
 
-    const persistentBodyResult = await preparePersistentRunBody(body);
+    const requestBody = withManagedAgentInvocationCredentialFallback(
+      body,
+      readManagedAgentInvocationCredentialHeader(req),
+    );
+
+    const persistentBodyResult = await preparePersistentRunBody(requestBody);
     if (!persistentBodyResult.ok) {
       sendPersistentRunBodyError(res, persistentBodyResult);
       return;
@@ -638,7 +643,12 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       return;
     }
 
-    const persistentBodyResult = await preparePersistentRunBody(body);
+    const requestBody = withManagedAgentInvocationCredentialFallback(
+      body,
+      readManagedAgentInvocationCredentialHeader(req),
+    );
+
+    const persistentBodyResult = await preparePersistentRunBody(requestBody);
     if (!persistentBodyResult.ok) {
       sendPersistentRunBodyError(res, persistentBodyResult);
       return;
@@ -1555,6 +1565,20 @@ function readManagedAgentInvocationCredentialHeader(req: Request): string | null
 
 function readManagedAgentInvocationCredentialBody(body: Record<string, unknown>): string | null {
   return readString(body.managedAgentInvocationCredential);
+}
+
+function withManagedAgentInvocationCredentialFallback(
+  body: Record<string, unknown>,
+  credential: string | null,
+): Record<string, unknown> {
+  if (readManagedAgentInvocationCredentialBody(body) || !credential) {
+    return body;
+  }
+
+  return {
+    ...body,
+    managedAgentInvocationCredential: credential,
+  };
 }
 
 function withoutManagedAgentInvocationCredential(body: Record<string, unknown>): Record<string, unknown> {
