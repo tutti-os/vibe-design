@@ -669,6 +669,26 @@ describe('CanvasWorkspace', () => {
     }
   });
 
+  it('places the Tutti browser button at the end of the preview controls', async () => {
+    render(
+      <CanvasWorkspace
+        files={[
+          {
+            ...files[0]!,
+            url: 'https://preview.example/project/landing.html',
+          },
+        ]}
+      />,
+    );
+
+    openDesignFile('landing.html');
+
+    const resetZoomButton = await screen.findByRole('button', { name: 'Reset canvas zoom' });
+    const openInTuttiButton = await screen.findByRole('button', { name: 'Open landing.html in Tutti browser' });
+
+    expect(resetZoomButton.compareDocumentPosition(openInTuttiButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('falls back to a new browser window for URL-backed HTML previews outside Tutti', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
 

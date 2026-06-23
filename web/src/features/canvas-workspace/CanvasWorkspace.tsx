@@ -1196,18 +1196,6 @@ export function CanvasWorkspace({
                   </ToolbarPresence>
                 </div>
                 <div className="flex items-center gap-2">
-                  <ToolbarPresence visible={Boolean(activeFile?.url && supportsHtmlSurfaceModes)}>
-                    <Button
-                      type="button"
-                      size="icon-sm"
-                      variant="chrome"
-                      aria-label={t('workspace.actions.openInTuttiBrowser', { name: activeFile.name })}
-                      title={t('workspace.actions.openInTuttiBrowser', { name: activeFile.name })}
-                      onClick={() => openPreviewUrlInBrowser(activeFile.url!)}
-                    >
-                      <LaunchIcon size={14} />
-                    </Button>
-                  </ToolbarPresence>
                   <ToolbarPresence visible={usesManualPreviewLayout} className="ml-1">
                     <div
                       role="toolbar"
@@ -1249,6 +1237,18 @@ export function CanvasWorkspace({
                       >
                         <RestoreIcon size={14} />
                       </Button>
+                      <ToolbarPresence visible={Boolean(activeFile?.url && supportsHtmlSurfaceModes)}>
+                        <Button
+                          type="button"
+                          size="icon-sm"
+                          variant="chrome"
+                          aria-label={t('workspace.actions.openInTuttiBrowser', { name: activeFile.name })}
+                          title={t('workspace.actions.openInTuttiBrowser', { name: activeFile.name })}
+                          onClick={() => openPreviewUrlInBrowser(activeFile.url!)}
+                        >
+                          <LaunchIcon size={14} />
+                        </Button>
+                      </ToolbarPresence>
                     </div>
                   </ToolbarPresence>
                 </div>
