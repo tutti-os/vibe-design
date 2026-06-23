@@ -2,7 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from '@tutti-os/agent-acp-kit';
 import {
+  createAgentRunDirectory,
   startAgentRun,
   type LocalAgentRuntime,
 } from './agent-launcher.js';
@@ -37,6 +39,10 @@ const codexDef: RuntimeAgentDef = {
 };
 
 type RuntimeInput = Parameters<LocalAgentRuntime['run']>[0];
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 function createRecordingRuntime(
   events: Array<{ type: string; [key: string]: unknown }> = [{ type: 'done', status: 'completed', exitCode: 0 }],
@@ -242,7 +248,28 @@ describe('startAgentRun', () => {
     }
   });
 
-  it('passes managed credentials through managed invocation for app-data project cwd values', async () => {
+  it('uses a managed workspace run directory when the workspace root is available', async () => {
+    const createdDirs: string[] = [];
+
+    const runDirectory = await createAgentRunDirectory({
+      agentId: 'codex',
+      runId: 'run:1',
+      managed: true,
+      projectWorkspaceDir: '/app-data/projects/project-1',
+      appDataDir: '/app-data',
+      mkdirRunDir: async (path) => {
+        createdDirs.push(path);
+      },
+    });
+
+    expect(runDirectory).toEqual({
+      cwd: '/workspace/.vibe-agent-runs/codex-run_1',
+      useManagedAgentInvocation: true,
+    });
+    expect(createdDirs).toEqual(['/workspace/.vibe-agent-runs/codex-run_1']);
+  });
+
+  it('falls back to app-data run cwd and env credentials when the managed workspace root is unavailable', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     const previousDataDir = process.env.TUTTI_APP_DATA_DIR;
     try {
@@ -280,16 +307,17 @@ describe('startAgentRun', () => {
       });
 
       expect(runtime.inputs).toHaveLength(1);
+      const expectedFallbackRunCwd = expect.stringMatching(
+        new RegExp(`^${escapeRegExp(join(appDataDir, '.vibe-agent-runs', 'codex-'))}[a-zA-Z0-9._-]+$`),
+      );
       expect(runtime.inputs[0]).toMatchObject({
-        cwd: join(projectsDir, 'project-1'),
+        cwd: expectedFallbackRunCwd,
         env: {
           CODEX_HOME: join(appDataDir, 'codex-home'),
-        },
-        managedAgentInvocation: {
-          credential: 'credential-run-1',
-          cwd: '/workspace/projects/project-1',
+          [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: 'credential-run-1',
         },
       });
+      expect(runtime.inputs[0]?.managedAgentInvocation).toBeUndefined();
       expect(run.managedAgentInvocationCredential).toBeNull();
       expect(JSON.stringify(run.events)).not.toContain('credential-run-1');
     } finally {
@@ -1402,6 +1430,79 @@ describe('startAgentRun', () => {
       expect(prompt).toContain('assets/Hero.tsx');
       expect(prompt).toContain(join(projectsDir, 'project-1', 'assets/Hero.tsx'));
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps selected design file prompt paths on the project workspace during managed runs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
+    const previousDataDir = process.env.TUTTI_APP_DATA_DIR;
+    try {
+      const appDataDir = join(root, 'app-data');
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(appDataDir, 'projects');
+      await mkdir(builtInSkillsRoot, { recursive: true });
+      await mkdir(userSkillsRoot, { recursive: true });
+      process.env.TUTTI_APP_DATA_DIR = appDataDir;
+
+      upsertProjectFileInStore(projectsDir, 'project-1', {
+        name: 'Hero.tsx',
+        path: 'assets/Hero.tsx',
+        size: 128,
+        mime: 'text/tsx',
+        kind: 'code',
+      });
+
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({
+        projectId: 'project-1',
+        agentId: 'codex',
+        managedAgentInvocationCredential: 'credential-run-1',
+      });
+      const runtime = createRecordingRuntime();
+
+      await startAgentRun({
+        run,
+        runs,
+        request: {
+          projectId: 'project-1',
+          prompt: 'Improve the selected file.',
+          agentId: 'codex',
+          context: {
+            designFilePaths: ['assets/Hero.tsx'],
+          },
+        },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+        createRunDirectory: async () => ({
+          cwd: '/workspace/.vibe-agent-runs/codex-run-1',
+          useManagedAgentInvocation: true,
+        }),
+      });
+
+      const prompt = runtime.inputs[0]?.prompt ?? '';
+      expect(runtime.inputs[0]?.cwd).toBe('/workspace/.vibe-agent-runs/codex-run-1');
+      expect(runtime.inputs[0]?.managedAgentInvocation).toEqual({
+        credential: 'credential-run-1',
+        cwd: '/workspace/.vibe-agent-runs/codex-run-1',
+      });
+      expect(prompt).toContain('# Selected design files');
+      expect(prompt).toContain('Hero.tsx');
+      expect(prompt).toContain('assets/Hero.tsx');
+      expect(prompt).toContain('/workspace/projects/project-1/assets/Hero.tsx');
+      expect(prompt).not.toContain('/workspace/.vibe-agent-runs/codex-run-1/assets/Hero.tsx');
+    } finally {
+      if (previousDataDir === undefined) {
+        delete process.env.TUTTI_APP_DATA_DIR;
+      } else {
+        process.env.TUTTI_APP_DATA_DIR = previousDataDir;
+      }
       await rm(root, { recursive: true, force: true });
     }
   });
