@@ -3,7 +3,11 @@ import { access, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/p
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV, type DetectContext } from '@tutti-os/agent-acp-kit';
+import {
+  MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
+  MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER,
+  type DetectContext,
+} from '@tutti-os/agent-acp-kit';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServer, resolveRuntimeConfig } from './main';
 import {
@@ -325,7 +329,7 @@ describe('createServer', () => {
     );
 
     const response = await fetch(`http://127.0.0.1:${port}/project/project-managed-agent-ssr`, {
-      headers: { 'X-Tutti-Agent-Credential': 'credential-ssr-1' },
+      headers: { [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-ssr-1' },
     });
     const html = await response.text();
 
@@ -404,7 +408,7 @@ describe('createServer', () => {
     );
 
     const response = await fetch(`http://127.0.0.1:${port}/api/agents/models`, {
-      headers: { 'X-Tutti-Agent-Credential': 'credential-models-1' },
+      headers: { [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-models-1' },
     });
     const body = await response.json();
 

@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
+  getManagedAgentInvocationCredentialFromHeaders,
   type DetectContext,
 } from '@tutti-os/agent-acp-kit';
 import express, { type NextFunction, type Request, type Response } from 'express';
@@ -109,8 +110,6 @@ const CHAT_UI_CSS_PATHS = [
   resolve(SERVER_DIR, '../../web/dist/assets/chat-ui.css'),
   resolve(REPO_ROOT, 'web/src/components/chat-ui.css'),
 ];
-const MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER = 'x-tutti-agent-credential';
-
 export function createServer(options: CreateServerOptions = {}): http.Server {
   const app = express();
   app.use(express.json({ limit: '50mb' }));
@@ -1667,7 +1666,7 @@ function createManagedAgentDetectContext(credential: string | null): DetectConte
 }
 
 function readManagedAgentInvocationCredentialHeader(req: Request): string | null {
-  return readString(req.get(MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER));
+  return readString(getManagedAgentInvocationCredentialFromHeaders(req.headers));
 }
 
 function readManagedAgentInvocationCredentialBody(body: Record<string, unknown>): string | null {
