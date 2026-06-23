@@ -1704,7 +1704,7 @@ function createManagedAgentDetectContext(credential: string | null, appDataDir: 
 
   return {
     env,
-    managedAgentInvocation: createManagedAgentInvocation(credential, appDataDir, env),
+    managedAgentInvocation: createManagedAgentInvocation(credential, appDataDir),
   };
 }
 

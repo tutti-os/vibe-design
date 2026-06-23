@@ -11,7 +11,6 @@ import {
 import { createAgentRegistry, type RuntimeAgentDef } from './agents.js';
 import { createConversation, upsertConversationMessage } from './conversations.js';
 import { createVibeCodexProvider } from './local-codex-provider.js';
-import { resolveManagedAgentInvocationCwd } from './managed-agent-invocation.js';
 import { createChatRunService } from './runs.js';
 import { listProjectFilesFromStore, upsertProjectFileInStore, writeProjectToStore } from './sqlite-store.js';
 import type { SseResponse } from './http/sse.js';
@@ -319,7 +318,7 @@ describe('startAgentRun', () => {
       expect(runtime.inputs[0]?.env).not.toHaveProperty(MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV);
       expect(runtime.inputs[0]?.managedAgentInvocation).toEqual({
         credential: 'credential-run-1',
-        cwd: resolveManagedAgentInvocationCwd(runtime.inputs[0]?.cwd, { TUTTI_APP_DATA_DIR: appDataDir }),
+        cwd: runtime.inputs[0]?.cwd,
       });
       expect(run.managedAgentInvocationCredential).toBeNull();
       expect(JSON.stringify(run.events)).not.toContain('credential-run-1');
@@ -333,7 +332,7 @@ describe('startAgentRun', () => {
     }
   });
 
-  it('falls back to env credentials when a managed run cwd cannot be mapped', async () => {
+  it('passes managed invocation cwd through without app-side remapping', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     try {
       const appDataDir = join(root, 'app-data');
@@ -375,10 +374,13 @@ describe('startAgentRun', () => {
         cwd: unmappedRunDir,
         env: {
           CODEX_HOME: join(appDataDir, 'codex-home'),
-          [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: 'credential-run-1',
         },
       });
-      expect(runtime.inputs[0]?.managedAgentInvocation).toBeUndefined();
+      expect(runtime.inputs[0]?.env).not.toHaveProperty(MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV);
+      expect(runtime.inputs[0]?.managedAgentInvocation).toEqual({
+        credential: 'credential-run-1',
+        cwd: unmappedRunDir,
+      });
       expect(run.managedAgentInvocationCredential).toBeNull();
       expect(JSON.stringify(run.events)).not.toContain('credential-run-1');
     } finally {
@@ -1543,19 +1545,13 @@ describe('startAgentRun', () => {
       expect(runtime.inputs[0]?.cwd).toBe(join(appDataDir, '.vibe-agent-runs', 'codex-run-1'));
       expect(runtime.inputs[0]?.managedAgentInvocation).toEqual({
         credential: 'credential-run-1',
-        cwd: resolveManagedAgentInvocationCwd(runtime.inputs[0]?.cwd, { TUTTI_APP_DATA_DIR: appDataDir }),
+        cwd: runtime.inputs[0]?.cwd,
       });
       expect(prompt).toContain('# Selected design files');
       expect(prompt).toContain('Hero.tsx');
       expect(prompt).toContain('assets/Hero.tsx');
-      const managedProjectWorkspaceDir = resolveManagedAgentInvocationCwd(join(projectsDir, 'project-1'), {
-        TUTTI_APP_DATA_DIR: appDataDir,
-      });
-      const managedRunDir = resolveManagedAgentInvocationCwd(runtime.inputs[0]?.cwd, {
-        TUTTI_APP_DATA_DIR: appDataDir,
-      });
-      expect(prompt).toContain(`${managedProjectWorkspaceDir}/assets/Hero.tsx`);
-      expect(prompt).not.toContain(`${managedRunDir}/assets/Hero.tsx`);
+      expect(prompt).toContain(`${join(projectsDir, 'project-1')}/assets/Hero.tsx`);
+      expect(prompt).not.toContain(`${runtime.inputs[0]?.cwd}/assets/Hero.tsx`);
     } finally {
       if (previousDataDir === undefined) {
         delete process.env.TUTTI_APP_DATA_DIR;

@@ -21,7 +21,7 @@ import {
 } from './conversations.js';
 import { composeSystemPrompt, type ComposeInput } from './prompts/system.js';
 import { localAgentRuntime } from './local-agent-runtime.js';
-import { createManagedAgentInvocation, resolveManagedAgentInvocationCwd } from './managed-agent-invocation.js';
+import { createManagedAgentInvocation } from './managed-agent-invocation.js';
 import { findSkillById, listSkills, type SkillInfo } from './skills.js';
 import {
   readAvailableDesignSystemDetail,
@@ -100,9 +100,8 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     agentRunsDir: resolveAgentRunsDir(paths),
   });
   const cwd = runDirectory.cwd;
-  const managedInvocationEnv = createManagedInvocationPathEnv(paths);
   const managedAgentInvocation = managed
-    ? createManagedAgentInvocation(managedAgentInvocationCredential, cwd, managedInvocationEnv)
+    ? createManagedAgentInvocation(managedAgentInvocationCredential, cwd)
     : undefined;
 
   const locale = readString(request.locale) ?? undefined;
@@ -126,13 +125,10 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     designSystemImportMode: activeDesignSystem?.importMode,
     projectWorkspaceDir: cwd,
   });
-  const managedPromptProjectWorkspaceDir = managedAgentInvocation
-    ? (resolveManagedAgentInvocationCwd(projectWorkspaceDir, managedInvocationEnv) ?? projectWorkspaceDir)
-    : projectWorkspaceDir;
   const prompt = [
     userPrompt,
-    ...formatAttachedFilesSection(request.attachments, managedPromptProjectWorkspaceDir),
-    ...formatSelectedDesignFilesSection(request.context, managedPromptProjectWorkspaceDir, projectId, paths.projectsDir),
+    ...formatAttachedFilesSection(request.attachments, projectWorkspaceDir),
+    ...formatSelectedDesignFilesSection(request.context, projectWorkspaceDir, projectId, paths.projectsDir),
     ...formatAttachedPreviewCommentsSection(request.commentAttachments),
   ].join('\n');
   const history = await buildConversationHistory(paths.projectsDir, run, userPrompt);
@@ -383,13 +379,6 @@ function resolveAgentRunsDir(paths: AgentRunPaths): string {
 
 function resolveAgentAppDataDir(paths: AgentRunPaths): string {
   return paths.appDataDir ?? dirname(paths.projectsDir);
-}
-
-function createManagedInvocationPathEnv(paths: AgentRunPaths): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    TUTTI_APP_DATA_DIR: resolveAgentAppDataDir(paths),
-  };
 }
 
 function safeRunDirSegment(value: string): string {
