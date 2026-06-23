@@ -561,9 +561,15 @@ export const en = {
     },
     errors: {
       backgroundImageUpload: 'Could not upload background image.',
+      designStyleImport: 'Could not import design.md as a design style.',
       designSystemsLoad: 'Could not load design styles',
       previewCommentsSend: 'Could not send preview comments.',
       visualCommentUpload: 'Could not upload visual comment screenshot.',
+    },
+    importedDesignStyle: {
+      category: 'Design style',
+      summary: 'Imported from design.md.',
+      title: 'Project design style',
     },
     resizeChatPanel: 'Resize chat panel',
   },
@@ -618,6 +624,7 @@ export const en = {
       closeTab: 'Close tab {{name}}',
       commentsWithCount: 'Comments {{count}}',
       openFile: 'Open {{name}}',
+      openInTuttiBrowser: 'Open {{name}} in Tutti browser',
       openCommentsPanel: 'Open comments panel, {{count}} active comment',
       resetZoom: 'Reset canvas zoom',
       scrollTabsLeft: 'Scroll workspace tabs left',
