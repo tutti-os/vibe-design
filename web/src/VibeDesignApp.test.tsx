@@ -1618,7 +1618,7 @@ describe('VibeDesignApp', () => {
       expect(projectBrowser?.className).toContain('overflow-y-auto');
       expect(searchRow?.className).toContain('justify-end');
       expect(searchRow?.className).not.toContain('justify-between');
-      expect(projectGrid?.className).toContain('grid-cols-[repeat(auto-fill,minmax(min(100%,220px),1fr))]');
+      expect(projectGrid?.className).toContain('grid-cols-[repeat(auto-fill,minmax(min(100%,240px),1fr))]');
       expect(projectGrid?.className).not.toContain('max-w-');
       expect(projectGrid?.className).not.toContain('lg:grid-cols-4');
       expect(container.querySelector('[data-dashboard-project-type]')).toBeNull();

@@ -225,7 +225,7 @@ export function DashboardPage({
   return (
     <main className="min-h-screen overflow-y-auto bg-[var(--background)] text-[var(--foreground)]">
       <DashboardTopBar />
-      <div className="mx-auto flex w-full max-w-[1080px] flex-col px-5 pb-10 pt-10 sm:px-8">
+      <div className="mx-auto flex w-full max-w-[1560px] flex-col px-5 pb-10 pt-10 sm:px-8 2xl:px-12">
         <ProjectCreator
           openProject={openProject}
           designSystemId={selectedDesignSystemId}
@@ -254,7 +254,7 @@ export function DashboardPage({
 function DashboardTopBar() {
   return (
     <header className="border-b border-[var(--border-1)] bg-[var(--background)]">
-      <div className="mx-auto flex h-14 w-full max-w-[1080px] items-center px-5 sm:px-8">
+      <div className="mx-auto flex h-14 w-full max-w-[1560px] items-center px-5 sm:px-8 2xl:px-12">
         <BrandHeader />
       </div>
     </header>
@@ -957,7 +957,7 @@ function ProjectBrowser({
         </label>
       </div>
       <div
-        className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(min(100%,220px),1fr))] gap-4"
+        className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(min(100%,240px),1fr))] gap-4"
         data-testid="dashboard-project-grid"
       >
         {visibleProjects.map((project) => (
