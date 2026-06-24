@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from '@tutti-os/agent-acp-kit';
 import {
   startAgentRun,
   type LocalAgentRuntime,
@@ -308,11 +307,8 @@ describe('startAgentRun', () => {
       expect(runtime.inputs).toHaveLength(1);
       expect(runtime.inputs[0]).toMatchObject({
         cwd: managedRunCwd,
-        env: {
-          CODEX_HOME: join(appDataDir, 'codex-home'),
-        },
       });
-      expect(runtime.inputs[0]?.env).not.toHaveProperty(MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV);
+      expect(runtime.inputs[0]?.env).toBeUndefined();
       expect(runtime.inputs[0]?.managedAgentInvocation).toEqual({
         credential: 'credential-run-1',
         cwd: runtime.inputs[0]?.cwd,
@@ -376,11 +372,8 @@ describe('startAgentRun', () => {
       expect(runtime.inputs).toHaveLength(1);
       expect(runtime.inputs[0]).toMatchObject({
         cwd: unmappedRunDir,
-        env: {
-          CODEX_HOME: join(appDataDir, 'codex-home'),
-        },
       });
-      expect(runtime.inputs[0]?.env).not.toHaveProperty(MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV);
+      expect(runtime.inputs[0]?.env).toBeUndefined();
       expect(runtime.inputs[0]?.managedAgentInvocation).toEqual({
         credential: 'credential-run-1',
         cwd: unmappedRunDir,

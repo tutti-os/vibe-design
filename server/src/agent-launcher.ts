@@ -61,7 +61,6 @@ const defaultAgentRuntime: LocalAgentRuntime = localAgentRuntime;
 const MAX_AGENT_STDERR_REASON_CHARS = 4_000;
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_HISTORY_MESSAGE_CHARS = 6_000;
-const VIBE_CODEX_HOME_DIR_NAME = 'codex-home';
 
 export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   const { run, runs, request, paths } = input;
@@ -120,10 +119,6 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   ].join('\n');
   const history = await buildConversationHistory(paths.projectsDir, run, userPrompt);
   const resume = buildProviderResume(run);
-  const agentRunEnv = buildAgentRunEnv({
-    agentId,
-    appDataDir: resolveAgentAppDataDir(paths),
-  });
 
   run.status = 'running';
   run.updatedAt = Date.now();
@@ -211,7 +206,6 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       ...(history.length > 0 ? { history } : {}),
       ...(readString(request.model) ? { model: readString(request.model) ?? undefined } : {}),
       ...(readString(request.reasoning) ? { reasoning: readString(request.reasoning) ?? undefined } : {}),
-      ...(agentRunEnv ? { env: agentRunEnv } : {}),
       ...(managedAgentInvocation ? { managedAgentInvocation } : {}),
       signal: controller.signal,
       resume,
@@ -343,23 +337,6 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   }
 }
 
-function resolveAgentAppDataDir(paths: AgentRunPaths): string {
-  return paths.appDataDir ?? dirname(paths.projectsDir);
-}
-
-function buildAgentRunEnv(input: {
-  agentId: string;
-  appDataDir: string;
-}): Record<string, string> | undefined {
-  const env: Record<string, string> = {};
-  const codexHome = resolveVibeCodexHome(input.appDataDir);
-  if (input.agentId === 'codex' && codexHome) {
-    env.CODEX_HOME = codexHome;
-  }
-
-  return Object.keys(env).length > 0 ? env : undefined;
-}
-
 function createManagedEventPayloadSanitizer(
   managedCwd: string | undefined,
   projectWorkspaceDir: string,
@@ -402,14 +379,6 @@ function replaceManagedPathInPayload(
       replaceManagedPathInPayload(entry, managedPaths, replacement),
     ]),
   );
-}
-
-function resolveVibeCodexHome(appDataDir: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
-  const explicitHome = env.VIBE_CODEX_HOME?.trim();
-  if (explicitHome) {
-    return explicitHome;
-  }
-  return join(appDataDir, VIBE_CODEX_HOME_DIR_NAME);
 }
 
 function shouldStopAfterUserInputAsk(projected: ProjectedAcpEvent, sawInlineQuestionForm: boolean): boolean {
