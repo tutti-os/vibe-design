@@ -264,8 +264,26 @@ describe('startAgentRun', () => {
         projectId: 'project-1',
         agentId: 'codex',
       });
-      const runtime = createRecordingRuntime();
       const managedRunCwd = join(appDataDir, '.agent-runs', 'codex-run-1');
+      const projectWorkspaceDir = join(projectsDir, 'project-1');
+      const runtime = createRecordingRuntime([
+        { type: 'status', message: `Working in ${managedRunCwd}` },
+        { type: 'text_delta', text: `Created ${managedRunCwd}/assets/Hero.tsx` },
+        {
+          type: 'tool_call',
+          id: 'write-1',
+          name: 'write',
+          input: { file_path: `${managedRunCwd}/assets/Hero.tsx` },
+        },
+        {
+          type: 'tool_result',
+          id: 'write-1',
+          output: { output: `Wrote ${managedRunCwd}/assets/Hero.tsx` },
+          status: 'completed',
+        },
+        { type: 'stderr', text: `debug cwd ${managedRunCwd}` },
+        { type: 'done', status: 'completed', exitCode: 0 },
+      ]);
 
       await startAgentRun({
         run,
@@ -302,6 +320,7 @@ describe('startAgentRun', () => {
       expect(run).not.toHaveProperty('managedAgentInvocationCredential');
       expect(JSON.stringify(run.events)).not.toContain('credential-run-1');
       expect(JSON.stringify(run.events)).not.toContain(managedRunCwd);
+      expect(JSON.stringify(run.events)).toContain(projectWorkspaceDir);
     } finally {
       if (previousDataDir === undefined) {
         delete process.env.TUTTI_APP_DATA_DIR;

@@ -4,11 +4,11 @@
 
 已按 header-only 方案落地：
 
-- `@tutti-os/agent-acp-kit@0.2.3-beta.1` 已发布到 npm beta tag。
+- `@tutti-os/agent-acp-kit@0.2.3-beta.2` 已发布到 npm beta tag。
 - SDK 新增 `createManagedAgentDetectContextFromHeaders(headers, options?)`。
 - SDK 新增 `createManagedAgentRunContextFromHeaders(headers, { providerId, runId, ...options })`。
-- SDK 不再把 managed cwd 限定到 `/workspace`，只做 credential/cwd 基础合法性校验。
-- SDK 默认把 managed run cwd 放在 `TUTTI_APP_DATA_DIR/.agent-runs/<provider>-<runId>`。
+- SDK 不再把 managed cwd 限定到 `/workspace`，只做 credential/cwd 基础合法性校验，并要求 cwd 是绝对路径。
+- SDK 默认把 managed run cwd 放在 `TUTTI_APP_DATA_DIR/.agent-runs/<providerHash>-<runIdHash>`，目录名保留可读前缀并追加 hash，避免 runId 清洗碰撞。
 - `vibe-design` web 侧不再调用 JSB 获取 credential，不再把 credential 写入 request body。
 - `vibe-design` server 侧只从 TSH 注入的 request header 创建 detect/run context。
 - `managedAgentRunContext` 只在 server request 到 agent 启动之间短暂透传，不进入 `ChatRun`、SSE、status response、SSR initial data 或日志。
@@ -78,27 +78,23 @@ window.tutti.agent.getManagedAgentInvocationCredential()
 
 ## vibe-design 当前接入
 
-当前 `vibe-design` 已经部分走向 header-first：
+当前 `vibe-design` 已经收敛到 header-only：
 
 - `server/src/server.ts`
-  - SSR `GET /project/:projectId` 从 `req.headers` 读取 credential。
-  - `GET /api/agents/models` 从 `req.headers` 读取 credential。
-  - `POST /api/runs` / `POST /api/chat` 当前优先从 body 读取 credential；body 没有时 fallback 到 header。这个需要改掉。
-  - `POST /api/agents/claude/install` 从 header 创建 detect context。
-- `server/src/managed-agent-invocation.ts`
-  - 本地 helper 只负责把 `{ credential, cwd }` 拼成 `ManagedAgentInvocation`。
+  - SSR `GET /project/:projectId` 使用 `createManagedAgentDetectContextFromHeaders(req.headers, ...)`。
+  - `GET /api/agents/models` 使用 `createManagedAgentDetectContextFromHeaders(req.headers, ...)`。
+  - `POST /api/runs` / `POST /api/chat` 使用 `createManagedAgentRunContextFromHeaders(req.headers, ...)` 创建 transient run context。
+  - `POST /api/agents/claude/install` 使用 header 创建 detect context。
+  - managed request 不复用 availability / model catalog cache，避免跨 credential/header 复用检测结果。
+- `server/src/agent-launcher.ts`
+  - 只消费 `managedAgentRunContext.cwd` 作为 agent process cwd。
+  - prompt、文件物化、`start` event 继续使用项目 workspace 路径，不把 managed run cwd 写入 SSE、SSR initial data 或持久化 conversation。
 - `web/src/ProjectEditorPage.tsx`
-  - `fetchAgentModelCatalog()` 仍主动调用 JSB，然后把 credential 塞进 request header。
+  - `fetchAgentModelCatalog()` 不再调用 JSB，也不再手动塞 credential。
 - `web/src/services/run/internal/run-service.ts`
-  - `createRun()` 仍主动调用 JSB，然后把 credential 塞进 body。
+  - `createRun()` 不再调用 JSB，也不再通过 body 传 credential。
 
-所以现在状态是“双通道”，需要收敛：
-
-- server 已经能消费 TSH 注入 header。
-- web 仍有 JSB 主动传 credential 的老路径。
-- `/api/runs` / `/api/chat` 当前仍是 body credential 覆盖 header credential，这和长期 header-first 方向不一致。
-
-新方案不再保留这套兼容。目标是把 credential 来源压成单一入口：server request header。
+旧 body 字段 `managedAgentInvocationCredential` 会被忽略，并在传给 starter 前清洗掉。
 
 ## agent-acp-kit 当前能力与缺口
 
@@ -159,7 +155,7 @@ createManagedAgentRunContextFromHeaders(headers, {
 默认得到：
 
 ```text
-$TUTTI_APP_DATA_DIR/.agent-runs/<providerId>-<runId>
+$TUTTI_APP_DATA_DIR/.agent-runs/<providerPrefix>-<providerHash>-<runPrefix>-<runHash>
 ```
 
 `TUTTI_APP_DATA_DIR` 已经由 app runner 按 workspace/app/installation 维度隔离。应用不需要再用 `.vibe-agent-runs` 这类品牌化目录名做隔离；统一使用 SDK 默认 `.agent-runs` 更利于后续在 `vibe-design`、`ai-media-canvas` 和其他 app 之间复用。
@@ -199,12 +195,12 @@ runs.start(run, (startedRun) => (
 `agent-launcher.ts` 只消费传入的 transient context：
 
 ```ts
-const cwd = input.managedAgentRunContext?.cwd ?? projectWorkspaceDir;
+const agentCwd = input.managedAgentRunContext?.cwd ?? projectWorkspaceDir;
 
 await localAgentRuntime.run({
   runId: run.id,
   provider: agentId,
-  cwd,
+  cwd: agentCwd,
   prompt,
   ...(input.managedAgentRunContext?.managedAgentInvocation
     ? { managedAgentInvocation: input.managedAgentRunContext.managedAgentInvocation }
@@ -237,14 +233,14 @@ TUTTI_APP_DATA_DIR/.vibe-agent-runs/<run>
 目标方案里不需要保留这个品牌化目录名，应迁移到 SDK 默认：
 
 ```text
-TUTTI_APP_DATA_DIR/.agent-runs/<providerId>-<runId>
+TUTTI_APP_DATA_DIR/.agent-runs/<providerPrefix>-<providerHash>-<runPrefix>-<runHash>
 ```
 
 SDK 不应该判断 cwd 是否属于 `/workspace`，也不应该尝试在业务层做 `/workspace` remap。新的 SDK 语义应该是：
 
 1. `cwd` 是 host/app 决定的 provider 工作目录。
 2. `agent-acp-kit` 只负责把 `cwd` 透传到 detect/run/launch plan。
-3. `agent-acp-kit` 可以做基础字符串校验，例如非空，但不能绑定 `/workspace`。
+3. `agent-acp-kit` 可以做基础字符串校验，例如非空、绝对路径、无 NUL，但不能绑定 `/workspace`。
 4. 如果 TSH 底层需要做路径映射，应由 TSH managed shim / host adapter 自己处理，不能要求应用或通用 SDK 理解宿主内部路径。
 5. 当业务层没有显式传 `cwd` 时，SDK 使用 `process.env.TUTTI_APP_DATA_DIR` 派生默认 cwd。
 
@@ -264,7 +260,7 @@ createManagedAgentRunCwd({
 它默认从 `process.env.TUTTI_APP_DATA_DIR` 派生：
 
 ```text
-$TUTTI_APP_DATA_DIR/.agent-runs/<providerId>-<runId>
+$TUTTI_APP_DATA_DIR/.agent-runs/<providerPrefix>-<providerHash>-<runPrefix>-<runHash>
 ```
 
 `TUTTI_APP_DATA_DIR` 本身就是宿主注入的应用数据根目录：

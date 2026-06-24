@@ -86,6 +86,10 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   await mkdir(projectWorkspaceDir, { recursive: true });
   const managedAgentInvocation = input.managedAgentRunContext?.managedAgentInvocation;
   const agentCwd = input.managedAgentRunContext?.cwd ?? projectWorkspaceDir;
+  const sanitizeManagedEventPayload = createManagedEventPayloadSanitizer(
+    input.managedAgentRunContext?.cwd,
+    projectWorkspaceDir,
+  );
 
   const locale = readString(request.locale) ?? undefined;
   const skill = await resolveRequestedSkill(request, paths);
@@ -150,7 +154,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     const emitVisibleTextDelta = async (delta: string): Promise<boolean> => {
       if (!delta) return false;
       const data: AgentEvent = { type: 'text_delta', delta };
-      runs.emit(run, 'text_delta', data);
+      runs.emit(run, 'text_delta', sanitizeManagedEventPayload(data) as AgentEvent);
       const normalizedDelta = delta.toLowerCase();
       sawInlineQuestionForm ||= normalizedDelta.includes('<question-form');
       if (sawInlineQuestionForm && normalizedDelta.includes('</question-form>')) {
@@ -273,7 +277,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
           if (message) {
             runs.emit(run, 'error', {
               code: 'AGENT_EXECUTION_FAILED',
-              message,
+              message: sanitizeManagedEventPayload(message) as string,
             });
             sawErrorEvent = true;
           }
@@ -288,19 +292,29 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
 
       if (projected.kind === 'error') {
         sawErrorEvent = true;
-        runs.fail(run, projected.code, projected.message);
+        runs.fail(run, projected.code, sanitizeManagedEventPayload(projected.message) as string);
         return;
       }
 
-      runs.emit(run, projected.event, projected.data);
-      if (projected.kind === 'emit' && projected.event === 'tool_use' && projected.data.type === 'tool_use') {
-        sawStructuredUserInputAsk ||= isUserInputToolName(projected.data.name);
+      const projectedData = sanitizeManagedEventPayload(projected.data) as AgentEvent;
+      runs.emit(run, projected.event, projectedData);
+      const sanitizedProjected = { ...projected, data: projectedData } as ProjectedAcpEvent;
+      if (
+        sanitizedProjected.kind === 'emit' &&
+        sanitizedProjected.event === 'tool_use' &&
+        sanitizedProjected.data.type === 'tool_use'
+      ) {
+        sawStructuredUserInputAsk ||= isUserInputToolName(sanitizedProjected.data.name);
       }
-      if (projected.kind === 'emit' && projected.event === 'text_delta' && projected.data.type === 'text_delta') {
-        const delta = projected.data.delta.toLowerCase();
+      if (
+        sanitizedProjected.kind === 'emit' &&
+        sanitizedProjected.event === 'text_delta' &&
+        sanitizedProjected.data.type === 'text_delta'
+      ) {
+        const delta = sanitizedProjected.data.delta.toLowerCase();
         sawInlineQuestionForm ||= delta.includes('<question-form');
       }
-      if (shouldStopAfterUserInputAsk(projected, sawInlineQuestionForm)) {
+      if (shouldStopAfterUserInputAsk(sanitizedProjected, sawInlineQuestionForm)) {
         controller.abort();
         await agentRuntime.cancel(run.id);
         runs.finish(run, 'succeeded', 0);
@@ -344,6 +358,50 @@ function buildAgentRunEnv(input: {
   }
 
   return Object.keys(env).length > 0 ? env : undefined;
+}
+
+function createManagedEventPayloadSanitizer(
+  managedCwd: string | undefined,
+  projectWorkspaceDir: string,
+): (value: unknown) => unknown {
+  if (!managedCwd || managedCwd === projectWorkspaceDir) {
+    return (value) => value;
+  }
+
+  const normalizedManagedCwd = normalize(managedCwd);
+  const replacements = new Set([managedCwd, normalizedManagedCwd]);
+  return (value) => replaceManagedPathInPayload(value, replacements, projectWorkspaceDir);
+}
+
+function replaceManagedPathInPayload(
+  value: unknown,
+  managedPaths: Set<string>,
+  replacement: string,
+): unknown {
+  if (typeof value === 'string') {
+    let next = value;
+    for (const managedPath of managedPaths) {
+      if (managedPath) {
+        next = next.split(managedPath).join(replacement);
+      }
+    }
+    return next;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => replaceManagedPathInPayload(item, managedPaths, replacement));
+  }
+
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      key,
+      replaceManagedPathInPayload(entry, managedPaths, replacement),
+    ]),
+  );
 }
 
 function resolveVibeCodexHome(appDataDir: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
