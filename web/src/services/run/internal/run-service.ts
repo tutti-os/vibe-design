@@ -6,7 +6,7 @@ export class RunService implements IRunService {
 
   constructor(private readonly api: RunApi) {}
 
-  createRun(input: CreateRunInput): Promise<CreateRunResult> {
+  async createRun(input: CreateRunInput): Promise<CreateRunResult> {
     return this.api.createRun(input);
   }
 

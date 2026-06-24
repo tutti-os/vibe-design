@@ -4,6 +4,7 @@ import {
   type AgentEvent as AcpAgentEvent,
   type AgentRunInput as AcpAgentRunInput,
   type AgentRunMessage as AcpAgentRunMessage,
+  type ManagedAgentRunContext,
 } from '@tutti-os/agent-acp-kit';
 import type { AgentEvent } from './claude-stream.js';
 import { DEFAULT_AGENT_ID, type AgentRegistry } from './agents.js';
@@ -33,6 +34,7 @@ export interface AgentRunRequest {
 
 export interface AgentRunPaths {
   projectsDir: string;
+  appDataDir?: string;
   userSkillsRoot: string;
   builtInSkillsRoot: string;
   userDesignSystemsRoot?: string;
@@ -51,6 +53,7 @@ export interface StartAgentRunInput {
   paths: AgentRunPaths;
   registry?: AgentRegistry;
   agentRuntime?: LocalAgentRuntime;
+  managedAgentRunContext?: ManagedAgentRunContext;
 }
 
 const defaultAgentRuntime: LocalAgentRuntime = localAgentRuntime;
@@ -78,8 +81,14 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   }
 
   const projectId = readString(request.projectId) ?? run.projectId;
-  const cwd = projectId ? join(paths.projectsDir, projectId) : paths.projectsDir;
-  await mkdir(cwd, { recursive: true });
+  const projectWorkspaceDir = projectId ? join(paths.projectsDir, projectId) : paths.projectsDir;
+  await mkdir(projectWorkspaceDir, { recursive: true });
+  const managedAgentInvocation = input.managedAgentRunContext?.managedAgentInvocation;
+  const agentCwd = input.managedAgentRunContext?.cwd ?? projectWorkspaceDir;
+  const sanitizeManagedEventPayload = createManagedEventPayloadSanitizer(
+    input.managedAgentRunContext?.cwd,
+    projectWorkspaceDir,
+  );
 
   const locale = readString(request.locale) ?? undefined;
   const skill = await resolveRequestedSkill(request, paths);
@@ -100,12 +109,12 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     designSystemComponentsManifest: activeDesignSystem?.componentsManifest,
     designSystemFixtureHtml: activeDesignSystem?.fixtureHtml,
     designSystemImportMode: activeDesignSystem?.importMode,
-    projectWorkspaceDir: cwd,
+    projectWorkspaceDir,
   });
   const prompt = [
     userPrompt,
-    ...formatAttachedFilesSection(request.attachments, cwd),
-    ...formatSelectedDesignFilesSection(request.context, cwd, projectId, paths.projectsDir),
+    ...formatAttachedFilesSection(request.attachments, projectWorkspaceDir),
+    ...formatSelectedDesignFilesSection(request.context, projectWorkspaceDir, projectId, paths.projectsDir),
     ...formatAttachedPreviewCommentsSection(request.commentAttachments),
   ].join('\n');
   const history = await buildConversationHistory(paths.projectsDir, run, userPrompt);
@@ -118,7 +127,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     agentId,
     provider: agentId,
     projectId,
-    cwd,
+    cwd: projectWorkspaceDir,
     runtime: 'agent-acp-kit',
   });
 
@@ -140,7 +149,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     const emitVisibleTextDelta = async (delta: string): Promise<boolean> => {
       if (!delta) return false;
       const data: AgentEvent = { type: 'text_delta', delta };
-      runs.emit(run, 'text_delta', data);
+      runs.emit(run, 'text_delta', sanitizeManagedEventPayload(data) as AgentEvent);
       const normalizedDelta = delta.toLowerCase();
       sawInlineQuestionForm ||= normalizedDelta.includes('<question-form');
       if (sawInlineQuestionForm && normalizedDelta.includes('</question-form>')) {
@@ -164,7 +173,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       const materializedFile = await materializeProjectFileContent(
         paths.projectsDir,
         projectId,
-        cwd,
+        projectWorkspaceDir,
         parsed.path,
         parsed.fullContent,
         parsed.mime,
@@ -188,20 +197,28 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       return false;
     };
 
-    for await (const event of agentRuntime.run({
+    const agentRunInput: AcpAgentRunInput = {
       runId: run.id,
       provider: agentId,
-      cwd,
+      cwd: agentCwd,
       prompt,
       systemPrompt,
       ...(history.length > 0 ? { history } : {}),
       ...(readString(request.model) ? { model: readString(request.model) ?? undefined } : {}),
       ...(readString(request.reasoning) ? { reasoning: readString(request.reasoning) ?? undefined } : {}),
+      ...(managedAgentInvocation ? { managedAgentInvocation } : {}),
       signal: controller.signal,
       resume,
-    })) {
+    };
+
+    for await (const event of agentRuntime.run(agentRunInput)) {
       if (event.type === 'file_write') {
-        const materializedFile = await materializeAcpFileWrite(paths.projectsDir, projectId, cwd, event.path);
+        const materializedFile = await materializeAcpFileWrite(
+          paths.projectsDir,
+          projectId,
+          projectWorkspaceDir,
+          event.path,
+        );
         if (materializedFile) {
           runs.emit(run, 'generated_file', {
             type: 'generated_file',
@@ -222,7 +239,12 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       }
 
       if (event.type === 'tool_call') {
-        const materializedFile = await materializeAcpWriteToolCall(paths.projectsDir, projectId, cwd, event);
+        const materializedFile = await materializeAcpWriteToolCall(
+          paths.projectsDir,
+          projectId,
+          projectWorkspaceDir,
+          event,
+        );
         if (materializedFile) {
           runs.emit(run, 'generated_file', {
             type: 'generated_file',
@@ -249,7 +271,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
           if (message) {
             runs.emit(run, 'error', {
               code: 'AGENT_EXECUTION_FAILED',
-              message,
+              message: sanitizeManagedEventPayload(message) as string,
             });
             sawErrorEvent = true;
           }
@@ -264,19 +286,29 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
 
       if (projected.kind === 'error') {
         sawErrorEvent = true;
-        runs.fail(run, projected.code, projected.message);
+        runs.fail(run, projected.code, sanitizeManagedEventPayload(projected.message) as string);
         return;
       }
 
-      runs.emit(run, projected.event, projected.data);
-      if (projected.kind === 'emit' && projected.event === 'tool_use' && projected.data.type === 'tool_use') {
-        sawStructuredUserInputAsk ||= isUserInputToolName(projected.data.name);
+      const projectedData = sanitizeManagedEventPayload(projected.data) as AgentEvent;
+      runs.emit(run, projected.event, projectedData);
+      const sanitizedProjected = { ...projected, data: projectedData } as ProjectedAcpEvent;
+      if (
+        sanitizedProjected.kind === 'emit' &&
+        sanitizedProjected.event === 'tool_use' &&
+        sanitizedProjected.data.type === 'tool_use'
+      ) {
+        sawStructuredUserInputAsk ||= isUserInputToolName(sanitizedProjected.data.name);
       }
-      if (projected.kind === 'emit' && projected.event === 'text_delta' && projected.data.type === 'text_delta') {
-        const delta = projected.data.delta.toLowerCase();
+      if (
+        sanitizedProjected.kind === 'emit' &&
+        sanitizedProjected.event === 'text_delta' &&
+        sanitizedProjected.data.type === 'text_delta'
+      ) {
+        const delta = sanitizedProjected.data.delta.toLowerCase();
         sawInlineQuestionForm ||= delta.includes('<question-form');
       }
-      if (shouldStopAfterUserInputAsk(projected, sawInlineQuestionForm)) {
+      if (shouldStopAfterUserInputAsk(sanitizedProjected, sawInlineQuestionForm)) {
         controller.abort();
         await agentRuntime.cancel(run.id);
         runs.finish(run, 'succeeded', 0);
@@ -303,6 +335,50 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   } finally {
     run.acpSession = null;
   }
+}
+
+function createManagedEventPayloadSanitizer(
+  managedCwd: string | undefined,
+  projectWorkspaceDir: string,
+): (value: unknown) => unknown {
+  if (!managedCwd || managedCwd === projectWorkspaceDir) {
+    return (value) => value;
+  }
+
+  const normalizedManagedCwd = normalize(managedCwd);
+  const replacements = new Set([managedCwd, normalizedManagedCwd]);
+  return (value) => replaceManagedPathInPayload(value, replacements, projectWorkspaceDir);
+}
+
+function replaceManagedPathInPayload(
+  value: unknown,
+  managedPaths: Set<string>,
+  replacement: string,
+): unknown {
+  if (typeof value === 'string') {
+    let next = value;
+    for (const managedPath of managedPaths) {
+      if (managedPath) {
+        next = next.split(managedPath).join(replacement);
+      }
+    }
+    return next;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => replaceManagedPathInPayload(item, managedPaths, replacement));
+  }
+
+  if (!isRecord(value)) {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      key,
+      replaceManagedPathInPayload(entry, managedPaths, replacement),
+    ]),
+  );
 }
 
 function shouldStopAfterUserInputAsk(projected: ProjectedAcpEvent, sawInlineQuestionForm: boolean): boolean {
