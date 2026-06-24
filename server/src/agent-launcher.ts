@@ -1,11 +1,10 @@
 import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import {
-  MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
   type AgentEvent as AcpAgentEvent,
   type AgentRunInput as AcpAgentRunInput,
   type AgentRunMessage as AcpAgentRunMessage,
-  isManagedAgentInvocationProviderId,
+  type ManagedAgentRunContext,
 } from '@tutti-os/agent-acp-kit';
 import type { AgentEvent } from './claude-stream.js';
 import { DEFAULT_AGENT_ID, type AgentRegistry } from './agents.js';
@@ -21,7 +20,6 @@ import {
 } from './conversations.js';
 import { composeSystemPrompt, type ComposeInput } from './prompts/system.js';
 import { localAgentRuntime } from './local-agent-runtime.js';
-import { createManagedAgentInvocation } from './managed-agent-invocation.js';
 import { findSkillById, listSkills, type SkillInfo } from './skills.js';
 import {
   readAvailableDesignSystemDetail,
@@ -37,7 +35,6 @@ export interface AgentRunRequest {
 export interface AgentRunPaths {
   projectsDir: string;
   appDataDir?: string;
-  agentRunsDir?: string;
   userSkillsRoot: string;
   builtInSkillsRoot: string;
   userDesignSystemsRoot?: string;
@@ -56,7 +53,7 @@ export interface StartAgentRunInput {
   paths: AgentRunPaths;
   registry?: AgentRegistry;
   agentRuntime?: LocalAgentRuntime;
-  createRunDirectory?: typeof createAgentRunDirectory;
+  managedAgentRunContext?: ManagedAgentRunContext;
 }
 
 const defaultAgentRuntime: LocalAgentRuntime = localAgentRuntime;
@@ -65,15 +62,12 @@ const MAX_AGENT_STDERR_REASON_CHARS = 4_000;
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_HISTORY_MESSAGE_CHARS = 6_000;
 const VIBE_CODEX_HOME_DIR_NAME = 'codex-home';
-const AGENT_RUNS_DIR_NAME = '.vibe-agent-runs';
 
 export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   const { run, runs, request, paths } = input;
   const registry = input.registry ?? defaultAgentRegistry;
   const agentRuntime = input.agentRuntime ?? defaultAgentRuntime;
   const agentId = readString(request.agentId) ?? run.agentId ?? DEFAULT_AGENT_ID;
-  const managedAgentInvocationCredential = readString(run.managedAgentInvocationCredential);
-  run.managedAgentInvocationCredential = null;
   const agent = registry.getAgentDef(agentId);
 
   if (!agent) {
@@ -90,19 +84,8 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   const projectId = readString(request.projectId) ?? run.projectId;
   const projectWorkspaceDir = projectId ? join(paths.projectsDir, projectId) : paths.projectsDir;
   await mkdir(projectWorkspaceDir, { recursive: true });
-  const managed = Boolean(managedAgentInvocationCredential) &&
-    isManagedAgentInvocationProviderId(agentId);
-  const runDirectory = await (input.createRunDirectory ?? createAgentRunDirectory)({
-    agentId,
-    runId: run.id,
-    managed,
-    projectWorkspaceDir,
-    agentRunsDir: resolveAgentRunsDir(paths),
-  });
-  const cwd = runDirectory.cwd;
-  const managedAgentInvocation = managed
-    ? createManagedAgentInvocation(managedAgentInvocationCredential, cwd)
-    : undefined;
+  const managedAgentInvocation = input.managedAgentRunContext?.managedAgentInvocation;
+  const cwd = input.managedAgentRunContext?.cwd ?? projectWorkspaceDir;
 
   const locale = readString(request.locale) ?? undefined;
   const skill = await resolveRequestedSkill(request, paths);
@@ -136,8 +119,6 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   const agentRunEnv = buildAgentRunEnv({
     agentId,
     appDataDir: resolveAgentAppDataDir(paths),
-    managedAgentInvocationCredential,
-    useManagedAgentInvocation: Boolean(managedAgentInvocation),
   });
 
   run.status = 'running';
@@ -334,71 +315,22 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
 
     runs.fail(run, 'AGENT_EXECUTION_FAILED', error instanceof Error ? error.message : String(error));
   } finally {
-    run.managedAgentInvocationCredential = null;
     run.acpSession = null;
   }
-}
-
-export interface AgentRunDirectory {
-  cwd: string;
-}
-
-export async function createAgentRunDirectory(input: {
-  agentId: string;
-  runId: string;
-  managed: boolean;
-  projectWorkspaceDir: string;
-  agentRunsDir?: string;
-  mkdirRunDir?: (path: string) => Promise<void>;
-}): Promise<AgentRunDirectory> {
-  if (!input.managed) {
-    return {
-      cwd: input.projectWorkspaceDir,
-    };
-  }
-
-  const mkdirRunDir = input.mkdirRunDir ?? ((path: string) => mkdir(path, { recursive: true }).then(() => undefined));
-  const runDir = createAgentRunCwd(
-    input.agentId,
-    input.runId,
-    input.agentRunsDir ?? join(dirname(input.projectWorkspaceDir), AGENT_RUNS_DIR_NAME),
-  );
-  await mkdirRunDir(runDir);
-  return {
-    cwd: runDir,
-  };
-}
-
-function createAgentRunCwd(agentId: string, runId: string, runsDir: string): string {
-  return join(runsDir, `${safeRunDirSegment(agentId)}-${safeRunDirSegment(runId)}`);
-}
-
-function resolveAgentRunsDir(paths: AgentRunPaths): string {
-  return paths.agentRunsDir ?? join(resolveAgentAppDataDir(paths), AGENT_RUNS_DIR_NAME);
 }
 
 function resolveAgentAppDataDir(paths: AgentRunPaths): string {
   return paths.appDataDir ?? dirname(paths.projectsDir);
 }
 
-function safeRunDirSegment(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]/g, '_');
-}
-
 function buildAgentRunEnv(input: {
   agentId: string;
   appDataDir: string;
-  managedAgentInvocationCredential: string | null;
-  useManagedAgentInvocation: boolean;
 }): Record<string, string> | undefined {
   const env: Record<string, string> = {};
   const codexHome = resolveVibeCodexHome(input.appDataDir);
   if (input.agentId === 'codex' && codexHome) {
     env.CODEX_HOME = codexHome;
-  }
-
-  if (input.managedAgentInvocationCredential && !input.useManagedAgentInvocation) {
-    env[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV] = input.managedAgentInvocationCredential;
   }
 
   return Object.keys(env).length > 0 ? env : undefined;

@@ -18,8 +18,6 @@ import { IChatSessionService } from './services/chat-session/chat-session-servic
 import type { ChatSessionSnapshot, SendTurnInput } from './services/chat-session/chat-session-types';
 import { IChatTimelineService } from './services/chat-timeline/chat-timeline-service.interface';
 import type { ChatTimelineSnapshot, GeneratedFileEntry } from './services/chat-timeline/chat-timeline-types';
-import { getManagedAgentInvocationCredential } from './services/managed-agent/managed-agent-credential';
-import { MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER } from './services/managed-agent/managed-agent-constants';
 import type {
   ChatComposerAgentAvailability,
   ChatComposerAgentModelCatalogEntry,
@@ -697,10 +695,7 @@ async function installClaudeCodeAgent(): Promise<ChatComposerAgentAvailability[]
 }
 
 async function fetchAgentModelCatalog(): Promise<ChatComposerAgentModelCatalogEntry[]> {
-  const credential = await getManagedAgentInvocationCredential();
-  const response = await fetch('/api/agents/models', {
-    ...(credential ? { headers: { [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: credential } } : {}),
-  });
+  const response = await fetch('/api/agents/models');
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {

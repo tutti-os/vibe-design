@@ -10,7 +10,6 @@ export interface CreateRunInput {
   commentAttachments?: CanvasCommentAttachment[];
   context?: RunContextSelection;
   messageContext?: ChatMessageContext;
-  managedAgentInvocationCredential?: string;
 }
 
 export interface CreateRunResult {

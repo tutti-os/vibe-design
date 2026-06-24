@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
   MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER,
   type DetectContext,
+  type ManagedAgentRunContext,
 } from '@tutti-os/agent-acp-kit';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServer, resolveRuntimeConfig } from './main';
@@ -48,6 +48,7 @@ type TestCreateServer = (options?: {
     run: ChatRun;
     runs: ChatRunService;
     request: Record<string, unknown>;
+    managedAgentRunContext?: ManagedAgentRunContext;
   }) => Promise<void> | void;
 }) => Server;
 
@@ -372,7 +373,7 @@ describe('createServer', () => {
     const html = await response.text();
 
     expect(response.status).toBe(200);
-    expect(observedContexts[0]?.env?.[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).toBe('credential-ssr-1');
+    expect(observedContexts[0]?.env).not.toHaveProperty('TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL');
     expect(observedContexts[0]?.managedAgentInvocation).toEqual({
       credential: 'credential-ssr-1',
       cwd: runtimeRoot,
@@ -515,7 +516,7 @@ describe('createServer', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(observedContexts[0]?.env?.[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).toBe('credential-models-1');
+    expect(observedContexts[0]?.env).not.toHaveProperty('TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL');
     expect(observedContexts[0]?.managedAgentInvocation).toEqual({
       credential: 'credential-models-1',
       cwd: runtimeRoot,
@@ -875,7 +876,6 @@ describe('createServer', () => {
       toolBundle: {
         id: 'media-tools',
       },
-      managedAgentInvocationCredential: 'credential-cli-1',
     });
 
     expect(started.status).toBe(200);
@@ -893,7 +893,7 @@ describe('createServer', () => {
       expect.objectContaining({ role: 'user', content: 'Use the uploaded reference image.' }),
     );
     await expect(readFile(join(testRuntimeDir, 'projects', projectId, 'assets', 'reference.png'), 'utf8')).resolves.toBe('local-image-bytes');
-    expect(startedRuns[0]?.managedAgentInvocationCredential).toBe('credential-cli-1');
+    expect(startedRuns[0]).not.toHaveProperty('managedAgentInvocationCredential');
     expect(startedRequests[0]).not.toHaveProperty('managedAgentInvocationCredential');
     expect(startedRequests).toEqual([
       expect.objectContaining({
@@ -1768,7 +1768,11 @@ describe('createServer', () => {
   });
 
   it('keeps managed agent invocation credentials out of starter requests and status responses', async () => {
-    const started: Array<{ run: ChatRun; request: Record<string, unknown> }> = [];
+    const started: Array<{
+      run: ChatRun;
+      request: Record<string, unknown>;
+      managedAgentRunContext?: ManagedAgentRunContext;
+    }> = [];
     const observedContexts: Array<DetectContext | undefined> = [];
     const runtimeRoot = await createRuntimeDir();
     const port = await listenOnRandomPort(
@@ -1781,8 +1785,8 @@ describe('createServer', () => {
             { id: 'claude', label: 'Claude Code', available: true },
           ];
         },
-        startAgentRun: ({ run, request }) => {
-          started.push({ run, request });
+        startAgentRun: ({ run, request, managedAgentRunContext }) => {
+          started.push({ run, request, managedAgentRunContext });
         },
       }),
     );
@@ -1791,34 +1795,45 @@ describe('createServer', () => {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-header-ignored',
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-header-1',
       },
       body: JSON.stringify({
         projectId: 'project-managed-agent',
         prompt: 'Build a small page',
         agentId: 'codex',
-        managedAgentInvocationCredential: 'credential-run-1',
+        managedAgentInvocationCredential: 'credential-run-body-ignored',
       }),
     });
 
     expect(createResponse.status).toBe(202);
     const created = await createResponse.json() as { runId: string };
     expect(started).toHaveLength(1);
-    expect(observedContexts[0]?.env?.[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).toBe('credential-run-1');
+    expect(observedContexts[0]?.env).not.toHaveProperty('TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL');
     expect(observedContexts[0]?.managedAgentInvocation).toEqual({
-      credential: 'credential-run-1',
+      credential: 'credential-header-1',
       cwd: runtimeRoot,
     });
-    expect(started[0]?.run.managedAgentInvocationCredential).toBe('credential-run-1');
+    expect(started[0]?.run).not.toHaveProperty('managedAgentInvocationCredential');
     expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
+    expect(started[0]?.managedAgentRunContext?.managedAgentInvocation).toEqual({
+      credential: 'credential-header-1',
+      cwd: started[0]?.managedAgentRunContext?.cwd,
+    });
+    expect(started[0]?.managedAgentRunContext?.cwd).toContain(join(runtimeRoot, '.agent-runs', 'codex-'));
 
     const statusResponse = await fetch(`http://127.0.0.1:${port}/api/runs/${created.runId}`);
     expect(statusResponse.status).toBe(200);
-    expect(JSON.stringify(await statusResponse.json())).not.toContain('credential-run-1');
+    const statusBody = JSON.stringify(await statusResponse.json());
+    expect(statusBody).not.toContain('credential-header-1');
+    expect(statusBody).not.toContain('credential-run-body-ignored');
   });
 
   it('uses managed agent invocation credentials from request headers when creating runs', async () => {
-    const started: Array<{ run: ChatRun; request: Record<string, unknown> }> = [];
+    const started: Array<{
+      run: ChatRun;
+      request: Record<string, unknown>;
+      managedAgentRunContext?: ManagedAgentRunContext;
+    }> = [];
     const observedContexts: Array<DetectContext | undefined> = [];
     const runtimeRoot = await createRuntimeDir();
     const port = await listenOnRandomPort(
@@ -1830,8 +1845,8 @@ describe('createServer', () => {
             { id: 'codex', label: 'Codex', available: true },
           ];
         },
-        startAgentRun: ({ run, request }) => {
-          started.push({ run, request });
+        startAgentRun: ({ run, request, managedAgentRunContext }) => {
+          started.push({ run, request, managedAgentRunContext });
         },
       }),
     );
@@ -1852,20 +1867,25 @@ describe('createServer', () => {
     expect(createResponse.status).toBe(202);
     const created = await createResponse.json() as { runId: string };
     expect(started).toHaveLength(1);
-    expect(observedContexts[0]?.env?.[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).toBe('credential-run-header-1');
+    expect(observedContexts[0]?.env).not.toHaveProperty('TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL');
     expect(observedContexts[0]?.managedAgentInvocation).toEqual({
       credential: 'credential-run-header-1',
       cwd: runtimeRoot,
     });
-    expect(started[0]?.run.managedAgentInvocationCredential).toBe('credential-run-header-1');
+    expect(started[0]?.run).not.toHaveProperty('managedAgentInvocationCredential');
     expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
+    expect(started[0]?.managedAgentRunContext?.managedAgentInvocation).toEqual({
+      credential: 'credential-run-header-1',
+      cwd: started[0]?.managedAgentRunContext?.cwd,
+    });
+    expect(started[0]?.managedAgentRunContext?.cwd).toContain(join(runtimeRoot, '.agent-runs', 'codex-'));
 
     const statusResponse = await fetch(`http://127.0.0.1:${port}/api/runs/${created.runId}`);
     expect(statusResponse.status).toBe(200);
     expect(JSON.stringify(await statusResponse.json())).not.toContain('credential-run-header-1');
   });
 
-  it('keeps managed agent invocation credentials out of legacy chat starter requests', async () => {
+  it('ignores legacy chat body managed agent invocation credentials', async () => {
     const started: Array<{ run: ChatRun; request: Record<string, unknown> }> = [];
     const port = await listenOnRandomPort(
       createTestServer({
@@ -1884,20 +1904,24 @@ describe('createServer', () => {
         projectId: 'project-managed-agent-chat',
         prompt: 'Build a small page',
         agentId: 'codex',
-        managedAgentInvocationCredential: 'credential-chat-1',
+        managedAgentInvocationCredential: 'credential-chat-body-ignored',
       }),
     });
     const streamText = await response.text();
 
     expect(response.status).toBe(200);
     expect(started).toHaveLength(1);
-    expect(started[0]?.run.managedAgentInvocationCredential).toBe('credential-chat-1');
+    expect(started[0]?.run).not.toHaveProperty('managedAgentInvocationCredential');
     expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
-    expect(streamText).not.toContain('credential-chat-1');
+    expect(streamText).not.toContain('credential-chat-body-ignored');
   });
 
   it('uses managed agent invocation credentials from request headers for legacy chat', async () => {
-    const started: Array<{ run: ChatRun; request: Record<string, unknown> }> = [];
+    const started: Array<{
+      run: ChatRun;
+      request: Record<string, unknown>;
+      managedAgentRunContext?: ManagedAgentRunContext;
+    }> = [];
     const observedContexts: Array<DetectContext | undefined> = [];
     const runtimeRoot = await createRuntimeDir();
     const port = await listenOnRandomPort(
@@ -1909,8 +1933,8 @@ describe('createServer', () => {
             { id: 'codex', label: 'Codex', available: true },
           ];
         },
-        startAgentRun: ({ run, runs, request }) => {
-          started.push({ run, request });
+        startAgentRun: ({ run, runs, request, managedAgentRunContext }) => {
+          started.push({ run, request, managedAgentRunContext });
           runs.finish(run, 'succeeded');
         },
       }),
@@ -1932,13 +1956,18 @@ describe('createServer', () => {
 
     expect(response.status).toBe(200);
     expect(started).toHaveLength(1);
-    expect(observedContexts[0]?.env?.[MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]).toBe('credential-chat-header-1');
+    expect(observedContexts[0]?.env).not.toHaveProperty('TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL');
     expect(observedContexts[0]?.managedAgentInvocation).toEqual({
       credential: 'credential-chat-header-1',
       cwd: runtimeRoot,
     });
-    expect(started[0]?.run.managedAgentInvocationCredential).toBe('credential-chat-header-1');
+    expect(started[0]?.run).not.toHaveProperty('managedAgentInvocationCredential');
     expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
+    expect(started[0]?.managedAgentRunContext?.managedAgentInvocation).toEqual({
+      credential: 'credential-chat-header-1',
+      cwd: started[0]?.managedAgentRunContext?.cwd,
+    });
+    expect(started[0]?.managedAgentRunContext?.cwd).toContain(join(runtimeRoot, '.agent-runs', 'codex-'));
     expect(streamText).not.toContain('credential-chat-header-1');
   });
 

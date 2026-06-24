@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV } from '@tutti-os/agent-acp-kit';
 import {
-  createAgentRunDirectory,
   startAgentRun,
   type LocalAgentRuntime,
 } from './agent-launcher.js';
@@ -39,10 +38,6 @@ const codexDef: RuntimeAgentDef = {
 };
 
 type RuntimeInput = Parameters<LocalAgentRuntime['run']>[0];
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 function createRecordingRuntime(
   events: Array<{ type: string; [key: string]: unknown }> = [{ type: 'done', status: 'completed', exitCode: 0 }],
@@ -248,26 +243,6 @@ describe('startAgentRun', () => {
     }
   });
 
-  it('uses the configured app data run directory for managed runs', async () => {
-    const createdDirs: string[] = [];
-
-    const runDirectory = await createAgentRunDirectory({
-      agentId: 'codex',
-      runId: 'run:1',
-      managed: true,
-      projectWorkspaceDir: '/app-data/projects/project-1',
-      agentRunsDir: '/app-data/.vibe-agent-runs',
-      mkdirRunDir: async (path) => {
-        createdDirs.push(path);
-      },
-    });
-
-    expect(runDirectory).toEqual({
-      cwd: '/app-data/.vibe-agent-runs/codex-run_1',
-    });
-    expect(createdDirs).toEqual(['/app-data/.vibe-agent-runs/codex-run_1']);
-  });
-
   it('runs managed agents from app-data and passes managed invocation metadata', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     const previousDataDir = process.env.TUTTI_APP_DATA_DIR;
@@ -288,9 +263,9 @@ describe('startAgentRun', () => {
       const run = runs.create({
         projectId: 'project-1',
         agentId: 'codex',
-        managedAgentInvocationCredential: 'credential-run-1',
       });
       const runtime = createRecordingRuntime();
+      const managedRunCwd = join(appDataDir, '.agent-runs', 'codex-run-1');
 
       await startAgentRun({
         run,
@@ -303,14 +278,18 @@ describe('startAgentRun', () => {
         paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
         registry: createAgentRegistry([codexDef]),
         agentRuntime: runtime,
+        managedAgentRunContext: {
+          cwd: managedRunCwd,
+          managedAgentInvocation: {
+            credential: 'credential-run-1',
+            cwd: managedRunCwd,
+          },
+        },
       });
 
       expect(runtime.inputs).toHaveLength(1);
-      const expectedRunCwd = expect.stringMatching(
-        new RegExp(`^${escapeRegExp(join(appDataDir, '.vibe-agent-runs', 'codex-'))}[a-zA-Z0-9._-]+$`),
-      );
       expect(runtime.inputs[0]).toMatchObject({
-        cwd: expectedRunCwd,
+        cwd: managedRunCwd,
         env: {
           CODEX_HOME: join(appDataDir, 'codex-home'),
         },
@@ -320,7 +299,7 @@ describe('startAgentRun', () => {
         credential: 'credential-run-1',
         cwd: runtime.inputs[0]?.cwd,
       });
-      expect(run.managedAgentInvocationCredential).toBeNull();
+      expect(run).not.toHaveProperty('managedAgentInvocationCredential');
       expect(JSON.stringify(run.events)).not.toContain('credential-run-1');
     } finally {
       if (previousDataDir === undefined) {
@@ -351,7 +330,6 @@ describe('startAgentRun', () => {
       const run = runs.create({
         projectId: 'project-1',
         agentId: 'codex',
-        managedAgentInvocationCredential: 'credential-run-1',
       });
       const runtime = createRecordingRuntime();
 
@@ -366,7 +344,13 @@ describe('startAgentRun', () => {
         paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
         registry: createAgentRegistry([codexDef]),
         agentRuntime: runtime,
-        createRunDirectory: async () => ({ cwd: unmappedRunDir }),
+        managedAgentRunContext: {
+          cwd: unmappedRunDir,
+          managedAgentInvocation: {
+            credential: 'credential-run-1',
+            cwd: unmappedRunDir,
+          },
+        },
       });
 
       expect(runtime.inputs).toHaveLength(1);
@@ -381,7 +365,7 @@ describe('startAgentRun', () => {
         credential: 'credential-run-1',
         cwd: unmappedRunDir,
       });
-      expect(run.managedAgentInvocationCredential).toBeNull();
+      expect(run).not.toHaveProperty('managedAgentInvocationCredential');
       expect(JSON.stringify(run.events)).not.toContain('credential-run-1');
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -1520,9 +1504,9 @@ describe('startAgentRun', () => {
       const run = runs.create({
         projectId: 'project-1',
         agentId: 'codex',
-        managedAgentInvocationCredential: 'credential-run-1',
       });
       const runtime = createRecordingRuntime();
+      const managedRunCwd = join(appDataDir, '.agent-runs', 'codex-run-1');
 
       await startAgentRun({
         run,
@@ -1538,11 +1522,17 @@ describe('startAgentRun', () => {
         paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
         registry: createAgentRegistry([codexDef]),
         agentRuntime: runtime,
-        createRunDirectory: async () => ({ cwd: join(appDataDir, '.vibe-agent-runs', 'codex-run-1') }),
+        managedAgentRunContext: {
+          cwd: managedRunCwd,
+          managedAgentInvocation: {
+            credential: 'credential-run-1',
+            cwd: managedRunCwd,
+          },
+        },
       });
 
       const prompt = runtime.inputs[0]?.prompt ?? '';
-      expect(runtime.inputs[0]?.cwd).toBe(join(appDataDir, '.vibe-agent-runs', 'codex-run-1'));
+      expect(runtime.inputs[0]?.cwd).toBe(managedRunCwd);
       expect(runtime.inputs[0]?.managedAgentInvocation).toEqual({
         credential: 'credential-run-1',
         cwd: runtime.inputs[0]?.cwd,

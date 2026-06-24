@@ -154,7 +154,6 @@ export function createChatRunService(options: CreateChatRunServiceOptions): Chat
       agentId: readString(meta.agentId),
       providerSessionId: readString(meta.providerSessionId),
       resumeToken: readString(meta.resumeToken),
-      managedAgentInvocationCredential: readString(meta.managedAgentInvocationCredential),
       appliedPluginSnapshotId: readString(meta.appliedPluginSnapshotId),
       pluginId: readString(meta.pluginId),
       mediaExecution: meta.mediaExecution ?? null,

@@ -3,9 +3,10 @@ import { readFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV,
-  getManagedAgentInvocationCredentialFromHeaders,
+  createManagedAgentDetectContextFromHeaders,
+  createManagedAgentRunContextFromHeaders,
   type DetectContext,
+  type ManagedAgentRunContext,
 } from '@tutti-os/agent-acp-kit';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { isProjectId, type ProjectEditorInitialData, type VibeDesignRoute } from '@vibe-design/web';
@@ -67,7 +68,6 @@ import {
 import { registerReferencesRoutes } from './routes/references-routes.js';
 import { registerSkillsRoutes } from './routes/skills-routes.js';
 import { createChatRunService } from './runs.js';
-import { createManagedAgentInvocation } from './managed-agent-invocation.js';
 import {
   listProjectFilesFromStore,
   sqlitePathForProjectsDir,
@@ -132,7 +132,6 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   const userDataDir = process.env.TUTTI_APP_DATA_DIR ?? runtimeDir;
   const projectsDir = join(runtimeDir, 'projects');
   const runsLogDir = join(runtimeDir, 'runs');
-  const agentRunsDir = join(runtimeDir, '.vibe-agent-runs');
   const detectAgentAvailability = options.detectAgentAvailability ?? detectLocalAgentAvailability;
   const detectAgentModelCatalog = options.detectAgentModelCatalog ?? detectLocalAgentModelCatalog;
   const cachedAgentAvailability = createCachedAgentAvailabilityDetector(detectAgentAvailability);
@@ -238,7 +237,6 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       runtimeDir,
       projectsDir,
       runsLogDir,
-      agentRunsDir,
       userSkillsRoot: options.userSkillsRoot ?? process.env.VIBE_USER_SKILLS_DIR ?? join(userDataDir, 'skills'),
       builtInSkillsRoot: options.builtInSkillsRoot ?? process.env.VIBE_BUILTIN_SKILLS_DIR ?? join(REPO_ROOT, 'skills'),
       userDesignSystemsRoot:
@@ -264,7 +262,11 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     sendApiError(res, 403, 'FORBIDDEN_ORIGIN', 'cross-origin API writes are not allowed');
   });
 
-  function startRunFromRequest(run: ChatRun, request: Record<string, unknown>): Promise<void> | void {
+  function startRunFromRequest(
+    run: ChatRun,
+    request: Record<string, unknown>,
+    managedAgentRunContext?: ManagedAgentRunContext,
+  ): Promise<void> | void {
     const runner = options.startAgentRun ?? startAgentRun;
     return runner({
       run,
@@ -273,16 +275,19 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       paths: {
         projectsDir,
         appDataDir: runtimeDir,
-        agentRunsDir,
         userSkillsRoot: ctx.paths.userSkillsRoot,
         builtInSkillsRoot: ctx.paths.builtInSkillsRoot,
         userDesignSystemsRoot: ctx.paths.userDesignSystemsRoot,
         builtInDesignSystemsRoot: ctx.paths.builtInDesignSystemsRoot,
       },
+      managedAgentRunContext,
     });
   }
 
-  async function preparePersistentRunBody(body: Record<string, unknown>): Promise<PersistentRunBodyResult> {
+  async function preparePersistentRunBody(
+    body: Record<string, unknown>,
+    detectContext?: DetectContext,
+  ): Promise<PersistentRunBodyResult> {
     const projectId = readString(body.projectId);
     if (!projectId || !isSafeProjectId(projectId)) {
       return { ok: false, status: 400, code: 'BAD_REQUEST', message: 'projectId is required and must be path-safe' };
@@ -295,9 +300,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
 
     const requestedProvider = readString(body.agentId) ?? DEFAULT_AGENT_ID;
     const unavailableAgent = findUnavailableAgent(
-      await cachedAgentAvailability.detect(
-        createManagedAgentDetectContext(readManagedAgentInvocationCredentialBody(body), runtimeDir),
-      ),
+      await cachedAgentAvailability.detect(detectContext),
       requestedProvider,
     );
     if (unavailableAgent) {
@@ -483,10 +486,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const localAttachments = localFileResult.attachments;
 
     const requestedProvider = readString(body.agentId) ?? DEFAULT_AGENT_ID;
-    const detectContext = createManagedAgentDetectContext(
-      readManagedAgentInvocationCredentialBody(body),
-      runtimeDir,
-    );
+    const detectContext = undefined;
 
     // Pre-session fallback: if we can already tell the requested provider (codex) is unavailable
     // and Claude Code is ready, switch before creating the run instead of failing the call.
@@ -758,12 +758,10 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       return;
     }
 
-    const requestBody = withManagedAgentInvocationCredentialFallback(
-      body,
-      readManagedAgentInvocationCredentialHeader(req),
-    );
+    const requestBody = body;
+    const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
 
-    const persistentBodyResult = await preparePersistentRunBody(requestBody);
+    const persistentBodyResult = await preparePersistentRunBody(requestBody, detectContext);
     if (!persistentBodyResult.ok) {
       sendPersistentRunBodyError(res, persistentBodyResult);
       return;
@@ -771,6 +769,11 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const persistentBody = persistentBodyResult.body;
 
     const run = runs.create(createRunMeta(persistentBody));
+    const managedAgentRunContext = await createManagedAgentRunContextFromHeaders(req.headers, {
+      providerId: readString(persistentBody.agentId) ?? DEFAULT_AGENT_ID,
+      runId: run.id,
+      appDataDir: runtimeDir,
+    });
     await persistRunMessages(persistentBody, run);
     res.status(202).json({
       runId: run.id,
@@ -779,7 +782,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       provider: run.agentId,
     });
     runs.start(run, (startedRun) => (
-      startRunFromRequest(startedRun, withoutManagedAgentInvocationCredential(persistentBody))
+      startRunFromRequest(startedRun, persistentBody, managedAgentRunContext)
     ));
   });
 
@@ -795,12 +798,10 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       return;
     }
 
-    const requestBody = withManagedAgentInvocationCredentialFallback(
-      body,
-      readManagedAgentInvocationCredentialHeader(req),
-    );
+    const requestBody = body;
+    const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
 
-    const persistentBodyResult = await preparePersistentRunBody(requestBody);
+    const persistentBodyResult = await preparePersistentRunBody(requestBody, detectContext);
     if (!persistentBodyResult.ok) {
       sendPersistentRunBodyError(res, persistentBodyResult);
       return;
@@ -808,16 +809,21 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const persistentBody = persistentBodyResult.body;
 
     const run = runs.create(createRunMeta(persistentBody));
+    const managedAgentRunContext = await createManagedAgentRunContextFromHeaders(req.headers, {
+      providerId: readString(persistentBody.agentId) ?? DEFAULT_AGENT_ID,
+      runId: run.id,
+      appDataDir: runtimeDir,
+    });
     await persistRunMessages(persistentBody, run);
     runs.stream(run, req, res);
     runs.start(run, (startedRun) => (
-      startRunFromRequest(startedRun, withoutManagedAgentInvocationCredential(persistentBody))
+      startRunFromRequest(startedRun, persistentBody, managedAgentRunContext)
     ));
   });
 
   app.get('/api/agents/models', async (req: Request, res: Response): Promise<void> => {
     const modelCatalog = await cachedAgentModelCatalog.detect(
-      createManagedAgentDetectContext(readManagedAgentInvocationCredentialHeader(req), runtimeDir),
+      createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir }),
     );
     res.json({
       agents: modelCatalog.map((agent) => ({
@@ -833,10 +839,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   });
 
   app.post('/api/agents/claude/install', async (req: Request, res: Response): Promise<void> => {
-    const detectContext = createManagedAgentDetectContext(
-      readManagedAgentInvocationCredentialHeader(req),
-      runtimeDir,
-    );
+    const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
     const currentAvailability = await cachedAgentAvailability.detect(detectContext);
     const currentClaude = currentAvailability.find((agent) => agent.id === 'claude');
     if (currentClaude?.available) {
@@ -959,7 +962,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       projectsDir,
       project,
       await cachedAgentAvailability.detect(
-        createManagedAgentDetectContext(readManagedAgentInvocationCredentialHeader(req), runtimeDir),
+        createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir }),
       ),
       runs,
     );
@@ -1768,50 +1771,10 @@ function createRunMeta(body: Record<string, unknown>): ChatRunCreateMeta {
     agentId: body.agentId ?? DEFAULT_AGENT_ID,
     providerSessionId: body.providerSessionId,
     resumeToken: body.resumeToken,
-    managedAgentInvocationCredential: body.managedAgentInvocationCredential,
     appliedPluginSnapshotId: body.appliedPluginSnapshotId,
     pluginId: body.pluginId,
     mediaExecution: body.mediaExecution,
     toolBundle: body.toolBundle,
-  };
-}
-
-function createManagedAgentDetectContext(credential: string | null, appDataDir: string): DetectContext | undefined {
-  if (!credential) {
-    return undefined;
-  }
-
-  const env = {
-    ...process.env,
-    TUTTI_APP_DATA_DIR: appDataDir,
-    [MANAGED_AGENT_INVOCATION_CREDENTIAL_ENV]: credential,
-  };
-
-  return {
-    env,
-    managedAgentInvocation: createManagedAgentInvocation(credential, appDataDir),
-  };
-}
-
-function readManagedAgentInvocationCredentialHeader(req: Request): string | null {
-  return readString(getManagedAgentInvocationCredentialFromHeaders(req.headers));
-}
-
-function readManagedAgentInvocationCredentialBody(body: Record<string, unknown>): string | null {
-  return readString(body.managedAgentInvocationCredential);
-}
-
-function withManagedAgentInvocationCredentialFallback(
-  body: Record<string, unknown>,
-  credential: string | null,
-): Record<string, unknown> {
-  if (readManagedAgentInvocationCredentialBody(body) || !credential) {
-    return body;
-  }
-
-  return {
-    ...body,
-    managedAgentInvocationCredential: credential,
   };
 }
 

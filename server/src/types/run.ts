@@ -27,7 +27,6 @@ export interface ChatRun {
   agentId: string | null;
   providerSessionId: string | null;
   resumeToken: string | null;
-  managedAgentInvocationCredential: string | null;
   appliedPluginSnapshotId: string | null;
   pluginId: string | null;
   mediaExecution: unknown;
@@ -60,7 +59,6 @@ export interface ChatRunCreateMeta {
   agentId?: unknown;
   providerSessionId?: unknown;
   resumeToken?: unknown;
-  managedAgentInvocationCredential?: unknown;
   appliedPluginSnapshotId?: unknown;
   pluginId?: unknown;
   mediaExecution?: unknown;

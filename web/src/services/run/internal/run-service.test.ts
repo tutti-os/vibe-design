@@ -21,46 +21,6 @@ describe('RunService', () => {
     expect(api.createRun).toHaveBeenCalledWith({ projectId: 'demo-project', prompt: 'hello' });
   });
 
-  it('adds a managed agent credential from the bridge when creating a run', async () => {
-    const api = {
-      createRun: vi.fn(async () => ({ runId: 'run-1' })),
-      streamRun: vi.fn(() => ({ dispose: vi.fn() })),
-      stopRun: vi.fn(async () => undefined),
-      submitToolResult: vi.fn(async () => undefined),
-    };
-    const service = new RunService(api, async () => 'credential-run-1');
-
-    await service.createRun({ projectId: 'demo-project', prompt: 'hello' });
-
-    expect(api.createRun).toHaveBeenCalledWith({
-      projectId: 'demo-project',
-      prompt: 'hello',
-      managedAgentInvocationCredential: 'credential-run-1',
-    });
-  });
-
-  it('does not replace an explicit managed agent credential when creating a run', async () => {
-    const api = {
-      createRun: vi.fn(async () => ({ runId: 'run-1' })),
-      streamRun: vi.fn(() => ({ dispose: vi.fn() })),
-      stopRun: vi.fn(async () => undefined),
-      submitToolResult: vi.fn(async () => undefined),
-    };
-    const service = new RunService(api, async () => 'credential-from-bridge');
-
-    await service.createRun({
-      projectId: 'demo-project',
-      prompt: 'hello',
-      managedAgentInvocationCredential: 'credential-explicit',
-    });
-
-    expect(api.createRun).toHaveBeenCalledWith({
-      projectId: 'demo-project',
-      prompt: 'hello',
-      managedAgentInvocationCredential: 'credential-explicit',
-    });
-  });
-
   it('streams through the API contract and disposes the active stream', () => {
     const disposable = { dispose: vi.fn() };
     const api = {

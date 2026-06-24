@@ -15,8 +15,8 @@ importers:
   server:
     dependencies:
       '@tutti-os/agent-acp-kit':
-        specifier: 0.2.3-beta.0
-        version: 0.2.3-beta.0
+        specifier: 0.2.3-beta.1
+        version: 0.2.3-beta.1
       '@vibe-design/web':
         specifier: workspace:*
         version: link:../web
@@ -1768,8 +1768,8 @@ packages:
   '@tiptap/starter-kit@3.24.0':
     resolution: {integrity: sha512-Ef4PCP96vcY2GonXN9J0M8iC6zvxPTmQlL/QZiCwuYqqnH/hNpYIjNSQdTndiDpxRKofa32Sr2HWktgEnL32Bg==}
 
-  '@tutti-os/agent-acp-kit@0.2.3-beta.0':
-    resolution: {integrity: sha512-99jc6CX+dfTtdKy+2XsdfM7I7bCrEqvrA04iQcVp1vlxoWiyIKn4CB1xaFne0dxbCxJ4F70vWwUy62PgYgSFsA==}
+  '@tutti-os/agent-acp-kit@0.2.3-beta.1':
+    resolution: {integrity: sha512-QH0XScWjPXvNWN4iUl1Kb4GfuWqAciSo1y6NILQ/PHq2GGcdAsqUtK+TvPCI6rumUM87nUG5/HcafNlcfikreg==}
 
   '@tutti-os/infra@0.1.0':
     resolution: {integrity: sha512-lywyLaQq+qTA+OizLZrjsZd6miidybpXph99BPg9bWIZcDE2T2Ux0vfTYj+yGGGB3kF6+bz1ZQf56tXKl9IdPw==}
@@ -4776,7 +4776,7 @@ snapshots:
       '@tiptap/extensions': 3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0)
       '@tiptap/pm': 3.24.0
 
-  '@tutti-os/agent-acp-kit@0.2.3-beta.0':
+  '@tutti-os/agent-acp-kit@0.2.3-beta.1':
     dependencies:
       '@anthropic-ai/claude-agent-sdk': 0.2.101(zod@4.4.3)
       zod: 4.4.3
