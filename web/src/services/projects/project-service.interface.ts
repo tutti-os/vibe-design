@@ -5,6 +5,8 @@ export interface CreateProjectInput {
   prompt: string;
   projectKind: string;
   designSystemId?: string | null;
+  agentId?: string;
+  model?: string;
 }
 
 export interface CreatedProject {
