@@ -1065,6 +1065,11 @@ function createCachedAgentAvailabilityDetector(detectAgentAvailability: DetectAg
 
   return {
     async detect(context?: DetectContext, options: CachedAgentDetectOptions = {}): Promise<AgentAvailability[]> {
+      const isManagedRequest = Boolean(context?.managedAgentInvocation);
+      if (isManagedRequest) {
+        return safeDetectAgentAvailability(detectAgentAvailability, context);
+      }
+
       if (!options.refresh) {
         if (cached) return cached;
         if (inFlight) return inFlight;
@@ -1100,6 +1105,11 @@ function createCachedAgentModelCatalogDetector(detectAgentModelCatalog: DetectAg
 
   return {
     async detect(context?: DetectContext): Promise<AgentModelCatalogEntry[]> {
+      const isManagedRequest = Boolean(context?.managedAgentInvocation);
+      if (isManagedRequest) {
+        return detectAgentModelCatalog(context).catch(() => fallbackAgentModelCatalog());
+      }
+
       if (cached) return cached;
       if (inFlight) return inFlight;
 

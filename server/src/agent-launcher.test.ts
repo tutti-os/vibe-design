@@ -301,6 +301,7 @@ describe('startAgentRun', () => {
       });
       expect(run).not.toHaveProperty('managedAgentInvocationCredential');
       expect(JSON.stringify(run.events)).not.toContain('credential-run-1');
+      expect(JSON.stringify(run.events)).not.toContain(managedRunCwd);
     } finally {
       if (previousDataDir === undefined) {
         delete process.env.TUTTI_APP_DATA_DIR;
@@ -367,6 +368,7 @@ describe('startAgentRun', () => {
       });
       expect(run).not.toHaveProperty('managedAgentInvocationCredential');
       expect(JSON.stringify(run.events)).not.toContain('credential-run-1');
+      expect(JSON.stringify(run.events)).not.toContain(unmappedRunDir);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

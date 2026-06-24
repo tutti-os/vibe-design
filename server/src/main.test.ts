@@ -382,7 +382,7 @@ describe('createServer', () => {
     expect(JSON.stringify(readInitialDataFromHtml(html))).not.toContain('credential-ssr-1');
   });
 
-  it('reuses the first managed agent availability detection result for project SSR', async () => {
+  it('does not reuse managed agent availability detection across credential headers', async () => {
     const runtimeRoot = await createRuntimeDir();
     let detectCalls = 0;
     writeProjectToStore(join(runtimeRoot, 'projects'), {
@@ -430,11 +430,16 @@ describe('createServer', () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(detectCalls).toBe(1);
+    expect(detectCalls).toBe(2);
     expect(readInitialDataFromHtml(await second.text())).toMatchObject({
       projectEditor: {
         agentAvailability: [
-          { id: 'codex', label: 'Codex', available: true },
+          {
+            id: 'codex',
+            label: 'Codex',
+            available: false,
+            unavailableReason: 'Unable to run codex --version: context canceled',
+          },
           { id: 'claude', label: 'Claude Code', available: true },
         ],
       },
@@ -524,7 +529,7 @@ describe('createServer', () => {
     expect(JSON.stringify(body)).not.toContain('credential-models-1');
   });
 
-  it('reuses the first managed agent model catalog detection result', async () => {
+  it('does not reuse managed agent model catalog detection across credential headers', async () => {
     let detectCalls = 0;
     const port = await listenOnRandomPort(
       createTestServer({
@@ -556,12 +561,12 @@ describe('createServer', () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(detectCalls).toBe(1);
+    expect(detectCalls).toBe(2);
     expect(await second.json()).toMatchObject({
       agents: [
         {
           id: 'codex',
-          models: [{ id: 'gpt-5.5', label: 'GPT-5.5' }],
+          models: [{ id: 'transient-fallback', label: 'Transient fallback' }],
         },
       ],
     });

@@ -85,7 +85,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   const projectWorkspaceDir = projectId ? join(paths.projectsDir, projectId) : paths.projectsDir;
   await mkdir(projectWorkspaceDir, { recursive: true });
   const managedAgentInvocation = input.managedAgentRunContext?.managedAgentInvocation;
-  const cwd = input.managedAgentRunContext?.cwd ?? projectWorkspaceDir;
+  const agentCwd = input.managedAgentRunContext?.cwd ?? projectWorkspaceDir;
 
   const locale = readString(request.locale) ?? undefined;
   const skill = await resolveRequestedSkill(request, paths);
@@ -106,7 +106,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     designSystemComponentsManifest: activeDesignSystem?.componentsManifest,
     designSystemFixtureHtml: activeDesignSystem?.fixtureHtml,
     designSystemImportMode: activeDesignSystem?.importMode,
-    projectWorkspaceDir: cwd,
+    projectWorkspaceDir,
   });
   const prompt = [
     userPrompt,
@@ -128,7 +128,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     agentId,
     provider: agentId,
     projectId,
-    cwd,
+    cwd: projectWorkspaceDir,
     runtime: 'agent-acp-kit',
   });
 
@@ -174,7 +174,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       const materializedFile = await materializeProjectFileContent(
         paths.projectsDir,
         projectId,
-        cwd,
+        projectWorkspaceDir,
         parsed.path,
         parsed.fullContent,
         parsed.mime,
@@ -201,7 +201,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     const agentRunInput: AcpAgentRunInput = {
       runId: run.id,
       provider: agentId,
-      cwd,
+      cwd: agentCwd,
       prompt,
       systemPrompt,
       ...(history.length > 0 ? { history } : {}),
@@ -215,7 +215,12 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
 
     for await (const event of agentRuntime.run(agentRunInput)) {
       if (event.type === 'file_write') {
-        const materializedFile = await materializeAcpFileWrite(paths.projectsDir, projectId, cwd, event.path);
+        const materializedFile = await materializeAcpFileWrite(
+          paths.projectsDir,
+          projectId,
+          projectWorkspaceDir,
+          event.path,
+        );
         if (materializedFile) {
           runs.emit(run, 'generated_file', {
             type: 'generated_file',
@@ -236,7 +241,12 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       }
 
       if (event.type === 'tool_call') {
-        const materializedFile = await materializeAcpWriteToolCall(paths.projectsDir, projectId, cwd, event);
+        const materializedFile = await materializeAcpWriteToolCall(
+          paths.projectsDir,
+          projectId,
+          projectWorkspaceDir,
+          event,
+        );
         if (materializedFile) {
           runs.emit(run, 'generated_file', {
             type: 'generated_file',
