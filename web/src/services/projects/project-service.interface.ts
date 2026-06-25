@@ -22,6 +22,7 @@ export interface CreatedProject {
 export interface IProjectService {
   readonly _serviceBrand: undefined;
   createProject(input: CreateProjectInput): Promise<CreatedProject>;
+  deleteProject(projectId: string): Promise<void>;
   updateProjectTabsState(projectId: string, tabsState: WorkspaceTabsState): Promise<void>;
   updateProjectTitle(projectId: string, title: string): Promise<CreatedProject>;
   updateProjectDesignSystem(projectId: string, designSystemId: string | null): Promise<CreatedProject>;
