@@ -1797,7 +1797,7 @@ function requestTuttiAppOpen(input: CliOpenAppInput): Promise<void> {
 }
 
 function isSafeAppOpenRoute(route: string): boolean {
-  return route.startsWith('/') && !route.startsWith('//') && !/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(route);
+  return route.startsWith('/') && !route.startsWith('//') && !route.includes('\\') && !/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(route);
 }
 
 function cliFailureDetail(stdout: string, stderr: string): string {

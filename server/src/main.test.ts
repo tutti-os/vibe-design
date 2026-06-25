@@ -754,6 +754,27 @@ describe('createServer', () => {
     expect(missingProject.body).toMatchObject({ error: { code: 'PROJECT_NOT_FOUND' } });
     expect(projectRowExists(testRuntimeDir, 'missing-project')).toBe(false);
 
+    const nonRoutableProjectId = 'client.v1';
+    writeProjectToStore(projectsDir, {
+      id: nonRoutableProjectId,
+      designSystemId: null,
+      createdAt: 3,
+      updatedAt: 3,
+      tabsState: { tabs: [], activeTabKey: null },
+      metadata: {
+        title: 'Client v1',
+        prompt: 'Existing project with a legacy id.',
+        projectKind: 'prototype',
+      },
+    });
+    const nonRoutableProject = await postCli(port, 'open', { 'project-id': nonRoutableProjectId });
+    expect(nonRoutableProject.status).toBe(400);
+    expect(nonRoutableProject.body).toMatchObject({ error: { code: 'BAD_REQUEST' } });
+    expect(openRequests).toEqual([
+      { route: '/' },
+      { projectId, route: `/project/${projectId}` },
+    ]);
+
     const conversations = await postCli(port, 'conversations', { 'project-id': projectId });
     expect(conversations.status).toBe(200);
     expect(conversations.body.value).toMatchObject({ conversations: [{ id: conversationId, title: 'Main thread' }] });

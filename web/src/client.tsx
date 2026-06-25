@@ -45,5 +45,5 @@ function registerLaunchIntentNavigation(): void {
 }
 
 function isSafeLaunchRoute(route: string): boolean {
-  return route.startsWith('/') && !route.startsWith('//') && !/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(route);
+  return route.startsWith('/') && !route.startsWith('//') && !route.includes('\\') && !/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(route);
 }

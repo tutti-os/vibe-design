@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Express, Request, Response } from 'express';
+import { isProjectId } from '@vibe-design/web';
 import { isSafeConversationId, listConversationMessages, listConversations } from '../conversations.js';
 import type { CliServiceResult, RouteDeps } from '../server-context.js';
 import {
@@ -31,7 +32,7 @@ export function registerCliRoutes(app: Express, ctx: CliRouteDeps): void {
 
   postCli('/tutti/cli/open', async (req: Request, res: Response) => {
     const input = cliInput(req.body);
-    const projectId = readOptionalSafeProjectId(res, input);
+    const projectId = readOptionalRoutableProjectId(res, input);
     if (projectId === null) return;
 
     if (projectId && !getProjectFromStore(ctx.paths.projectsDir, projectId)) {
@@ -148,15 +149,15 @@ function readRequiredSafeProjectId(res: Response, input: CliInput): string | nul
   return projectId;
 }
 
-function readOptionalSafeProjectId(res: Response, input: CliInput): string | null | undefined {
+function readOptionalRoutableProjectId(res: Response, input: CliInput): string | null | undefined {
   const rawProjectId = input['project-id'] ?? input.projectId;
   if (rawProjectId === undefined) {
     return undefined;
   }
 
   const projectId = readString(rawProjectId);
-  if (!projectId || !isSafeProjectId(projectId)) {
-    sendCliError(res, 400, 'BAD_REQUEST', 'project-id must be path-safe when provided');
+  if (!projectId || !isSafeProjectId(projectId) || !isProjectId(projectId)) {
+    sendCliError(res, 400, 'BAD_REQUEST', 'project-id must be routable and path-safe when provided');
     return null;
   }
 
