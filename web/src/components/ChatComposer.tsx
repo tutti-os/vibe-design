@@ -10,11 +10,8 @@ import { AtSign, Square } from 'lucide-react';
 import {
   Badge,
   Button,
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuTrigger,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -22,7 +19,6 @@ import {
 } from '@tutti-os/ui-system/components';
 import {
   CheckIcon,
-  ChevronDownIcon,
   CloseIcon,
   FileTextIcon,
   ImageFileIcon,
@@ -39,12 +35,14 @@ import { DesignSystemPickerDialog } from './DesignSystemPickerDialog';
 import {
   ComposerDesignSystemTrigger,
   ComposerIconButton,
+  ComposerModelPicker,
   ComposerModelProviderIcon,
-  ComposerModelTrigger,
   ComposerSendButton,
+  type ComposerModelGroup,
   type ComposerModelProvider,
 } from './ComposerControls';
 import { PromptInput, type PromptInputHandle } from './PromptInput';
+import { extractMentionQuery, removeActiveMentionToken } from './composer-mention';
 
 type ActiveModelProvider = 'codex' | 'claude-code';
 type ModelProvider = ComposerModelProvider;
@@ -853,23 +851,44 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
             <span className="composer-spacer" />
 
             <TooltipProvider delayDuration={120}>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <ComposerModelTrigger
-                    ariaLabel={t('chat.composer.modelProvider')}
-                    provider={modelProvider}
-                    providerLabel={selectedProviderLabel}
-                    modelLabel={selectedModelLabel}
-                  />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  className="composer-model-menu-content"
-                  align="end"
-                  side="top"
-                >
-                  {MODEL_PROVIDERS.map((provider) => renderModelProviderMenuEntry(provider))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <ComposerModelPicker
+                ariaLabel={t('chat.composer.modelProvider')}
+                groups={MODEL_PROVIDERS.flatMap((p): ComposerModelGroup[] => {
+                  if (!isActiveModelProvider(p.value)) return [];
+                  if (p.comingSoon) return [];
+                  if (unavailableReasonForProvider(p.value, agentAvailability)) return [];
+                  if (providerLocked && p.value !== lockedModelProvider) return [];
+                  return [{
+                    provider: p.value,
+                    providerLabel: p.label,
+                    models: modelOptionsForProvider(p.value, agentModelCatalog).map((m) => ({
+                      id: m.id,
+                      label: m.label,
+                      ...(m.description ? { description: m.description } : {}),
+                    })),
+                  }];
+                })}
+                selectedKey={selectedModel ? `${modelProvider}:${selectedModel}` : modelProvider}
+                selectedProvider={modelProvider}
+                selectedProviderLabel={selectedProviderLabel}
+                selectedModelLabel={selectedModelLabel}
+                menuClassName="composer-model-menu-content"
+                onSelect={(provider, modelId) => {
+                  if (modelId) {
+                    selectProviderModel(provider as ActiveModelProvider, modelId);
+                  } else {
+                    updateModelProvider(provider);
+                  }
+                }}
+                additionalItems={MODEL_PROVIDERS
+                  .filter((p) =>
+                    !isActiveModelProvider(p.value) ||
+                    p.comingSoon ||
+                    Boolean(unavailableReasonForProvider(p.value, agentAvailability)) ||
+                    (providerLocked && p.value !== lockedModelProvider)
+                  )
+                  .map((p) => renderModelProviderMenuEntry(p))}
+              />
             </TooltipProvider>
 
             {sendPending ? (
@@ -1201,14 +1220,3 @@ function CommentAttachmentChips({
   );
 }
 
-const ACTIVE_MENTION_QUERY_PATTERN = /[@＠]([^\s@＠]*)$/;
-const ACTIVE_MENTION_TOKEN_PATTERN = /[@＠][^\s@＠]*$/;
-
-function extractMentionQuery(value: string): string | null {
-  const match = ACTIVE_MENTION_QUERY_PATTERN.exec(value);
-  return match ? match[1] : null;
-}
-
-function removeActiveMentionToken(value: string): string {
-  return value.replace(ACTIVE_MENTION_TOKEN_PATTERN, '').trimEnd();
-}

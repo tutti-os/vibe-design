@@ -600,6 +600,7 @@ describe('VibeDesignApp', () => {
           updatedAt: 1,
         };
       },
+      async deleteProject() {},
     };
     const flow = createVibeDesignFlow({
       projectService,
@@ -710,6 +711,7 @@ describe('VibeDesignApp', () => {
           updatedAt: 1,
         };
       },
+      async deleteProject() {},
     };
     const flow = createVibeDesignFlow({
       projectService,
@@ -854,6 +856,7 @@ describe('VibeDesignApp', () => {
           updatedAt: 1,
         };
       },
+      async deleteProject() {},
     };
     const flow = createVibeDesignFlow({
       projectService,
@@ -959,6 +962,7 @@ describe('VibeDesignApp', () => {
           updatedAt: 1,
         };
       },
+      async deleteProject() {},
     };
     const flow = createVibeDesignFlow({
       projectService,
@@ -1094,6 +1098,7 @@ describe('VibeDesignApp', () => {
           updatedAt: 1,
         };
       },
+      async deleteProject() {},
     };
     const flow = createVibeDesignFlow({
       projectService,
@@ -1170,7 +1175,7 @@ describe('VibeDesignApp', () => {
     }
   });
 
-  it('does not stash the dashboard prompt as an initial chat prompt', async () => {
+  it('stashes the dashboard prompt as an initial chat prompt for project handoff', async () => {
     sessionStorage.clear();
     const projectService: IProjectService = {
       _serviceBrand: undefined,
@@ -1206,6 +1211,7 @@ describe('VibeDesignApp', () => {
           updatedAt: 1,
         };
       },
+      async deleteProject() {},
     };
     const flow = createVibeDesignFlow({
       projectService,
@@ -1226,7 +1232,7 @@ describe('VibeDesignApp', () => {
         fireEvent.click(submit!);
       });
 
-      expect(sessionStorage.getItem(pendingInitialPromptKey('project-handoff'))).toBeNull();
+      expect(sessionStorage.getItem(pendingInitialPromptKey('project-handoff'))).toBe('把这个需求带到项目里');
     } finally {
       sessionStorage.clear();
       cleanup(root, container);
@@ -1271,6 +1277,7 @@ describe('VibeDesignApp', () => {
           updatedAt: 1,
         };
       },
+      async deleteProject() {},
     };
     const flow = createVibeDesignFlow({
       projectService,
@@ -1384,6 +1391,7 @@ describe('VibeDesignApp', () => {
       updateProjectTabsState: vi.fn(),
       updateProjectTitle: vi.fn(),
       updateProjectDesignSystem: vi.fn(),
+      deleteProject: vi.fn(),
     };
     const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:dashboard-reference');
     const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
@@ -1463,6 +1471,7 @@ describe('VibeDesignApp', () => {
       updateProjectTabsState: vi.fn(),
       updateProjectTitle: vi.fn(),
       updateProjectDesignSystem: vi.fn(),
+      deleteProject: vi.fn(),
     };
     const flow = createVibeDesignFlow({
       projectService,
@@ -1480,13 +1489,13 @@ describe('VibeDesignApp', () => {
         fireEvent.click(modelTrigger);
       });
       await waitFor(() => {
-        expect(document.body.querySelector('[data-dashboard-model-option-id="claude:opus"]')).not.toBeNull();
+        expect(document.body.querySelector('[data-model-option-id="claude:opus"]')).not.toBeNull();
       });
       const codexDefaultOption = document.body
         .querySelector('[data-provider-models="codex"]')
-        ?.querySelector('[data-dashboard-model-option-id="default"]');
+        ?.querySelector('[data-model-option-id="default"]');
       expect(codexDefaultOption?.querySelector('.composer-model-menu-check svg')).not.toBeNull();
-      const claudeOption = document.body.querySelector<HTMLElement>('[data-dashboard-model-option-id="claude:opus"]');
+      const claudeOption = document.body.querySelector<HTMLElement>('[data-model-option-id="claude:opus"]');
       expect(claudeOption?.textContent).toContain('Opus 4.7');
       await act(async () => {
         claudeOption!.click();
@@ -1627,7 +1636,7 @@ describe('VibeDesignApp', () => {
     }
   });
 
-  it('clears a pending dashboard prompt without starting the project conversation', async () => {
+  it('replays a pending dashboard prompt as the first turn of a new project', async () => {
     sessionStorage.setItem(pendingInitialPromptKey('project-from-dashboard'), '自动发起这个对话');
     const sendTurn = vi.fn<(input: SendTurnInput) => Promise<void>>(async () => undefined);
     const flow = createVibeDesignFlow({
@@ -1649,9 +1658,53 @@ describe('VibeDesignApp', () => {
         await Promise.resolve();
       });
 
-      expect(sendTurn).not.toHaveBeenCalled();
+      expect(sendTurn).toHaveBeenCalledTimes(1);
+      expect(sendTurn.mock.calls[0]?.[0]).toMatchObject({ draft: '自动发起这个对话' });
       expect(sessionStorage.getItem(pendingInitialPromptKey('project-from-dashboard'))).toBeNull();
-      expect(container.textContent).not.toContain('自动发起这个对话');
+    } finally {
+      sessionStorage.clear();
+      cleanup(root, container);
+    }
+  });
+
+  it('re-applies pending dashboard skills before replaying the first turn', async () => {
+    sessionStorage.setItem(pendingInitialPromptKey('project-from-dashboard'), '带技能进项目');
+    sessionStorage.setItem(
+      'vibe-design:initial-project-skills:project-from-dashboard',
+      JSON.stringify(['skill-1']),
+    );
+    const sendTurn = vi.fn<(input: SendTurnInput) => Promise<void>>(async () => undefined);
+    const context = new ContextPickerService({
+      listSkills: async () => [{ id: 'skill-1', name: 'Hero Builder', description: 'Build hero sections' }],
+      listDesignFiles: async () => [],
+    });
+    const flow = createVibeDesignFlow({
+      route: { kind: 'project', projectId: 'project-from-dashboard' },
+      projectEditor: {
+        project: { id: 'project-from-dashboard', tabsState: { tabs: [], activeTabKey: null } },
+        files: [],
+        conversations: [{ id: 'conversation-1', title: 'New conversation', createdAt: 1, updatedAt: 1 }],
+        activeConversationId: 'conversation-1',
+        messages: [],
+      },
+      contextPickerService: context,
+      chatSessionService: createTestChatSessionService(sendTurn),
+    });
+
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      await waitFor(() => {
+        expect(sendTurn).toHaveBeenCalledTimes(1);
+      });
+
+      // The dashboard-selected skill is re-applied to the project's context picker
+      // so it rides along with the first run.
+      expect(context.getSnapshot().selectedSkills.map((skill) => skill.id)).toEqual(['skill-1']);
+      expect(sendTurn.mock.calls[0]?.[0]).toMatchObject({ draft: '带技能进项目' });
+      expect(
+        sessionStorage.getItem('vibe-design:initial-project-skills:project-from-dashboard'),
+      ).toBeNull();
     } finally {
       sessionStorage.clear();
       cleanup(root, container);
@@ -1783,6 +1836,7 @@ describe('VibeDesignApp', () => {
         };
       },
       updateProjectDesignSystem,
+      async deleteProject() {},
     };
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       Response.json({
@@ -1934,6 +1988,7 @@ describe('VibeDesignApp', () => {
         };
       },
       updateProjectDesignSystem,
+      async deleteProject() {},
     };
     const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;

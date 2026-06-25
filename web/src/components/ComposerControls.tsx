@@ -1,7 +1,14 @@
 import React from 'react';
 import { SwatchBook } from 'lucide-react';
 import { Button } from '@tutti-os/ui-system/components';
-import { ChevronDownIcon, LoadingIcon } from '@tutti-os/ui-system/icons';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@tutti-os/ui-system/components';
+import { CheckIcon, ChevronDownIcon, LoadingIcon } from '@tutti-os/ui-system/icons';
 
 export type ComposerModelProvider = 'codex' | 'claude-code' | 'tutti' | 'hermes' | 'openclaw';
 
@@ -155,5 +162,128 @@ export function ComposerSendButton({
         </span>
       ) : children}
     </Button>
+  );
+}
+
+export interface ComposerModelGroup {
+  provider: ComposerModelProvider;
+  providerLabel: string;
+  models: Array<{
+    id: string;
+    label: string | null;
+    description?: string;
+  }>;
+}
+
+export function ComposerModelPicker({
+  ariaLabel,
+  groups,
+  selectedKey,
+  selectedProvider,
+  selectedProviderLabel,
+  selectedModelLabel,
+  menuClassName,
+  onOpenMenu,
+  onSelect,
+  additionalItems,
+}: {
+  ariaLabel: string;
+  groups: ComposerModelGroup[];
+  selectedKey: string;
+  selectedProvider: ComposerModelProvider;
+  selectedProviderLabel: string;
+  selectedModelLabel: string | null;
+  menuClassName?: string;
+  onOpenMenu?: () => void;
+  onSelect: (provider: ComposerModelProvider, modelId: string) => void;
+  additionalItems?: React.ReactNode;
+}) {
+  return (
+    <DropdownMenu onOpenChange={(open) => { if (open) onOpenMenu?.(); }}>
+      <DropdownMenuTrigger asChild>
+        <ComposerModelTrigger
+          ariaLabel={ariaLabel}
+          provider={selectedProvider}
+          providerLabel={selectedProviderLabel}
+          modelLabel={selectedModelLabel}
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        className={menuClassName}
+        align="end"
+        side="top"
+      >
+        {groups.map((group) => {
+          if (group.models.length === 0) {
+            return (
+              <React.Fragment key={group.provider}>
+                <DropdownMenuItem
+                  className="composer-model-menu-item"
+                  data-provider-option={group.provider}
+                  onSelect={() => onSelect(group.provider, '')}
+                >
+                  <ComposerModelProviderIcon provider={group.provider} />
+                  <span>{group.providerLabel}</span>
+                </DropdownMenuItem>
+              </React.Fragment>
+            );
+          }
+
+          const hasModelLabels = group.models.some((m) => m.label !== null);
+
+          if (!hasModelLabels) {
+            return (
+              <React.Fragment key={group.provider}>
+                {group.models.map((model) => (
+                  <DropdownMenuItem
+                    className="composer-model-menu-item"
+                    key={`${group.provider}:${model.id}`}
+                    data-provider-option={group.provider}
+                    data-model-option-id={model.id}
+                    onSelect={() => onSelect(group.provider, model.id)}
+                  >
+                    <ComposerModelProviderIcon provider={group.provider} />
+                    <span>{group.providerLabel}</span>
+                  </DropdownMenuItem>
+                ))}
+              </React.Fragment>
+            );
+          }
+
+          return (
+            <React.Fragment key={group.provider}>
+              <DropdownMenuLabel
+                className="composer-model-provider-label"
+                data-provider-option={group.provider}
+              >
+                <ComposerModelProviderIcon provider={group.provider} />
+                <span>{group.providerLabel}</span>
+              </DropdownMenuLabel>
+              <div className="composer-model-provider-models" data-provider-models={group.provider}>
+                {group.models.map((model) => (
+                  <DropdownMenuItem
+                    className="composer-model-menu-item composer-model-menu-item--model"
+                    data-model-option-id={model.id}
+                    key={model.id}
+                    onSelect={() => onSelect(group.provider, model.id)}
+                  >
+                    <span className="composer-model-menu-check" aria-hidden>
+                      {selectedKey === `${group.provider}:${model.id}` ? <CheckIcon size={12} /> : null}
+                    </span>
+                    <span className="composer-model-menu-option-text">
+                      <span className="composer-model-menu-option-label">{model.label}</span>
+                      {model.description ? (
+                        <span className="composer-model-menu-option-description">{model.description}</span>
+                      ) : null}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </div>
+            </React.Fragment>
+          );
+        })}
+        {additionalItems}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

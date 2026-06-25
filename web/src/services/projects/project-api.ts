@@ -3,6 +3,7 @@ import type { WorkspaceTabsState } from '../../features/canvas-workspace';
 
 export interface ProjectApi {
   createProject(input: CreateProjectInput): Promise<CreatedProject>;
+  deleteProject(projectId: string): Promise<void>;
   updateProjectTabsState(projectId: string, tabsState: WorkspaceTabsState): Promise<void>;
   updateProjectTitle(projectId: string, title: string): Promise<CreatedProject>;
   updateProjectDesignSystem(projectId: string, designSystemId: string | null): Promise<CreatedProject>;
@@ -27,6 +28,17 @@ export class FetchProjectApi implements ProjectApi {
     }
 
     return project;
+  }
+
+  async deleteProject(projectId: string): Promise<void> {
+    const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error(readErrorMessage(data, 'Could not delete project.'));
+    }
   }
 
   async updateProjectTabsState(projectId: string, tabsState: WorkspaceTabsState): Promise<void> {
