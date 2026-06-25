@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
@@ -75,7 +76,7 @@ import {
   type StoredConversationMessage,
   type StoredProject,
 } from './sqlite-store.js';
-import type { CliServiceResult, ServerContext, SubmitToolResultResult } from './server-context.js';
+import type { CliOpenAppInput, CliServiceResult, ServerContext, SubmitToolResultResult } from './server-context.js';
 import type { ChatRun, ChatRunCreateMeta, ChatRunService, RunStatus } from './types/run.js';
 
 export interface CreateServerOptions {
@@ -88,6 +89,7 @@ export interface CreateServerOptions {
   detectAgentAvailability?: DetectAgentAvailability;
   detectAgentModelCatalog?: DetectAgentModelCatalog;
   installClaudeCode?: () => Promise<void>;
+  openApp?: (input: CliOpenAppInput) => Promise<void> | void;
 }
 
 type PersistentRunBodyResult =
@@ -112,6 +114,8 @@ const CHAT_UI_CSS_PATHS = [
   resolve(SERVER_DIR, '../../web/dist/assets/chat-ui.css'),
   resolve(REPO_ROOT, 'web/src/components/chat-ui.css'),
 ];
+const TUTTI_APP_OPEN_TIMEOUT_MS = 30_000;
+
 export function createServer(options: CreateServerOptions = {}): http.Server {
   const app = express();
   app.use(express.json({ limit: '50mb' }));
@@ -247,6 +251,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       submitToolResultToRun,
     },
     cli: {
+      openApp: openCliApp,
       createProject: createCliProject,
       updateProject: updateCliProject,
       startSession: startCliSession,
@@ -744,6 +749,28 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       code: 'INTERNAL',
       message: error instanceof Error ? error.message : fallbackMessage,
     };
+  }
+
+  async function openCliApp(input: CliOpenAppInput): Promise<CliServiceResult> {
+    try {
+      const opener = options.openApp ?? requestTuttiAppOpen;
+      await opener(input);
+      return {
+        ok: true,
+        value: {
+          openRequested: true,
+          route: input.route,
+          ...(input.projectId ? { projectId: input.projectId } : {}),
+        },
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        status: 503,
+        code: 'APP_OPEN_FAILED',
+        message: error instanceof Error ? error.message : 'app open failed',
+      };
+    }
   }
 
   app.post('/api/runs', async (req: Request, res: Response): Promise<void> => {
@@ -1696,6 +1723,85 @@ function readVisualMarkKind(value: unknown): string | null {
 
 function isAttachmentKind(value: unknown): value is 'file' | 'image' {
   return value === 'file' || value === 'image';
+}
+
+function requestTuttiAppOpen(input: CliOpenAppInput): Promise<void> {
+  if (!isSafeAppOpenRoute(input.route)) {
+    return Promise.reject(new Error('open route must be an origin-root route'));
+  }
+
+  const command = process.env.TUTTI_CLI?.trim();
+  if (!command) {
+    return Promise.reject(new Error('TUTTI_CLI is not configured'));
+  }
+
+  const appId = process.env.TUTTI_APP_ID?.trim();
+  if (!appId) {
+    return Promise.reject(new Error('TUTTI_APP_ID is not configured'));
+  }
+
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(command, ['--json', 'app', 'open', '--app-id', appId, '--route', input.route], {
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      child.kill('SIGKILL');
+      reject(new Error(`tutti app open timed out: ${cliFailureDetail(stdout, stderr)}`));
+    }, TUTTI_APP_OPEN_TIMEOUT_MS);
+
+    child.stdout?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+
+    child.stderr?.setEncoding('utf8');
+    child.stderr?.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+
+    child.once('error', (error) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeout);
+      reject(error);
+    });
+
+    child.once('close', (exitCode) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeout);
+      if (exitCode === 0) {
+        resolvePromise();
+        return;
+      }
+
+      reject(new Error(`tutti app open failed: ${cliFailureDetail(stdout, stderr)}`));
+    });
+  });
+}
+
+function isSafeAppOpenRoute(route: string): boolean {
+  return route.startsWith('/') && !route.startsWith('//') && !route.includes('\\') && !/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(route);
+}
+
+function cliFailureDetail(stdout: string, stderr: string): string {
+  return stderr.trim() || stdout.trim() || 'no output';
 }
 
 function isMutatingMethod(method: string): boolean {

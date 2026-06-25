@@ -44,6 +44,7 @@ type TestCreateServer = (options?: {
     models: Array<{ id: string; label: string; description?: string }>;
   }>>;
   installClaudeCode?: () => Promise<void>;
+  openApp?: (input: { route: string; projectId?: string }) => Promise<void> | void;
   startAgentRun?: (input: {
     run: ChatRun;
     runs: ChatRunService;
@@ -722,11 +723,57 @@ describe('createServer', () => {
       note: 'Make the headline sharper.',
     });
 
-    const port = await listenOnRandomPort(createTestServer({ runtimeDir: testRuntimeDir }));
+    const openRequests: Array<{ route: string; projectId?: string }> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: testRuntimeDir,
+        openApp: (input) => {
+          openRequests.push(input);
+        },
+      }),
+    );
 
     const projects = await postCli(port, 'projects');
     expect(projects.status).toBe(200);
     expect(projects.body.value).toMatchObject({ projects: [{ id: projectId, title: 'Landing redesign' }] });
+
+    const openDashboard = await postCli(port, 'open');
+    expect(openDashboard.status).toBe(200);
+    expect(openDashboard.body.value).toMatchObject({ openRequested: true, route: '/' });
+
+    const openProject = await postCli(port, 'open', { 'project-id': projectId });
+    expect(openProject.status).toBe(200);
+    expect(openProject.body.value).toMatchObject({ openRequested: true, projectId, route: `/project/${projectId}` });
+    expect(openRequests).toEqual([
+      { route: '/' },
+      { projectId, route: `/project/${projectId}` },
+    ]);
+
+    const missingProject = await postCli(port, 'open', { 'project-id': 'missing-project' });
+    expect(missingProject.status).toBe(404);
+    expect(missingProject.body).toMatchObject({ error: { code: 'PROJECT_NOT_FOUND' } });
+    expect(projectRowExists(testRuntimeDir, 'missing-project')).toBe(false);
+
+    const nonRoutableProjectId = 'client.v1';
+    writeProjectToStore(projectsDir, {
+      id: nonRoutableProjectId,
+      designSystemId: null,
+      createdAt: 3,
+      updatedAt: 3,
+      tabsState: { tabs: [], activeTabKey: null },
+      metadata: {
+        title: 'Client v1',
+        prompt: 'Existing project with a legacy id.',
+        projectKind: 'prototype',
+      },
+    });
+    const nonRoutableProject = await postCli(port, 'open', { 'project-id': nonRoutableProjectId });
+    expect(nonRoutableProject.status).toBe(400);
+    expect(nonRoutableProject.body).toMatchObject({ error: { code: 'BAD_REQUEST' } });
+    expect(openRequests).toEqual([
+      { route: '/' },
+      { projectId, route: `/project/${projectId}` },
+    ]);
 
     const conversations = await postCli(port, 'conversations', { 'project-id': projectId });
     expect(conversations.status).toBe(200);

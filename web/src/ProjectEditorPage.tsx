@@ -1448,4 +1448,3 @@ function previewCommentDisplayDraft(attachments: readonly CanvasCommentAttachmen
     .filter((message) => message.length > 0)
     .join('\n');
 }
-

@@ -133,10 +133,12 @@ pnpm --filter @vibe-design/server type-check
 
 ### Tutti CLI
 
-Prototype Design 在 `vibe-design` scope 下注册只读 CLI。完整说明见 `COMMANDS.md`。
+Prototype Design 在 `vibe-design` scope 下注册只读数据命令和应用打开命令。完整说明见 `COMMANDS.md`。
 
 ```bash
 tutti --json vibe-design projects
+tutti --json vibe-design open
+tutti --json vibe-design open --project-id <id>
 tutti --json vibe-design conversations --project-id <id>
 tutti --json vibe-design conversation-messages --project-id <id> --conversation-id <id>
 tutti --json vibe-design files --project-id <id>
