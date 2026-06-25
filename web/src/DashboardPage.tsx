@@ -3,16 +3,46 @@ import {
   Button,
   Card,
   CardContent,
+  ConfirmationDialog,
   Input,
 } from '@tutti-os/ui-system';
 import {
-  AddIcon,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@tutti-os/ui-system/components';
+import {
+  ChevronDownIcon,
+  CloseIcon,
+  DeleteIcon,
+  MoreHorizontalIcon,
   SearchIcon,
+  ToolsIcon,
+  UploadIcon,
 } from '@tutti-os/ui-system/icons';
+import { AtSign } from 'lucide-react';
 import { useService } from '@tutti-os/infra/di';
 import React from 'react';
+import {
+  ComposerDesignSystemTrigger,
+  ComposerIconButton,
+  ComposerModelPicker,
+  ComposerSendButton,
+  type ComposerModelGroup,
+  type ComposerModelProvider,
+} from './components/ComposerControls';
+import { extractMentionQuery, removeActiveMentionToken } from './components/composer-mention';
+import { stashInitialProjectPrompt, stashInitialProjectSkills } from './initial-project-prompt';
 import { DesignSystemPickerDialog } from './components/DesignSystemPickerDialog';
-import { ProjectSecondaryButton } from './components/ProjectSecondaryButton';
+import { PromptInput, type PromptInputHandle } from './components/PromptInput';
+import type { ChatComposerAgentModelCatalogEntry } from './components/ChatComposer';
+import { useServiceSnapshot } from './hooks/use-service-snapshot';
+import { IContextPickerService } from './services/context-picker/context-picker-service.interface';
+import type {
+  ContextPickerSnapshot,
+  ContextSearchResultItem,
+} from './services/context-picker/context-picker-types';
 import { type TranslateFn, useTranslation } from './i18n';
 import { IProjectService } from './services/projects/project-service.interface';
 
@@ -27,6 +57,24 @@ export interface DashboardProject {
 }
 
 const EMPTY_DASHBOARD_PROJECTS: DashboardProject[] = [];
+const DASHBOARD_MODEL_OPTIONS: DashboardModelOption[] = [
+  {
+    key: 'codex:default',
+    provider: 'codex',
+    agentId: 'codex',
+    providerLabel: 'Codex',
+    modelId: 'default',
+    modelLabel: 'Default (CLI config)',
+  },
+  {
+    key: 'claude-code:default',
+    provider: 'claude-code',
+    agentId: 'claude',
+    providerLabel: 'Claude Code',
+    modelId: 'default',
+    modelLabel: 'Default (recommended)',
+  },
+];
 
 export function DashboardPage({
   openProject = openProjectInCurrentWindow,
@@ -36,6 +84,7 @@ export function DashboardPage({
   recentProjects?: DashboardProject[];
 }) {
   const { locale, t } = useTranslation();
+  const projectService = useService(IProjectService);
   const [projects, setProjects] = React.useState<DashboardProject[]>(recentProjects);
   const [selectedDesignSystemId, setSelectedDesignSystemId] = React.useState<string | null>(null);
   const [pendingDesignSystemId, setPendingDesignSystemId] = React.useState<string | null>(null);
@@ -187,16 +236,21 @@ export function DashboardPage({
   }
 
   return (
-    <main className="h-screen overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
-      <div className="flex h-full min-h-0 flex-col lg:flex-row">
-        <DashboardSidebar
+    <main className="min-h-screen overflow-y-auto bg-[var(--background)] text-[var(--foreground)]">
+      <DashboardTopBar />
+      <div className="mx-auto flex w-full max-w-[1560px] flex-col px-5 pb-10 pt-10 sm:px-8 2xl:px-12">
+        <ProjectCreator
           openProject={openProject}
+          designSystemId={selectedDesignSystemId}
           selectedDesignSystem={selectedDesignSystem}
-          selectedDesignSystemId={selectedDesignSystemId}
           onSetupDesignSystem={openDesignSystemPicker}
         />
         <ProjectBrowser
           projects={projects}
+          onDeleteProject={async (projectId) => {
+            await projectService.deleteProject(projectId);
+            setProjects((current) => current.filter((p) => p.id !== projectId));
+          }}
         />
         <DashboardDesignSystemPicker
           designSystems={designSystems}
@@ -214,41 +268,19 @@ export function DashboardPage({
   );
 }
 
-function DashboardSidebar({
-  openProject,
-  selectedDesignSystem,
-  selectedDesignSystemId,
-  onSetupDesignSystem,
-}: {
-  openProject: (projectId: string) => void;
-  selectedDesignSystem: DashboardDesignSystem | null;
-  selectedDesignSystemId: string | null;
-  onSetupDesignSystem: () => void;
-}) {
-  const { t } = useTranslation();
-
+function DashboardTopBar() {
   return (
-    <aside className="flex max-h-full min-h-0 w-full shrink-0 flex-col overflow-y-auto border-b border-[var(--border-1)] bg-[var(--background)] px-5 py-7 sm:px-6 lg:h-full lg:w-[360px] xl:w-[380px] lg:border-b-0 lg:border-r">
-      <BrandHeader />
-      <ProjectCreator
-        openProject={openProject}
-        designSystemId={selectedDesignSystemId}
-        selectedDesignSystem={selectedDesignSystem}
-        onSetupDesignSystem={onSetupDesignSystem}
-      />
-      <p
-        className="mt-auto pt-8 text-xs leading-5 text-[var(--text-tertiary)]"
-        data-testid="dashboard-inspiration"
-      >
-        {t('dashboard.inspiration')}
-      </p>
-    </aside>
+    <header className="border-b border-[var(--border-1)] bg-[var(--background)]">
+      <div className="mx-auto flex h-14 w-full max-w-[1560px] items-center px-5 sm:px-8 2xl:px-12">
+        <BrandHeader />
+      </div>
+    </header>
   );
 }
 
 function BrandHeader() {
   return (
-    <header className="mb-6">
+    <div>
       <div className="flex items-center gap-3">
         <BrandGlyph />
         <div className="min-w-0">
@@ -258,7 +290,7 @@ function BrandHeader() {
           </h1>
         </div>
       </div>
-    </header>
+    </div>
   );
 }
 function BrandGlyph() {
@@ -287,10 +319,130 @@ function ProjectCreator({
 }) {
   const { t } = useTranslation();
   const projectService = useService(IProjectService);
-  const [projectName, setProjectName] = React.useState('');
+  const context = useService(IContextPickerService);
+  const contextSnapshot = useServiceSnapshot<ContextPickerSnapshot>(context);
+  const [projectPrompt, setProjectPrompt] = React.useState('');
+  const [stagedImages, setStagedImages] = React.useState<File[]>([]);
+  const [selectedModel, setSelectedModel] = React.useState<DashboardModelOption>(DASHBOARD_MODEL_OPTIONS[0]);
+  const [agentModelCatalog, setAgentModelCatalog] = React.useState<ChatComposerAgentModelCatalogEntry[]>([]);
   const [isCreating, setIsCreating] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const canCreate = projectName.trim().length > 0 && !isCreating;
+  const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
+  const [mentionItems, setMentionItems] = React.useState<ContextSearchResultItem[]>([]);
+  const [mentionPending, setMentionPending] = React.useState(false);
+  const [mentionError, setMentionError] = React.useState<string | null>(null);
+  const [mentionAnchor, setMentionAnchor] = React.useState<{ top: number; left: number } | null>(null);
+  const [selectingContextId, setSelectingContextId] = React.useState<string | null>(null);
+  const formRef = React.useRef<HTMLFormElement | null>(null);
+  const imageInputRef = React.useRef<HTMLInputElement | null>(null);
+  const promptInputRef = React.useRef<PromptInputHandle | null>(null);
+  const modelCatalogRequestedRef = React.useRef(false);
+
+  // The dashboard has no project yet, so only global skills are mentionable.
+  const selectedSkillChips = React.useMemo(
+    () =>
+      contextSnapshot.selectedSkills.map((skill) => ({
+        id: `skill:${skill.id}`,
+        value: skill.id,
+        label: skill.name,
+      })),
+    [contextSnapshot.selectedSkills],
+  );
+
+  React.useEffect(() => {
+    if (mentionQuery === null) {
+      setMentionItems([]);
+      setMentionPending(false);
+      setMentionError(null);
+      return;
+    }
+
+    let canceled = false;
+    setMentionPending(true);
+    setMentionError(null);
+    void context
+      .search(mentionQuery)
+      .then((result) => {
+        if (canceled) return;
+        setMentionItems(result.items.filter((item) => item.kind === 'skill'));
+        setMentionPending(false);
+      })
+      .catch(() => {
+        if (canceled) return;
+        setMentionItems([]);
+        setMentionPending(false);
+        setMentionError(t('chat.composer.contextSearchUnavailable'));
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, [context, mentionQuery, t]);
+
+  // Position the mention popover just beneath the caret (the active "@"),
+  // measured relative to the composer form so it tracks where the user typed.
+  function computeMentionAnchor(): { top: number; left: number } | null {
+    if (typeof window === 'undefined') return null;
+    const form = formRef.current;
+    const selection = window.getSelection();
+    if (!form || !selection || selection.rangeCount === 0) return null;
+
+    const range = selection.getRangeAt(0).cloneRange();
+    range.collapse(true);
+    let rect = range.getBoundingClientRect();
+    if (!rect || (rect.top === 0 && rect.left === 0 && rect.height === 0)) {
+      const rects = range.getClientRects();
+      rect = rects.length > 0 ? rects[0] : rect;
+    }
+    if (!rect) return null;
+
+    const formRect = form.getBoundingClientRect();
+    const menuWidth = Math.min(360, formRect.width);
+    const left = Math.max(0, Math.min(rect.left - formRect.left, formRect.width - menuWidth));
+    return { top: rect.bottom - formRect.top + 6, left };
+  }
+
+  function updatePrompt(value: string): void {
+    setProjectPrompt(value);
+    const query = extractMentionQuery(value);
+    setMentionQuery(query);
+    setMentionAnchor(query === null ? null : computeMentionAnchor());
+  }
+
+  function insertMentionTrigger(): void {
+    promptInputRef.current?.insertText('@');
+  }
+
+  async function selectMention(item: ContextSearchResultItem): Promise<void> {
+    if (selectingContextId !== null) return;
+    setSelectingContextId(item.id);
+    setMentionError(null);
+    try {
+      await context.selectResult(item);
+      updatePrompt(removeActiveMentionToken(projectPrompt));
+      setMentionQuery(null);
+      setMentionAnchor(null);
+      setMentionItems([]);
+    } catch {
+      setMentionError(t('chat.composer.contextSelectionFailed'));
+    } finally {
+      setSelectingContextId(null);
+    }
+  }
+  const modelOptions = React.useMemo(() => {
+    const catalogOptions = dashboardModelOptionsFromCatalog(agentModelCatalog);
+    return catalogOptions.length > 0 ? catalogOptions : DASHBOARD_MODEL_OPTIONS;
+  }, [agentModelCatalog]);
+  const canCreate = projectPrompt.trim().length > 0 && !isCreating;
+
+  React.useEffect(() => {
+    if (modelOptions.some((model) => model.key === selectedModel.key)) return;
+    setSelectedModel(
+      modelOptions.find((model) => model.provider === selectedModel.provider) ??
+        modelOptions[0] ??
+        DASHBOARD_MODEL_OPTIONS[0],
+    );
+  }, [modelOptions, selectedModel.key, selectedModel.provider]);
 
   async function createProject(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -302,6 +454,8 @@ function ProjectCreator({
       return;
     }
 
+    const selectedSkillIds = context.buildRunContext()?.skillIds ?? [];
+
     setIsCreating(true);
     setError(null);
     try {
@@ -309,8 +463,24 @@ function ProjectCreator({
         prompt: nextPrompt,
         projectKind: typeof formProjectKind === 'string' ? formProjectKind : 'prototype',
         ...(designSystemId ? { designSystemId } : {}),
+        ...(shouldSendDashboardModel(selectedModel)
+          ? { agentId: selectedModel.agentId, model: selectedModel.modelId }
+          : {}),
       });
-      setProjectName('');
+      await uploadDashboardImages(project.id, stagedImages);
+      stashInitialProjectPrompt(project.id, nextPrompt);
+      stashInitialProjectSkills(project.id, selectedSkillIds);
+      setProjectPrompt('');
+      setMentionQuery(null);
+      setMentionAnchor(null);
+      setStagedImages([]);
+      // Clear the dashboard's skill selections so they don't leak into the next project.
+      for (const skillId of selectedSkillIds) {
+        context.removeSelection('skill', skillId);
+      }
+      if (imageInputRef.current) {
+        imageInputRef.current.value = '';
+      }
       openProject(project.id);
     } catch (projectError) {
       setError(projectError instanceof Error ? projectError.message : t('dashboard.creator.errorFallback'));
@@ -319,50 +489,349 @@ function ProjectCreator({
     }
   }
 
+  function stageImages(fileList: FileList | null): void {
+    const images = Array.from(fileList ?? []).filter((file) => file.type.startsWith('image/'));
+    if (images.length === 0) return;
+    setStagedImages((currentImages) => [...currentImages, ...images]);
+    setError(null);
+    if (imageInputRef.current) {
+      imageInputRef.current.value = '';
+    }
+  }
+
+  function removeStagedImage(index: number): void {
+    setStagedImages((currentImages) => currentImages.filter((_, imageIndex) => imageIndex !== index));
+  }
+
+  async function loadModelCatalog(): Promise<void> {
+    if (modelCatalogRequestedRef.current || typeof fetch !== 'function') return;
+    modelCatalogRequestedRef.current = true;
+    setAgentModelCatalog(await fetchDashboardModelCatalog());
+  }
+
+  React.useEffect(() => {
+    void loadModelCatalog();
+  }, []);
+
   return (
-    <section>
+    <section className="mx-auto flex w-full max-w-[700px] flex-col items-center text-center">
+      <h2 className="text-[32px] font-semibold leading-tight tracking-normal text-[var(--text-primary)]">
+        {t('dashboard.creator.heroTitle')}
+      </h2>
       <form
-        className="w-full"
+        ref={formRef}
+        className="relative mt-6 w-full"
         method="post"
         action="/projects"
         onSubmit={(event) => void createProject(event)}
       >
         <input type="hidden" name="projectKind" value="prototype" />
         {designSystemId ? <input type="hidden" name="designSystemId" value={designSystemId} /> : null}
-        <Card className="rounded-[var(--project-radius-xl)] border-[var(--border-1)] bg-[var(--background-fronted)] py-0 shadow-[var(--project-shadow-none)]">
-          <CardContent className="p-4">
-            <h2 className="mb-3 text-sm font-semibold text-[var(--text-primary)]">
+        <Card className="rounded-[20px] border-[var(--border-1)] bg-[var(--background-fronted)] py-0 shadow-[0_14px_32px_rgba(15,23,42,0.10)] transition-colors focus-within:border-[var(--border-2)]">
+          <CardContent className="px-4 pt-4 pb-0 text-left sm:px-5 sm:pt-5 sm:pb-0">
+            <h3 className="sr-only">
               {t('dashboard.creator.title')}
-            </h2>
-            <Input
-              aria-label={t('dashboard.creator.projectNameLabel')}
-              autoComplete="off"
-              className="h-9 rounded-md border-[var(--border-1)] bg-[var(--project-input-bg)] text-sm hover:bg-[var(--project-input-hover-bg)]"
+            </h3>
+            {selectedSkillChips.length > 0 ? (
+              <div className="chat-composer__chips" aria-label={t('chat.composer.selectedContext')}>
+                {selectedSkillChips.map((chip) => (
+                  <Badge key={chip.id} className="chat-composer__context-chip" variant="secondary">
+                    {chip.label}
+                    <Button
+                      type="button"
+                      className="chat-composer__context-remove"
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={t('chat.composer.removeContext', { name: chip.label })}
+                      onClick={() => context.removeSelection('skill', chip.value)}
+                    >
+                      <CloseIcon size={10} aria-hidden />
+                    </Button>
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
+            <PromptInput
+              ref={promptInputRef}
+              ariaLabel={t('dashboard.creator.projectNameLabel')}
+              className="dashboard-prompt-input h-[112px] px-2 py-2"
+              editorClassName="dashboard-prompt-input__editor h-[96px] overflow-y-auto text-sm font-normal leading-5 text-[var(--text-primary)]"
               name="prompt"
               placeholder={t('dashboard.creator.projectNamePlaceholder')}
-              type="text"
-              value={projectName}
-              onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                setProjectName(event.currentTarget.value)
-              }
+              value={projectPrompt}
+              onChange={updatePrompt}
+              shouldSubmitOnEnter={(event) => !event.shiftKey}
+              onSubmitShortcut={() => {
+                if (mentionQuery !== null && mentionItems.length > 0) {
+                  void selectMention(mentionItems[0]);
+                  return;
+                }
+                formRef.current?.requestSubmit();
+              }}
             />
-            <DesignSystemPrompt selectedDesignSystem={selectedDesignSystem} onSetup={onSetupDesignSystem} />
+            {stagedImages.length > 0 ? (
+              <div
+                aria-label={t('dashboard.creator.stagedImages')}
+                className="mt-3 flex flex-wrap gap-2"
+              >
+                {stagedImages.map((image, index) => (
+                  <DashboardStagedImage
+                    key={`${image.name}-${image.lastModified}-${index}`}
+                    file={image}
+                    onRemove={() => removeStagedImage(index)}
+                  />
+                ))}
+              </div>
+            ) : null}
             {error ? <div className="mt-3 text-sm text-[var(--state-danger)]">{error}</div> : null}
-            <Button
-              type="submit"
-              className="project-primary-button mt-3 h-9 w-full rounded-md text-xs font-medium"
-              aria-label={t('dashboard.creator.createAria')}
-              disabled={!canCreate}
-            >
-              <AddIcon size={13} />
-              {t('dashboard.creator.createAction')}
-            </Button>
+            <div className="composer-row mt-5 flex-wrap" style={{ paddingTop: '10px', paddingBottom: '10px' }}>
+              <input
+                ref={imageInputRef}
+                aria-label={t('dashboard.creator.uploadImages')}
+                accept="image/*"
+                className="sr-only"
+                multiple
+                type="file"
+                onChange={(event) => stageImages(event.currentTarget.files)}
+              />
+              <ComposerIconButton
+                ariaLabel={t('dashboard.creator.chooseImages')}
+                title={t('dashboard.creator.chooseImages')}
+                onClick={() => imageInputRef.current?.click()}
+              >
+                <UploadIcon aria-hidden="true" size={16} />
+              </ComposerIconButton>
+              <ComposerIconButton
+                ariaLabel={t('chat.composer.openMentions')}
+                title={t('chat.composer.openMentions')}
+                onClick={insertMentionTrigger}
+              >
+                <AtSign aria-hidden="true" size={16} />
+              </ComposerIconButton>
+              <DesignSystemPrompt selectedDesignSystem={selectedDesignSystem} onSetup={onSetupDesignSystem} />
+              <span className="min-w-0 flex-1" />
+              <ComposerModelPicker
+                ariaLabel={t('dashboard.creator.modelLabel')}
+                groups={groupDashboardModelOptions(modelOptions)}
+                selectedKey={selectedModel.key}
+                selectedProvider={selectedModel.provider}
+                selectedProviderLabel={selectedModel.providerLabel}
+                selectedModelLabel={selectedModel.modelLabel}
+                onOpenMenu={() => void loadModelCatalog()}
+                onSelect={(provider, modelId) => {
+                  const option = modelOptions.find((m) => m.provider === provider && m.modelId === modelId);
+                  if (option) setSelectedModel(option);
+                }}
+              />
+              <ComposerSendButton
+                ariaLabel={t('dashboard.creator.createAria')}
+                disabled={!canCreate}
+                onClick={() => formRef.current?.requestSubmit()}
+              >
+                {t('dashboard.creator.createAction')}
+              </ComposerSendButton>
+            </div>
           </CardContent>
         </Card>
+        {mentionQuery !== null && (!mentionError || mentionItems.length > 0) ? (
+          <div
+            className="chat-composer__mention-list dashboard-mention-list"
+            aria-label={t('chat.composer.mentionResults')}
+            style={mentionAnchor ? { top: mentionAnchor.top, left: mentionAnchor.left, right: 'auto' } : undefined}
+          >
+            {mentionPending ? (
+              <div className="chat-composer__mention-empty">{t('chat.composer.searchingContext')}</div>
+            ) : mentionItems.length > 0 ? (
+              mentionItems.map((item) => (
+                <Button
+                  className="chat-composer__mention-button"
+                  key={item.id}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={selectingContextId !== null}
+                  onClick={() => void selectMention(item)}
+                >
+                  <ToolsIcon size={14} aria-hidden data-mention-icon="skill" />
+                  <span>{item.label}</span>
+                </Button>
+              ))
+            ) : (
+              <div className="chat-composer__mention-empty">{t('chat.composer.noContextResults')}</div>
+            )}
+          </div>
+        ) : null}
       </form>
     </section>
   );
 }
+
+async function uploadDashboardImages(projectId: string, images: File[]): Promise<void> {
+  if (images.length === 0) return;
+
+  for (const image of images) {
+    const formData = new FormData();
+    formData.append('file', image);
+    const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/files`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error('Could not upload images.');
+    }
+  }
+}
+
+async function fetchDashboardModelCatalog(): Promise<ChatComposerAgentModelCatalogEntry[]> {
+  const response = await fetch('/api/agents/models').catch(() => null);
+  if (!response) return [];
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    return [];
+  }
+
+  return readDashboardModelCatalog(data);
+}
+
+function readDashboardModelCatalog(data: unknown): ChatComposerAgentModelCatalogEntry[] {
+  const value = isRecord(data) ? data.agents : null;
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((item) => {
+    if (!isRecord(item) || !isDashboardAgentId(item.id) || typeof item.label !== 'string' || !Array.isArray(item.models)) {
+      return [];
+    }
+
+    const models = item.models.flatMap((model) => {
+      if (!isRecord(model) || typeof model.id !== 'string' || typeof model.label !== 'string') {
+        return [];
+      }
+
+      return [{
+        id: model.id,
+        label: model.label,
+        ...(typeof model.description === 'string' && model.description.trim()
+          ? { description: model.description }
+          : {}),
+      }];
+    });
+
+    return [{ agentId: item.id, label: item.label, models }];
+  });
+}
+
+function dashboardModelOptionsFromCatalog(
+  catalog: ChatComposerAgentModelCatalogEntry[],
+): DashboardModelOption[] {
+  return catalog.flatMap((entry) => {
+    const provider = dashboardModelProviderFromAgentId(entry.agentId);
+    if (!provider) return [];
+
+    return entry.models.map((model) => ({
+      key: `${provider}:${model.id}`,
+      provider,
+      agentId: entry.agentId,
+      providerLabel: entry.label,
+      modelId: model.id,
+      modelLabel: model.label,
+      ...(model.description ? { description: model.description } : {}),
+    }));
+  });
+}
+
+function groupDashboardModelOptions(modelOptions: DashboardModelOption[]): ComposerModelGroup[] {
+  const groups: ComposerModelGroup[] = [];
+
+  for (const model of modelOptions) {
+    const group = groups.find((g) => g.provider === model.provider);
+    if (group) {
+      group.models.push({
+        id: model.modelId,
+        label: model.modelLabel,
+        ...(model.description ? { description: model.description } : {}),
+      });
+      continue;
+    }
+
+    groups.push({
+      provider: model.provider,
+      providerLabel: model.providerLabel,
+      models: [{
+        id: model.modelId,
+        label: model.modelLabel,
+        ...(model.description ? { description: model.description } : {}),
+      }],
+    });
+  }
+
+  return groups;
+}
+
+function dashboardModelProviderFromAgentId(agentId: 'codex' | 'claude'): ComposerModelProvider | null {
+  if (agentId === 'codex') return 'codex';
+  if (agentId === 'claude') return 'claude-code';
+  return null;
+}
+
+function shouldSendDashboardModel(model: DashboardModelOption): boolean {
+  return !(model.agentId === 'codex' && model.modelId === 'default');
+}
+
+function isDashboardAgentId(value: unknown): value is 'codex' | 'claude' {
+  return value === 'codex' || value === 'claude';
+}
+
+interface DashboardModelOption {
+  key: string;
+  provider: ComposerModelProvider;
+  agentId: 'codex' | 'claude';
+  providerLabel: string;
+  modelId: string;
+  modelLabel: string | null;
+  description?: string;
+}
+
+function DashboardStagedImage({
+  file,
+  onRemove,
+}: {
+  file: File;
+  onRemove: () => void;
+}) {
+  const { t } = useTranslation();
+  const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  return (
+    <span className="dashboard-staged-image">
+      {previewUrl ? (
+        <img
+          alt={file.name}
+          className="size-8 rounded-[var(--project-radius-sm)] object-cover"
+          src={previewUrl}
+        />
+      ) : null}
+      <span className="max-w-[120px] truncate text-xs text-[var(--text-primary)]">{file.name}</span>
+      <button
+        type="button"
+        className="dashboard-staged-image__remove"
+        aria-label={t('dashboard.creator.removeImage', { name: file.name })}
+        onClick={onRemove}
+      >
+        <CloseIcon aria-hidden="true" size={11} />
+      </button>
+    </span>
+  );
+}
+
 
 interface DashboardDesignSystem {
   id: string;
@@ -385,67 +854,42 @@ function DesignSystemPrompt({
   selectedDesignSystem: DashboardDesignSystem | null;
 }) {
   const { t } = useTranslation();
+  const swatches = selectedDesignSystem?.swatches.slice(0, 4) ?? [];
+  const label = selectedDesignSystem
+    ? `${t('dashboard.designSystem.title')} ${selectedDesignSystem.title}`
+    : `${t('dashboard.designSystem.title')} ${t('dashboard.designSystem.emptySelectedShort')}`;
 
   return (
     <section
-      className="mt-4 rounded-[var(--project-radius-lg)] border border-[var(--border-1)] bg-[var(--background)] p-3"
+      className="min-w-0"
       data-testid="dashboard-creator-design-system"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          {selectedDesignSystem ? (
-            <div data-testid="dashboard-selected-design-system">
-              <div className="flex min-w-0 items-start justify-between gap-3">
-                <p className="min-w-0 truncate text-sm font-semibold text-[var(--text-primary)]">
-                  {selectedDesignSystem.title}
-                </p>
-              </div>
-              <p className="mt-2 w-full text-xs font-normal leading-[1.3] text-[var(--text-secondary)]">
-                {selectedDesignSystem.summary || selectedDesignSystem.category}
-              </p>
-              <div
-                className="mt-3 flex items-center gap-1.5"
-                aria-label={t('dashboard.designSystem.swatchesAria', { title: selectedDesignSystem.title })}
-              >
-                {selectedDesignSystem.swatches.slice(0, 4).map((swatch) => (
-                  <span
-                    key={`${selectedDesignSystem.id}-${swatch}`}
-                    className="h-5 w-5 rounded-[var(--project-radius-sm)] border border-[var(--border-1)]"
-                    style={{ backgroundColor: swatch }}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : (
-            <>
-              <h2 className="text-sm font-semibold text-[var(--text-primary)]">
-                {t('dashboard.designSystem.title')}
-              </h2>
-              <p className="mt-1 text-sm font-normal leading-[1.3] text-[var(--text-secondary)]">
-                {t('dashboard.designSystem.titleDescription')}
-              </p>
-            </>
-          )}
-        </div>
-      </div>
-
+      <ComposerDesignSystemTrigger
+        ariaLabel={t('chat.composer.chooseDesignSystem')}
+        label={label}
+        onClick={onSetup}
+      />
       {selectedDesignSystem ? (
-        <ProjectSecondaryButton
-          type="button"
-          className="mt-4 h-9 w-full text-xs font-medium"
-          onClick={onSetup}
+        <span
+          className="sr-only"
+          data-testid="dashboard-selected-design-system"
         >
-          {t('dashboard.designSystem.updateAction')}
-        </ProjectSecondaryButton>
-      ) : (
-        <ProjectSecondaryButton
-          type="button"
-          className="mt-4 h-9 w-full rounded-md text-xs font-medium"
-          onClick={onSetup}
-        >
-          {t('dashboard.designSystem.setupAction')}
-        </ProjectSecondaryButton>
-      )}
+          {selectedDesignSystem.title}
+          {swatches.length > 0 ? (
+            <span
+              aria-label={t('dashboard.designSystem.swatchesAria', { title: selectedDesignSystem.title })}
+            >
+              {swatches.map((swatch) => (
+                <span
+                  key={`${selectedDesignSystem.id}-${swatch}`}
+                  className="size-3 rounded-[var(--project-radius-xs)] border border-[var(--border-1)]"
+                  style={{ backgroundColor: swatch }}
+                />
+              ))}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
     </section>
   );
 }
@@ -592,7 +1036,13 @@ function openProjectInCurrentWindow(projectId: string): void {
   }
 }
 
-function ProjectBrowser({ projects }: { projects: DashboardProject[] }) {
+function ProjectBrowser({
+  projects,
+  onDeleteProject,
+}: {
+  projects: DashboardProject[];
+  onDeleteProject: (projectId: string) => Promise<void>;
+}) {
   const { t } = useTranslation();
   const [search, setSearch] = React.useState('');
   const visibleProjects = React.useMemo(
@@ -601,8 +1051,11 @@ function ProjectBrowser({ projects }: { projects: DashboardProject[] }) {
   );
 
   return (
-    <section className="min-h-0 min-w-0 flex-1 overflow-y-auto bg-[var(--background-fronted)] px-6 py-7 sm:px-8">
-      <div data-testid="dashboard-search-row" className="flex justify-start">
+    <section
+      className="mt-10 min-h-0 min-w-0 overflow-y-auto"
+      data-testid="dashboard-project-browser"
+    >
+      <div data-testid="dashboard-search-row" className="flex justify-end">
         <label className="relative block w-full sm:w-[224px]">
           <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]">
             <SearchIcon aria-hidden="true" size={15} />
@@ -620,11 +1073,11 @@ function ProjectBrowser({ projects }: { projects: DashboardProject[] }) {
         </label>
       </div>
       <div
-        className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(min(100%,220px),1fr))] gap-4"
+        className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(min(100%,240px),1fr))] gap-4"
         data-testid="dashboard-project-grid"
       >
         {visibleProjects.map((project) => (
-          <ProjectCard key={project.id} project={project} />
+          <ProjectCard key={project.id} project={project} onDelete={onDeleteProject} />
         ))}
         {projects.length === 0 ? <EmptyProjectCard /> : null}
       </div>
@@ -740,29 +1193,74 @@ function DesignSystemCard({
   );
 }
 
-function ProjectCard({ project }: { project: DashboardProject }) {
+function ProjectCard({ project, onDelete }: { project: DashboardProject; onDelete: (projectId: string) => Promise<void> }) {
   const { t } = useTranslation();
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+
+  async function handleConfirmDelete(): Promise<void> {
+    setDeleting(true);
+    try {
+      await onDelete(project.id);
+    } finally {
+      setDeleting(false);
+      setConfirmOpen(false);
+    }
+  }
 
   return (
-    <a className="block" href={`/project/${encodeURIComponent(project.id)}`}>
-      <Card className="gap-0 overflow-hidden rounded-[var(--project-radius-lg)] border-[var(--border-1)] bg-[var(--background-fronted)] py-0 shadow-none transition-colors hover:border-[var(--border-2)]">
-        <ProjectThumbnail project={project} />
-        <CardContent className="px-3 pb-3 pt-2">
-          <div className="truncate text-sm font-semibold text-[var(--text-primary)]">{project.title}</div>
-          <div
-            data-testid="dashboard-project-metadata"
-            className="mt-1 flex min-w-0 items-center gap-2 text-xs font-normal text-[var(--text-secondary)]"
-          >
-            <span className="shrink-0">{t('dashboard.projectCard.type')}</span>
-            <span aria-hidden="true">·</span>
-            <span className="truncate">{relativeProjectTime(project.updatedAt, t)}</span>
-            <Badge variant="secondary" className="ml-auto shrink-0 font-normal">
-              {t('dashboard.projectCard.owner')}
-            </Badge>
-          </div>
-        </CardContent>
-      </Card>
-    </a>
+    <div className="group/card relative block">
+      <a className="block" href={`/project/${encodeURIComponent(project.id)}`}>
+        <Card className="gap-0 overflow-hidden rounded-[var(--project-radius-lg)] border-[var(--border-1)] bg-[var(--background-fronted)] py-0 shadow-none transition-colors hover:border-[var(--border-2)]">
+          <ProjectThumbnail project={project} />
+          <CardContent className="px-3 pb-3 pt-2">
+            <div className="truncate text-sm font-semibold text-[var(--text-primary)]">{project.title}</div>
+            <div
+              data-testid="dashboard-project-metadata"
+              className="mt-1 flex min-w-0 items-center gap-2 text-xs font-normal text-[var(--text-secondary)]"
+            >
+              <span className="truncate">{relativeProjectTime(project.updatedAt, t)}</span>
+            </div>
+          </CardContent>
+        </Card>
+      </a>
+      <div className="absolute bottom-[10px] right-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={t('dashboard.projectCard.moreActions', { title: project.title })}
+              className="flex size-6 items-center justify-center text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-primary)]"
+              onClick={(e) => e.preventDefault()}
+            >
+              <MoreHorizontalIcon aria-hidden="true" size={14} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" side="top">
+            <DropdownMenuItem
+              className="text-[var(--state-danger)] focus:text-[var(--state-danger)]"
+              onSelect={() => setConfirmOpen(true)}
+            >
+              <DeleteIcon aria-hidden="true" size={14} />
+              {t('dashboard.projectCard.deleteProject')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <ConfirmationDialog
+        open={confirmOpen}
+        tone="destructive"
+        title={t('dashboard.projectCard.deleteConfirmTitle')}
+        description={t('dashboard.projectCard.deleteConfirmDescription', { title: project.title })}
+        confirmLabel={t('dashboard.projectCard.deleteConfirmAction')}
+        cancelLabel={t('common.cancel')}
+        confirmBusy={deleting}
+        disableCloseWhileBusy
+        onConfirm={() => void handleConfirmDelete()}
+        onCancel={() => setConfirmOpen(false)}
+        onOpenChange={setConfirmOpen}
+      />
+    </div>
   );
 }
 

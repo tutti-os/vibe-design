@@ -9,6 +9,7 @@ import { reconcileProjectFilesFromDisk } from '../project-file-reconciler.js';
 import type { RouteDeps } from '../server-context.js';
 import {
   deleteProjectFileFromStore,
+  deleteProjectFromStore,
   getProjectFileFromStore,
   getProjectFromStore,
   getPublicAssetFromStore,
@@ -224,6 +225,26 @@ export function registerProjectRoutes(app: Express, ctx: ProjectRouteDeps): void
       res.json({ project: updatedProject, resolvedDir: sqlitePathForProjectsDir(ctx.paths.projectsDir) });
     } catch (error) {
       sendInternalError(ctx, res, error, 'project update failed');
+    }
+  });
+
+  app.delete('/api/projects/:id', async (req: Request<ProjectParams>, res: Response): Promise<void> => {
+    const id = req.params.id;
+    if (!isSafeProjectId(id)) {
+      sendApiError(res, 400, 'BAD_REQUEST', 'project id is invalid');
+      return;
+    }
+
+    try {
+      const deleted = deleteProjectFromStore(ctx.paths.projectsDir, id);
+      if (!deleted) {
+        sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
+        return;
+      }
+      await rm(path.join(ctx.paths.projectsDir, id), { recursive: true, force: true });
+      res.json({ ok: true });
+    } catch (error) {
+      sendInternalError(ctx, res, error, 'project delete failed');
     }
   });
 

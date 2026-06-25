@@ -61,6 +61,21 @@ function getByLabelText(container: HTMLElement, label: string): HTMLElement {
   return element;
 }
 
+async function changeText(element: HTMLElement, value: string): Promise<void> {
+  await act(async () => {
+    element.textContent = value;
+    fireEvent.input(element);
+  });
+}
+
+async function selectFiles(element: HTMLElement, files: File[]): Promise<void> {
+  if (!(element instanceof HTMLInputElement)) throw new Error('Expected input');
+  await act(async () => {
+    Object.defineProperty(element, 'files', { value: files, configurable: true });
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
 function tabButtonByText(container: HTMLElement, text: string): HTMLButtonElement {
   const button = [...container.querySelectorAll<HTMLButtonElement>('button[role="tab"]')].find(
     (candidate) => candidate.textContent?.trim() === text,
@@ -242,7 +257,7 @@ describe('VibeDesignApp', () => {
     const { container, root } = renderComponent(flow.render());
 
     try {
-      await waitFor(() => expect(container.textContent).toContain('新建原型'));
+      await waitFor(() => expect(container.textContent).toContain('今天想做什么原型？'));
       expect(document.documentElement.lang).toBe('zh-CN');
     } finally {
       cleanup(root, container);
@@ -294,7 +309,7 @@ describe('VibeDesignApp', () => {
 
     try {
       await act(async () => {
-        fireEvent.click(buttonByText(container, 'Set up design style'));
+        fireEvent.click(buttonByText(container, 'Design style None'));
       });
       await waitFor(() => expect(document.body.textContent).toContain('Vibe Default'));
       expect(fetch).toHaveBeenCalledWith('/api/design-systems?locale=en');
@@ -337,8 +352,8 @@ describe('VibeDesignApp', () => {
 
     try {
       expect(document.documentElement.lang).toBe('zh-CN');
-      expect(container.textContent).toContain('新建原型');
-      expect(container.querySelector('input[aria-label="项目名称"]')).toBeTruthy();
+      expect(container.textContent).toContain('今天想做什么原型？');
+      expect(container.querySelector('[role="textbox"][aria-label="原型描述"]')).toBeTruthy();
       expect(container.textContent).not.toContain('New prototype');
     } finally {
       cleanup(root, container);
@@ -399,7 +414,8 @@ describe('VibeDesignApp', () => {
       expect(projectMetadata?.className).toContain('font-normal');
       expect(projectMetadata?.className).toContain('mt-1');
       expect(projectMetadata?.className).not.toContain('mt-2');
-      expect(ownerBadge?.className).toContain('font-normal');
+      expect(projectMetadata?.textContent).not.toContain('Your design');
+      expect(ownerBadge).toBeUndefined();
 
       const projectPlaceholders = [...container.querySelectorAll<SVGElement>('[data-testid="project-empty-placeholder-icon"]')];
       expect(projectPlaceholders).toHaveLength(3);
@@ -546,7 +562,7 @@ describe('VibeDesignApp', () => {
     }
   });
 
-  it('creates a project from the dashboard project name field and opens it', async () => {
+  it('creates a project from the dashboard prompt composer and opens it', async () => {
     const createdInputs: CreateProjectInput[] = [];
     const openedProjects: string[] = [];
     const projectService: IProjectService = {
@@ -584,6 +600,7 @@ describe('VibeDesignApp', () => {
           updatedAt: 1,
         };
       },
+      async deleteProject() {},
     };
     const flow = createVibeDesignFlow({
       projectService,
@@ -593,9 +610,7 @@ describe('VibeDesignApp', () => {
     const { container, root } = renderComponent(flow.render());
 
     try {
-      const projectName = container.querySelector<HTMLInputElement>(
-        'input[aria-label="Project name"]',
-      );
+      const projectName = getByLabelText(container, 'Prototype prompt');
       const submit = container.querySelector<HTMLButtonElement>(
         'button[aria-label="Create prototype"]',
       );
@@ -603,8 +618,9 @@ describe('VibeDesignApp', () => {
       expect(projectName).not.toBeNull();
       expect(submit).not.toBeNull();
 
+      await changeText(projectName, '我想生成一个登陆页');
+
       await act(async () => {
-        fireEvent.change(projectName!, { target: { value: '我想生成一个登陆页' } });
         fireEvent.click(submit!);
       });
 
@@ -614,7 +630,7 @@ describe('VibeDesignApp', () => {
           projectKind: 'prototype',
         },
       ]);
-      expect(projectName!.value).toBe('');
+      expect(projectName!.textContent).toBe('');
       expect(openedProjects).toEqual(['project-12345678']);
     } finally {
       cleanup(root, container);
@@ -695,6 +711,7 @@ describe('VibeDesignApp', () => {
           updatedAt: 1,
         };
       },
+      async deleteProject() {},
     };
     const flow = createVibeDesignFlow({
       projectService,
@@ -705,7 +722,7 @@ describe('VibeDesignApp', () => {
 
     try {
       await act(async () => {
-        fireEvent.click(buttonByText(container, 'Set up design style'));
+        fireEvent.click(buttonByText(container, 'Design style None'));
       });
 
       await waitFor(() => {
@@ -731,7 +748,7 @@ describe('VibeDesignApp', () => {
 
       expect(container.querySelector('[data-testid="dashboard-selected-design-system"]')).toBeNull();
       expect(container.querySelector('input[name="designSystemId"]')).toBeNull();
-      expect(buttonByText(container, 'Set up design style')).toBeTruthy();
+      expect(buttonByText(container, 'Design style None')).toBeTruthy();
 
       const creatorDesignSystem = container.querySelector('[data-testid="dashboard-creator-design-system"]');
       expect(container.querySelector('form')?.contains(creatorDesignSystem)).toBe(true);
@@ -752,24 +769,23 @@ describe('VibeDesignApp', () => {
         '[aria-label="Anthropic Web Reference color swatches"] span',
       );
       expect(selectedDesignSystemSummary?.textContent).toContain('Anthropic Web Reference');
-      expect(selectedDesignSystemSummary?.textContent).toContain('Official product reference system.');
-      expect(selectedDesignSystemSummary?.textContent).not.toContain('Design style');
-      const reselectDesignSystemButton = buttonByText(container, 'Reselect design style');
-      expect(reselectDesignSystemButton.className).toContain('project-secondary-button');
-      expect(container.textContent).not.toContain('Set up design style');
+      expect(selectedDesignSystemSummary?.textContent).not.toContain('Official product reference system.');
+      const reselectDesignSystemButton = buttonByText(container, 'Design style Anthropic Web Reference');
+      expect(reselectDesignSystemButton.className).toContain('chat-composer__design-system-trigger');
+      expect(reselectDesignSystemButton.className).not.toContain('project-secondary-button');
+      expect(container.textContent).not.toContain('Design style None');
       expect(swatches).toHaveLength(2);
       expect((swatches?.[0] as HTMLElement | undefined)?.style.backgroundColor).toBe('rgb(247, 240, 232)');
       expect((swatches?.[1] as HTMLElement | undefined)?.style.backgroundColor).toBe('rgb(17, 17, 17)');
 
-      const projectName = container.querySelector<HTMLInputElement>(
-        'input[aria-label="Project name"]',
-      );
+      const projectName = getByLabelText(container, 'Prototype prompt');
       const submit = container.querySelector<HTMLButtonElement>(
         'button[aria-label="Create prototype"]',
       );
 
+      await changeText(projectName, '品牌仪表盘');
+
       await act(async () => {
-        fireEvent.change(projectName!, { target: { value: '品牌仪表盘' } });
         fireEvent.click(submit!);
       });
 
@@ -840,6 +856,7 @@ describe('VibeDesignApp', () => {
           updatedAt: 1,
         };
       },
+      async deleteProject() {},
     };
     const flow = createVibeDesignFlow({
       projectService,
@@ -850,7 +867,7 @@ describe('VibeDesignApp', () => {
 
     try {
       await act(async () => {
-        fireEvent.click(buttonByText(container, 'Set up design style'));
+        fireEvent.click(buttonByText(container, 'Design style None'));
       });
 
       await waitFor(() => {
@@ -859,10 +876,10 @@ describe('VibeDesignApp', () => {
       expect(document.body.textContent).toContain('No design style selected');
       expect(document.body.querySelector('[aria-label="Remove Vibe Default"]')).toBeNull();
 
+      const projectName = getByLabelText(container, 'Prototype prompt');
+      await changeText(projectName, '无默认设计系统项目');
+
       await act(async () => {
-        fireEvent.change(container.querySelector<HTMLInputElement>('input[aria-label="Project name"]')!, {
-          target: { value: '无默认设计系统项目' },
-        });
         fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-label="Create prototype"]')!);
       });
 
@@ -945,6 +962,7 @@ describe('VibeDesignApp', () => {
           updatedAt: 1,
         };
       },
+      async deleteProject() {},
     };
     const flow = createVibeDesignFlow({
       projectService,
@@ -955,7 +973,7 @@ describe('VibeDesignApp', () => {
 
     try {
       await act(async () => {
-        fireEvent.click(buttonByText(container, 'Set up design style'));
+        fireEvent.click(buttonByText(container, 'Design style None'));
       });
 
       await waitFor(() => {
@@ -990,15 +1008,14 @@ describe('VibeDesignApp', () => {
       );
       expect(container.querySelector<HTMLInputElement>('input[name="designSystemId"]')?.value).toBe('default');
 
-      const projectName = container.querySelector<HTMLInputElement>(
-        'input[aria-label="Project name"]',
-      );
+      const projectName = getByLabelText(container, 'Prototype prompt');
       const submit = container.querySelector<HTMLButtonElement>(
         'button[aria-label="Create prototype"]',
       );
 
+      await changeText(projectName, '运营面板');
+
       await act(async () => {
-        fireEvent.change(projectName!, { target: { value: '运营面板' } });
         fireEvent.click(submit!);
       });
 
@@ -1081,6 +1098,7 @@ describe('VibeDesignApp', () => {
           updatedAt: 1,
         };
       },
+      async deleteProject() {},
     };
     const flow = createVibeDesignFlow({
       projectService,
@@ -1091,7 +1109,7 @@ describe('VibeDesignApp', () => {
 
     try {
       await act(async () => {
-        fireEvent.click(buttonByText(container, 'Set up design style'));
+        fireEvent.click(buttonByText(container, 'Design style None'));
       });
 
       await waitFor(() => {
@@ -1118,7 +1136,7 @@ describe('VibeDesignApp', () => {
       expect(removeButton.closest('.chat-composer__design-system-selected-card')?.className).not.toContain(
         'chat-composer__design-system-selected-card--clearable',
       );
-      expect(document.body.textContent).not.toContain('Default');
+      expect(document.body.querySelector('[aria-label="Select design style Default"]')).toBeNull();
 
       await act(async () => {
         fireEvent.click(removeButton);
@@ -1134,15 +1152,14 @@ describe('VibeDesignApp', () => {
       await waitFor(() => expect(document.body.textContent).not.toContain('Choose design styles'));
       expect(container.querySelector('[data-testid="dashboard-selected-design-system"]')).toBeNull();
 
-      const projectName = container.querySelector<HTMLInputElement>(
-        'input[aria-label="Project name"]',
-      );
+      const projectName = getByLabelText(container, 'Prototype prompt');
       const submit = container.querySelector<HTMLButtonElement>(
         'button[aria-label="Create prototype"]',
       );
 
+      await changeText(projectName, '无设计系统项目');
+
       await act(async () => {
-        fireEvent.change(projectName!, { target: { value: '无设计系统项目' } });
         fireEvent.click(submit!);
       });
 
@@ -1158,7 +1175,7 @@ describe('VibeDesignApp', () => {
     }
   });
 
-  it('does not stash the dashboard project name as an initial chat prompt', async () => {
+  it('stashes the dashboard prompt as an initial chat prompt for project handoff', async () => {
     sessionStorage.clear();
     const projectService: IProjectService = {
       _serviceBrand: undefined,
@@ -1194,6 +1211,7 @@ describe('VibeDesignApp', () => {
           updatedAt: 1,
         };
       },
+      async deleteProject() {},
     };
     const flow = createVibeDesignFlow({
       projectService,
@@ -1203,19 +1221,18 @@ describe('VibeDesignApp', () => {
     const { container, root } = renderComponent(flow.render());
 
     try {
-      const projectName = container.querySelector<HTMLInputElement>(
-        'input[aria-label="Project name"]',
-      );
+      const projectName = getByLabelText(container, 'Prototype prompt');
       const submit = container.querySelector<HTMLButtonElement>(
         'button[aria-label="Create prototype"]',
       );
 
+      await changeText(projectName, '把这个需求带到项目里');
+
       await act(async () => {
-        fireEvent.change(projectName!, { target: { value: '把这个需求带到项目里' } });
         fireEvent.click(submit!);
       });
 
-      expect(sessionStorage.getItem(pendingInitialPromptKey('project-handoff'))).toBeNull();
+      expect(sessionStorage.getItem(pendingInitialPromptKey('project-handoff'))).toBe('把这个需求带到项目里');
     } finally {
       sessionStorage.clear();
       cleanup(root, container);
@@ -1260,6 +1277,7 @@ describe('VibeDesignApp', () => {
           updatedAt: 1,
         };
       },
+      async deleteProject() {},
     };
     const flow = createVibeDesignFlow({
       projectService,
@@ -1269,9 +1287,7 @@ describe('VibeDesignApp', () => {
     const { container, root } = renderComponent(flow.render());
 
     try {
-      const projectName = container.querySelector<HTMLInputElement>(
-        'input[aria-label="Project name"]',
-      );
+      const projectName = getByLabelText(container, 'Prototype prompt');
       const createButton = container.querySelector<HTMLButtonElement>(
         'button[aria-label="Create prototype"]',
       );
@@ -1280,8 +1296,9 @@ describe('VibeDesignApp', () => {
       expect(projectName).not.toBeNull();
       expect(form).not.toBeNull();
 
+      await changeText(projectName, '提交创建项目');
+
       await act(async () => {
-        fireEvent.change(projectName!, { target: { value: '提交创建项目' } });
         fireEvent.submit(form!);
       });
 
@@ -1297,20 +1314,212 @@ describe('VibeDesignApp', () => {
     }
   });
 
-  it('renders the dashboard project name as the synchronized form field', () => {
+  it('renders the dashboard prompt as the synchronized form field', () => {
     const flow = createVibeDesignFlow();
     const { container, root } = renderComponent(flow.render());
 
     try {
-      const projectName = container.querySelector<HTMLInputElement>(
-        'input[aria-label="Project name"][name="prompt"]',
+      const projectName = container.querySelector<HTMLElement>(
+        '[role="textbox"][aria-label="Prototype prompt"]',
+      );
+      const hiddenPrompt = container.querySelector<HTMLInputElement>(
+        'input[type="hidden"][name="prompt"]',
       );
 
       expect(projectName).not.toBeNull();
-      expect(projectName!.type).toBe('text');
-      expect(container.querySelector('textarea[placeholder="描述你想生成的内容..."]')).toBeNull();
+      expect(projectName!.getAttribute('data-placeholder')).toBe('Describe the prototype you want to create...');
+      expect(projectName!.className).toContain('dashboard-prompt-input__editor');
+      expect(hiddenPrompt).not.toBeNull();
+      expect(hiddenPrompt!.value).toBe('');
+      expect(container.querySelector('input[aria-label="Project name"]')).toBeNull();
+      expect(container.querySelector('textarea[aria-label="Prototype prompt"]')).toBeNull();
     } finally {
       cleanup(root, container);
+    }
+  });
+
+  it('stages dashboard image uploads inside the prompt composer', async () => {
+    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:dashboard-reference');
+    const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    const flow = createVibeDesignFlow();
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      const imageInput = getByLabelText(container, 'Upload images');
+      const image = new File(['image'], 'reference.png', { type: 'image/png' });
+
+      expect(imageInput).toBeInstanceOf(HTMLInputElement);
+      expect((imageInput as HTMLInputElement).accept).toBe('image/*');
+
+      await selectFiles(imageInput, [image]);
+
+      const stagedImages = getByLabelText(container, 'Staged images');
+      expect(stagedImages.textContent).toContain('reference.png');
+      expect(stagedImages.querySelector('img[alt="reference.png"]')?.getAttribute('src')).toBe('blob:dashboard-reference');
+      expect(createObjectUrl).toHaveBeenCalledWith(image);
+
+      await act(async () => {
+        getByLabelText(container, 'Remove image reference.png').click();
+      });
+
+      expect(container.querySelector('[aria-label="Staged images"]')).toBeNull();
+    } finally {
+      cleanup(root, container);
+      createObjectUrl.mockRestore();
+      revokeObjectUrl.mockRestore();
+    }
+  });
+
+  it('uploads staged dashboard images after creating the project', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      new Response('{}', { status: 201, headers: { 'content-type': 'application/json' } }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const openedProjects: string[] = [];
+    const projectService: IProjectService = {
+      _serviceBrand: undefined,
+      async createProject(input) {
+        return {
+          id: 'project-images',
+          title: input.prompt,
+          prompt: input.prompt,
+          projectKind: input.projectKind,
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      },
+      updateProjectTabsState: vi.fn(),
+      updateProjectTitle: vi.fn(),
+      updateProjectDesignSystem: vi.fn(),
+      deleteProject: vi.fn(),
+    };
+    const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:dashboard-reference');
+    const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    const flow = createVibeDesignFlow({
+      projectService,
+      openProject: (projectId) => openedProjects.push(projectId),
+    });
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      const image = new File(['image'], 'reference.png', { type: 'image/png' });
+
+      await selectFiles(getByLabelText(container, 'Upload images'), [image]);
+      await changeText(getByLabelText(container, 'Prototype prompt'), '参考图片做登录页');
+      await act(async () => {
+        getByLabelText(container, 'Create prototype').click();
+      });
+
+      expect(fetch).toHaveBeenCalledWith('/api/projects/project-images/files', {
+        method: 'POST',
+        body: expect.any(FormData),
+      });
+      const uploadCall = fetch.mock.calls.find(([input]) => input === '/api/projects/project-images/files');
+      expect((uploadCall?.[1] as RequestInit | undefined)?.body).toBeInstanceOf(FormData);
+      expect(openedProjects).toEqual(['project-images']);
+    } finally {
+      cleanup(root, container);
+      createObjectUrl.mockRestore();
+      revokeObjectUrl.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('lets the dashboard composer switch model for project creation', async () => {
+    const createdInputs: CreateProjectInput[] = [];
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (url === '/api/agents/models') {
+        return Response.json({
+          agents: [
+            {
+              id: 'codex',
+              label: 'Codex',
+              models: [{ id: 'default', label: 'Default' }],
+            },
+            {
+              id: 'claude',
+              label: 'Claude Code',
+              models: [
+                { id: 'default', label: 'Default' },
+                {
+                  id: 'claude:opus',
+                  label: 'Opus',
+                  description: 'Opus 4.7 · Most capable for complex work',
+                },
+              ],
+            },
+          ],
+        });
+      }
+      return Response.json({});
+    });
+    vi.stubGlobal('fetch', fetch);
+    const projectService: IProjectService = {
+      _serviceBrand: undefined,
+      async createProject(input) {
+        createdInputs.push(input);
+        return {
+          id: 'project-model',
+          title: input.prompt,
+          prompt: input.prompt,
+          projectKind: input.projectKind,
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      },
+      updateProjectTabsState: vi.fn(),
+      updateProjectTitle: vi.fn(),
+      updateProjectDesignSystem: vi.fn(),
+      deleteProject: vi.fn(),
+    };
+    const flow = createVibeDesignFlow({
+      projectService,
+      openProject: vi.fn(),
+    });
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      await waitFor(() => expect(getByLabelText(container, 'Model').textContent).toContain('Default'));
+      expect(getByLabelText(container, 'Model').textContent).toContain('Codex');
+
+      await act(async () => {
+        const modelTrigger = getByLabelText(container, 'Model');
+        fireEvent.pointerDown(modelTrigger, { button: 0, ctrlKey: false });
+        fireEvent.click(modelTrigger);
+      });
+      await waitFor(() => {
+        expect(document.body.querySelector('[data-model-option-id="claude:opus"]')).not.toBeNull();
+      });
+      const codexDefaultOption = document.body
+        .querySelector('[data-provider-models="codex"]')
+        ?.querySelector('[data-model-option-id="default"]');
+      expect(codexDefaultOption?.querySelector('.composer-model-menu-check svg')).not.toBeNull();
+      const claudeOption = document.body.querySelector<HTMLElement>('[data-model-option-id="claude:opus"]');
+      expect(claudeOption?.textContent).toContain('Opus 4.7');
+      await act(async () => {
+        claudeOption!.click();
+      });
+
+      expect(getByLabelText(container, 'Model').textContent).toContain('Claude Code');
+      expect(getByLabelText(container, 'Model').textContent).toContain('Opus');
+
+      await changeText(getByLabelText(container, 'Prototype prompt'), '生成品牌首页');
+      await act(async () => {
+        getByLabelText(container, 'Create prototype').click();
+      });
+
+      expect(createdInputs).toEqual([
+        {
+          prompt: '生成品牌首页',
+          projectKind: 'prototype',
+          agentId: 'claude',
+          model: 'claude:opus',
+        },
+      ]);
+    } finally {
+      cleanup(root, container);
+      vi.unstubAllGlobals();
     }
   });
 
@@ -1339,12 +1548,17 @@ describe('VibeDesignApp', () => {
 
     try {
       expect(container.textContent).toContain('New prototype');
+      expect(container.textContent).toContain('What will you prototype today?');
       expect(container.textContent).not.toContain('Wireframe');
       expect(container.textContent).not.toContain('High fidelity');
       expect(container.textContent).toContain('Design style');
-      expect(container.textContent).toContain('Set up design style');
-      expect(buttonByText(container, 'Set up design style').className).toContain('project-secondary-button');
-      expect(buttonByText(container, 'Set up design style').className).not.toContain('project-primary-button');
+      expect(container.textContent).toContain('Design style None');
+      expect(buttonByText(container, 'Design style None').className).toContain('chat-composer__design-system-trigger');
+      expect(buttonByText(container, 'Design style None').className).not.toContain('project-secondary-button');
+      expect(buttonByText(container, 'Design style None').className).not.toContain('project-primary-button');
+      expect(getByLabelText(container, 'Choose images').className).toContain('icon-btn');
+      expect(getByLabelText(container, 'Model').className).toContain('composer-model-menu-trigger');
+      expect(getByLabelText(container, 'Create prototype').className).toContain('composer-send');
       expect(container.querySelector('input[aria-label="Search designs"]')).not.toBeNull();
     } finally {
       cleanup(root, container);
@@ -1361,7 +1575,8 @@ describe('VibeDesignApp', () => {
       );
 
       expect(createButton).not.toBeNull();
-      expect(createButton!.textContent).toContain('Create');
+      expect(createButton!.textContent).toContain('Send');
+      expect(createButton!.textContent).not.toContain('Create');
       expect(container.querySelector('button[aria-label="创建项目"]')).toBeNull();
       expect(createButton!.textContent).not.toContain('Upload');
     } finally {
@@ -1369,16 +1584,17 @@ describe('VibeDesignApp', () => {
     }
   });
 
-  it('renders the dashboard as a split project browser shell', () => {
+  it('renders the dashboard as a centered prompt project browser shell', () => {
     const flow = createVibeDesignFlow();
     const { container, root } = renderComponent(flow.render());
 
     try {
       expect(container.textContent).not.toContain('Research Preview');
       expect(container.textContent).toContain('New prototype');
+      expect(container.textContent).toContain('What will you prototype today?');
 
-      const projectName = container.querySelector<HTMLInputElement>(
-        'input[aria-label="Project name"]',
+      const projectPrompt = container.querySelector<HTMLElement>(
+        '[role="textbox"][aria-label="Prototype prompt"]',
       );
       const search = container.querySelector<HTMLInputElement>(
         'input[aria-label="Search designs"]',
@@ -1388,32 +1604,30 @@ describe('VibeDesignApp', () => {
       );
       const main = container.querySelector('main');
       const sidebar = container.querySelector('aside');
-      const projectBrowser = container.querySelector('main > div > section');
+      const projectBrowser = container.querySelector('[data-testid="dashboard-project-browser"]');
       const searchRow = container.querySelector<HTMLElement>('[data-testid="dashboard-search-row"]');
       const projectGrid = container.querySelector<HTMLElement>('[data-testid="dashboard-project-grid"]');
-      const inspiration = container.querySelector<HTMLElement>('[data-testid="dashboard-inspiration"]');
       const brandIcon = container.querySelector('img[data-testid="brand-icon"][src="/icon.png"]');
-      const designSystemDescription = [...container.querySelectorAll<HTMLElement>('p')].find((element) =>
-        element.textContent?.includes('Choose an official design style'),
+      const projectsTab = [...container.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) => button.textContent?.trim() === 'Projects',
       );
 
-      expect(projectName).not.toBeNull();
+      expect(projectPrompt).not.toBeNull();
       expect(search).not.toBeNull();
       expect(createButton).not.toBeNull();
-      expect(inspiration?.textContent).toContain('Inspired by Open Design');
-      expect(inspiration?.className).toContain('mt-auto');
+      expect(projectsTab).toBeUndefined();
       expect(brandIcon).not.toBeNull();
       expect(container.querySelector('h1')?.textContent).toBe('Prototype Design');
+      expect(container.textContent).not.toContain('LU');
       expect(container.querySelector('[data-testid="project-empty-placeholder-icon"]')).not.toBeNull();
-      expect(designSystemDescription?.className).toContain('font-normal');
+      expect(buttonByText(container, 'Design style None')).not.toBeNull();
       expect(container.textContent).not.toContain('Anyone in your organization');
-      expect(main?.className).toContain('h-screen');
-      expect(main?.className).toContain('overflow-hidden');
-      expect(sidebar?.className).toContain('overflow-y-auto');
+      expect(main?.className).toContain('min-h-screen');
+      expect(sidebar).toBeNull();
       expect(projectBrowser?.className).toContain('overflow-y-auto');
-      expect(searchRow?.className).toContain('justify-start');
-      expect(searchRow?.className).not.toContain('justify-end');
-      expect(projectGrid?.className).toContain('grid-cols-[repeat(auto-fill,minmax(min(100%,220px),1fr))]');
+      expect(searchRow?.className).toContain('justify-end');
+      expect(searchRow?.className).not.toContain('justify-between');
+      expect(projectGrid?.className).toContain('grid-cols-[repeat(auto-fill,minmax(min(100%,240px),1fr))]');
       expect(projectGrid?.className).not.toContain('max-w-');
       expect(projectGrid?.className).not.toContain('lg:grid-cols-4');
       expect(container.querySelector('[data-dashboard-project-type]')).toBeNull();
@@ -1422,7 +1636,7 @@ describe('VibeDesignApp', () => {
     }
   });
 
-  it('clears a pending dashboard prompt without starting the project conversation', async () => {
+  it('replays a pending dashboard prompt as the first turn of a new project', async () => {
     sessionStorage.setItem(pendingInitialPromptKey('project-from-dashboard'), '自动发起这个对话');
     const sendTurn = vi.fn<(input: SendTurnInput) => Promise<void>>(async () => undefined);
     const flow = createVibeDesignFlow({
@@ -1444,9 +1658,53 @@ describe('VibeDesignApp', () => {
         await Promise.resolve();
       });
 
-      expect(sendTurn).not.toHaveBeenCalled();
+      expect(sendTurn).toHaveBeenCalledTimes(1);
+      expect(sendTurn.mock.calls[0]?.[0]).toMatchObject({ draft: '自动发起这个对话' });
       expect(sessionStorage.getItem(pendingInitialPromptKey('project-from-dashboard'))).toBeNull();
-      expect(container.textContent).not.toContain('自动发起这个对话');
+    } finally {
+      sessionStorage.clear();
+      cleanup(root, container);
+    }
+  });
+
+  it('re-applies pending dashboard skills before replaying the first turn', async () => {
+    sessionStorage.setItem(pendingInitialPromptKey('project-from-dashboard'), '带技能进项目');
+    sessionStorage.setItem(
+      'vibe-design:initial-project-skills:project-from-dashboard',
+      JSON.stringify(['skill-1']),
+    );
+    const sendTurn = vi.fn<(input: SendTurnInput) => Promise<void>>(async () => undefined);
+    const context = new ContextPickerService({
+      listSkills: async () => [{ id: 'skill-1', name: 'Hero Builder', description: 'Build hero sections' }],
+      listDesignFiles: async () => [],
+    });
+    const flow = createVibeDesignFlow({
+      route: { kind: 'project', projectId: 'project-from-dashboard' },
+      projectEditor: {
+        project: { id: 'project-from-dashboard', tabsState: { tabs: [], activeTabKey: null } },
+        files: [],
+        conversations: [{ id: 'conversation-1', title: 'New conversation', createdAt: 1, updatedAt: 1 }],
+        activeConversationId: 'conversation-1',
+        messages: [],
+      },
+      contextPickerService: context,
+      chatSessionService: createTestChatSessionService(sendTurn),
+    });
+
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      await waitFor(() => {
+        expect(sendTurn).toHaveBeenCalledTimes(1);
+      });
+
+      // The dashboard-selected skill is re-applied to the project's context picker
+      // so it rides along with the first run.
+      expect(context.getSnapshot().selectedSkills.map((skill) => skill.id)).toEqual(['skill-1']);
+      expect(sendTurn.mock.calls[0]?.[0]).toMatchObject({ draft: '带技能进项目' });
+      expect(
+        sessionStorage.getItem('vibe-design:initial-project-skills:project-from-dashboard'),
+      ).toBeNull();
     } finally {
       sessionStorage.clear();
       cleanup(root, container);
@@ -1578,6 +1836,7 @@ describe('VibeDesignApp', () => {
         };
       },
       updateProjectDesignSystem,
+      async deleteProject() {},
     };
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       Response.json({
@@ -1694,6 +1953,120 @@ describe('VibeDesignApp', () => {
     }
   });
 
+  it('imports an uploaded design.md as the active project design style before sending the turn', async () => {
+    const sendTurn = vi.fn(async () => undefined);
+    const updateProjectDesignSystem = vi.fn(async (projectId: string, designSystemId: string | null) => ({
+      id: projectId,
+      title: 'Project',
+      prompt: 'Project',
+      projectKind: 'prototype',
+      designSystemId,
+      createdAt: 1,
+      updatedAt: 2,
+    }));
+    const projectService: IProjectService = {
+      _serviceBrand: undefined,
+      async createProject(input) {
+        return {
+          id: 'design-md-project',
+          title: input.prompt,
+          prompt: input.prompt,
+          projectKind: input.projectKind,
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      },
+      async updateProjectTabsState() {},
+      async updateProjectTitle(projectId, title) {
+        return {
+          id: projectId,
+          title,
+          prompt: 'Project',
+          projectKind: 'prototype',
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      },
+      updateProjectDesignSystem,
+      async deleteProject() {},
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (url === '/api/design-systems' && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body)) as { title: string; body: string; status: string };
+        expect(body).toMatchObject({
+          title: 'Project design style',
+          body: '# Uploaded Design\n\nUse a sharp editorial layout.',
+          status: 'draft',
+        });
+        return Response.json(
+          {
+            designSystem: {
+              id: 'user:project-design-style',
+              title: body.title,
+              category: 'Design style',
+              summary: 'Imported from design.md.',
+              swatches: [],
+              source: 'user',
+            },
+          },
+          { status: 201 },
+        );
+      }
+      if (url === '/api/agents/models') {
+        return Response.json({ agents: [] });
+      }
+      return Response.json({ designSystems: [] });
+    });
+    vi.stubGlobal('fetch', fetch);
+    const flow = createVibeDesignFlow({
+      route: { kind: 'project', projectId: 'design-md-project' },
+      projectEditor: {
+        project: { id: 'design-md-project', tabsState: { tabs: [], activeTabKey: null } },
+        files: [],
+        conversations: [{ id: 'conversation-1', title: 'Project', createdAt: 1, updatedAt: 1 }],
+        activeConversationId: 'conversation-1',
+        messages: [],
+      },
+      chatSessionService: createTestChatSessionService(sendTurn),
+      projectService,
+    });
+
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      const designFile = new File(
+        ['# Uploaded Design\n\nUse a sharp editorial layout.'],
+        'design.md',
+        { type: 'text/markdown' },
+      );
+
+      await selectFiles(getByLabelText(container, 'Import files'), [designFile]);
+      await changeText(getByLabelText(container, 'Message'), 'Build the page with this style');
+      await act(async () => {
+        getByLabelText(container, 'Send message').click();
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(fetch).toHaveBeenCalledWith('/api/design-systems', expect.objectContaining({ method: 'POST' }));
+      });
+      await waitFor(() => {
+        expect(updateProjectDesignSystem).toHaveBeenCalledWith('design-md-project', 'user:project-design-style');
+      });
+      expect(sendTurn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          draft: 'Build the page with this style',
+          files: [],
+        }),
+      );
+      await waitFor(() => expect(container.textContent).toContain('Project design style'));
+    } finally {
+      vi.unstubAllGlobals();
+      cleanup(root, container);
+    }
+  });
+
   it('renders dashboard design system picker options without official badges', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       Response.json({
@@ -1717,7 +2090,7 @@ describe('VibeDesignApp', () => {
 
     try {
       await act(async () => {
-        buttonByText(container, 'Set up design style').click();
+        buttonByText(container, 'Design style None').click();
       });
 
       await waitFor(() => {
@@ -3031,6 +3404,50 @@ describe('VibeDesignApp', () => {
       expect(layout!.style.gridTemplateColumns).toBe('360px minmax(0, 1fr)');
       expect(resizeHandle!.style.left).toBe('360px');
       expect(resizeHandle!.getAttribute('aria-valuenow')).toBe('360');
+    } finally {
+      cleanup(root, container);
+      rectSpy.mockRestore();
+    }
+  });
+
+  it('resizes the project chat panel in compact project editor widths after user drag', async () => {
+    const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.dataset.testid === 'project-editor-layout') {
+        return { width: 1400, height: 720, top: 0, left: 0, right: 1400, bottom: 720, x: 0, y: 0, toJSON: () => ({}) };
+      }
+
+      if (this.dataset.testid === 'project-chat-panel') {
+        return { width: 360, height: 720, top: 0, left: 0, right: 360, bottom: 720, x: 0, y: 0, toJSON: () => ({}) };
+      }
+
+      return { width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0, toJSON: () => ({}) };
+    });
+    const flow = createVibeDesignFlow({
+      route: { kind: 'project', projectId: 'compact-resizable-project' },
+    });
+
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      const layout = container.querySelector<HTMLElement>('[data-testid="project-editor-layout"]');
+      const resizeHandle = container.querySelector<HTMLElement>('[role="separator"][aria-label="Resize chat panel"]');
+
+      expect(layout).not.toBeNull();
+      expect(resizeHandle).not.toBeNull();
+      expect(layout!.style.gridTemplateColumns).toBe('360px minmax(0, 1fr)');
+
+      await act(async () => {
+        fireEvent.pointerDown(resizeHandle!, { clientX: 360 });
+      });
+      await act(async () => {
+        fireEvent.pointerMove(window, { clientX: 520 });
+        fireEvent.pointerUp(window);
+      });
+
+      expect(layout!.style.gridTemplateColumns).toBe('520px minmax(0, 1fr)');
+      expect(resizeHandle!.getAttribute('aria-valuenow')).toBe('520');
     } finally {
       cleanup(root, container);
       rectSpy.mockRestore();

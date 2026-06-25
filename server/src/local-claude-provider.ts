@@ -1,7 +1,6 @@
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import {
   chmodSync,
-  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -14,6 +13,7 @@ import type {
   AgentDetection,
   AgentEvent,
   AgentRunParams,
+  DetectContext,
   LaunchPlan,
   LocalAgentProviderPlugin,
   RawAgentStream,
@@ -27,6 +27,12 @@ export interface VibeClaudeProviderOptions {
   claudeHome?: string;
   claudeSettingsPath?: string;
   userClaudeHome?: string;
+  /**
+   * Overrides how the macOS login Keychain credential is read. Returns the raw
+   * credential JSON (the `claude` "Claude Code-credentials" secret) or null.
+   * Mainly for tests; production reads the real Keychain via `security`.
+   */
+  readKeychainCredentials?: () => string | null;
 }
 
 const CLAUDE_ENV_KEYS = [
@@ -51,8 +57,8 @@ export function createVibeClaudeProvider(
     id: 'claude',
     displayName: 'Claude Code',
     kind: 'local-agent',
-    async detect() {
-      return detectClaude(resolveClaudeHome(options), options);
+    async detect(context) {
+      return detectClaude(resolveClaudeHome(options), options, context);
     },
     capabilities() {
       return {
@@ -331,14 +337,23 @@ function readJsonRecord(file: string): Record<string, unknown> | null {
 async function detectClaude(
   claudeHome: string | undefined,
   options: VibeClaudeProviderOptions,
+  context?: DetectContext,
 ): Promise<AgentDetection> {
   const configDir = join(claudeHome ?? homedir(), '.claude');
   const command = resolveClaudeCommand();
   try {
     syncClaudeAuthFromUserHome(claudeHome, options);
-    const env = claudeHome ? { ...process.env, HOME: claudeHome } : undefined;
-    const { stdout } = await execFileAsync(command, ['--version'], env ? { env } : undefined);
-    const authState = await detectClaudeAuthState(command, env);
+    const env = mergeClaudeDetectEnv(context?.env, claudeHome);
+    const execOptions = {
+      ...(context?.cwd ? { cwd: context.cwd } : {}),
+      ...(env ? { env } : {}),
+    };
+    const { stdout } = await execFileAsync(
+      command,
+      ['--version'],
+      Object.keys(execOptions).length > 0 ? execOptions : undefined,
+    );
+    const authState = await detectClaudeAuthState(command, env, context?.cwd);
     return {
       authState,
       configDir,
@@ -360,6 +375,21 @@ async function detectClaude(
   }
 }
 
+function mergeClaudeDetectEnv(
+  contextEnv: Record<string, string | undefined> | undefined,
+  claudeHome: string | undefined,
+): NodeJS.ProcessEnv | undefined {
+  if (!contextEnv && !claudeHome) {
+    return undefined;
+  }
+
+  return {
+    ...process.env,
+    ...(contextEnv ?? {}),
+    ...(claudeHome ? { HOME: claudeHome } : {}),
+  };
+}
+
 function syncClaudeAuthFromUserHome(
   claudeHome: string | undefined,
   options: VibeClaudeProviderOptions,
@@ -373,7 +403,7 @@ function syncClaudeAuthFromUserHome(
     return;
   }
 
-  syncClaudeCredentialsFile(sourceHome, claudeHome);
+  syncClaudeCredentialsFile(sourceHome, claudeHome, options);
   syncClaudeAccountState(sourceHome, claudeHome);
   syncClaudeSettingsEnv(sourceHome, claudeHome);
 }
@@ -382,16 +412,133 @@ function resolveUserClaudeHome(options: VibeClaudeProviderOptions): string {
   return options.userClaudeHome?.trim() || homedir();
 }
 
-function syncClaudeCredentialsFile(sourceHome: string, targetHome: string): void {
-  const source = join(sourceHome, '.claude', '.credentials.json');
+interface CredentialCandidate {
+  text: string;
+  /** OAuth `expiresAt` in epoch ms, or null when the credential never expires / is unparseable. */
+  expiresAt: number | null;
+}
+
+/**
+ * Seeds the app-local Claude home with the freshest available credential.
+ *
+ * The user-home `.credentials.json` file and the macOS login Keychain can
+ * disagree: on macOS the CLI refreshes OAuth tokens into the Keychain and
+ * leaves the file stale. We pick whichever source has the later `expiresAt`,
+ * and only overwrite an existing app-local credential when the source is
+ * strictly fresher — so we never clobber a token the app-local `claude` just
+ * refreshed for itself, but we also never get stuck on an expired snapshot.
+ */
+function syncClaudeCredentialsFile(
+  sourceHome: string,
+  targetHome: string,
+  options: VibeClaudeProviderOptions,
+): void {
   const target = join(targetHome, '.claude', '.credentials.json');
-  if (!existsSync(source) || existsSync(target)) {
+  const candidate = resolveFreshestSourceCredential(sourceHome, options);
+  if (!candidate) {
     return;
   }
 
+  if (existsSync(target)) {
+    const targetExpiry = parseCredentialCandidate(safeReadFile(target))?.expiresAt ?? null;
+    if (!isCredentialFresher(candidate.expiresAt, targetExpiry)) {
+      return;
+    }
+  }
+
   mkdirSync(dirname(target), { recursive: true });
-  copyFileSync(source, target);
+  writeFileSync(target, candidate.text, { mode: 0o600 });
   chmodSync(target, 0o600);
+}
+
+function resolveFreshestSourceCredential(
+  sourceHome: string,
+  options: VibeClaudeProviderOptions,
+): CredentialCandidate | null {
+  const candidates = [
+    parseCredentialCandidate(safeReadFile(join(sourceHome, '.claude', '.credentials.json'))),
+    parseCredentialCandidate(readSourceKeychainCredentials(sourceHome, options)),
+  ].filter((candidate): candidate is CredentialCandidate => candidate !== null);
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return candidates.reduce((best, candidate) =>
+    isCredentialFresher(candidate.expiresAt, best.expiresAt) ? candidate : best,
+  );
+}
+
+/**
+ * Only the real login Keychain (`security`) is consulted, and only when syncing
+ * from the actual user home — this keeps tests (which point at a temp user home)
+ * from reaching into the developer's real Keychain. Tests inject
+ * `options.readKeychainCredentials` to exercise the Keychain path explicitly.
+ */
+function readSourceKeychainCredentials(
+  sourceHome: string,
+  options: VibeClaudeProviderOptions,
+): string | null {
+  if (options.readKeychainCredentials) {
+    return options.readKeychainCredentials();
+  }
+  if (resolve(sourceHome) !== resolve(homedir())) {
+    return null;
+  }
+  return readKeychainClaudeCredentials();
+}
+
+function readKeychainClaudeCredentials(): string | null {
+  if (process.platform !== 'darwin') {
+    return null;
+  }
+  try {
+    const stdout = execFileSync(
+      'security',
+      ['find-generic-password', '-s', 'Claude Code-credentials', '-w'],
+      { encoding: 'utf8', timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function parseCredentialCandidate(text: string | null): CredentialCandidate | null {
+  if (!text) {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const record = readRecord(parsed);
+  if (!record) {
+    return null;
+  }
+  const oauth = readRecord(record.claudeAiOauth);
+  const expiresAt = typeof oauth?.expiresAt === 'number' ? oauth.expiresAt : null;
+  return { text, expiresAt };
+}
+
+function isCredentialFresher(candidateExpiry: number | null, targetExpiry: number | null): boolean {
+  if (candidateExpiry === null) {
+    return false;
+  }
+  if (targetExpiry === null) {
+    return true;
+  }
+  return candidateExpiry > targetExpiry;
+}
+
+function safeReadFile(file: string): string | null {
+  try {
+    return readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
 }
 
 function syncClaudeAccountState(sourceHome: string, targetHome: string): void {
@@ -455,9 +602,11 @@ function writeJsonRecord(file: string, value: Record<string, unknown>): void {
 async function detectClaudeAuthState(
   command: string,
   env: NodeJS.ProcessEnv | undefined,
+  cwd: string | undefined,
 ): Promise<AgentDetection['authState']> {
   try {
     const { stdout } = await execFileAsync(command, ['auth', 'status'], {
+      ...(cwd ? { cwd } : {}),
       ...(env ? { env } : {}),
       maxBuffer: 128 * 1024,
       timeout: 5_000,

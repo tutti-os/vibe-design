@@ -20,6 +20,7 @@ import {
   FileTextIcon,
   EditIcon,
   ImageFileIcon,
+  LaunchIcon,
   MinimizeIcon,
   RestoreIcon,
 } from '@tutti-os/ui-system/icons';
@@ -76,6 +77,12 @@ const HTML_PREVIEW_COVER_CAPTURE_DELAY_MS = 1000;
 const COMMENT_SAVE_SCREENSHOT_TIMEOUT_MS = 350;
 const COMMENT_RESTORE_POINT_RADIUS_PX = 12;
 const TOOLBAR_PRESENCE_TRANSITION_MS = 140;
+
+interface TuttiExternalBrowserBridge {
+  browser?: {
+    openUrl?: (input: { url: string }) => Promise<void> | void;
+  };
+}
 
 function FolderFilledIcon({
   size = 14,
@@ -1189,6 +1196,18 @@ export function CanvasWorkspace({
                   </ToolbarPresence>
                 </div>
                 <div className="flex items-center gap-2">
+                  <ToolbarPresence visible={Boolean(activeFile?.url && supportsHtmlSurfaceModes)}>
+                    <Button
+                      type="button"
+                      size="icon-sm"
+                      variant="chrome"
+                      aria-label={t('workspace.actions.openInTuttiBrowser', { name: activeFile.name })}
+                      title={t('workspace.actions.openInTuttiBrowser', { name: activeFile.name })}
+                      onClick={() => openPreviewUrlInBrowser(activeFile.url!)}
+                    >
+                      <LaunchIcon size={14} />
+                    </Button>
+                  </ToolbarPresence>
                   <ToolbarPresence visible={usesManualPreviewLayout} className="ml-1">
                     <div
                       role="toolbar"
@@ -1348,6 +1367,26 @@ export function CanvasWorkspace({
       )}
     </section>
   );
+}
+
+function openPreviewUrlInBrowser(url: string): void {
+  let normalizedUrl: string;
+  try {
+    normalizedUrl = new URL(url, window.location.href).toString();
+  } catch {
+    return;
+  }
+
+  const tuttiExternal = (window as Window & { tuttiExternal?: TuttiExternalBrowserBridge }).tuttiExternal;
+  const openUrl = tuttiExternal?.browser?.openUrl;
+  if (openUrl) {
+    void Promise.resolve(openUrl({ url: normalizedUrl })).catch(() => {
+      window.open(normalizedUrl, '_blank', 'noopener,noreferrer');
+    });
+    return;
+  }
+
+  window.open(normalizedUrl, '_blank', 'noopener,noreferrer');
 }
 
 function DesignFilesSurface({

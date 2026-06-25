@@ -11,7 +11,13 @@ export class ProjectService implements IProjectService {
       prompt: input.prompt.trim(),
       projectKind: input.projectKind,
       ...(input.designSystemId ? { designSystemId: input.designSystemId } : {}),
+      ...(input.agentId ? { agentId: input.agentId } : {}),
+      ...(input.model ? { model: input.model } : {}),
     });
+  }
+
+  async deleteProject(projectId: string): Promise<void> {
+    return this.api.deleteProject(projectId);
   }
 
   async updateProjectTabsState(projectId: string, tabsState: Parameters<ProjectApi['updateProjectTabsState']>[1]): Promise<void> {

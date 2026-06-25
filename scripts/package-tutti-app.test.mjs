@@ -53,20 +53,36 @@ test('keeps catalog display metadata in the source Tutti app manifest', async ()
   assert.equal(zhCNManifest.description, '创建并迭代产品原型设计');
 });
 
-test('exposes read-only data and app-open Tutti CLI capabilities', async () => {
+test('exposes the expected Tutti CLI capabilities', async () => {
   const manifest = JSON.parse(await readFile(new URL('../tutti.cli.json', import.meta.url), 'utf8'));
   const commandPaths = manifest.commands.map((command) => command.path.join(' '));
 
   assert.deepEqual(commandPaths, [
     'projects',
     'open',
+    'project-create',
+    'session-start',
     'conversations',
     'conversation-messages',
     'files',
     'file-get',
     'comments',
   ]);
-  assert.equal(commandPaths.some((command) => /create|update|delete|rename|run-start|project-data|project-get/.test(command)), false);
+  // Prototype creation is allowed; destructive verbs remain unavailable.
+  assert.equal(commandPaths.some((command) => /update|delete|rename|project-data|project-get/.test(command)), false);
+});
+
+test('command handler timeouts stay within the Tutti release tooling bounds', async () => {
+  // The publish pipeline rejects any handler.timeoutMs outside [1000, 300000].
+  const manifest = JSON.parse(await readFile(new URL('../tutti.cli.json', import.meta.url), 'utf8'));
+  for (const command of manifest.commands) {
+    const timeoutMs = command.handler?.timeoutMs;
+    if (timeoutMs === undefined) continue;
+    assert.ok(
+      Number.isInteger(timeoutMs) && timeoutMs >= 1000 && timeoutMs <= 300000,
+      `${command.path.join(' ')} handler.timeoutMs must be between 1000 and 300000, got ${timeoutMs}`,
+    );
+  }
 });
 
 test('plans only files that belong in the Tutti app package root', () => {

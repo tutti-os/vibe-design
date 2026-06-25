@@ -1,8 +1,13 @@
-import type { Server } from 'node:http';
+import { request as httpRequest, type Server } from 'node:http';
 import { access, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER,
+  type DetectContext,
+  type ManagedAgentRunContext,
+} from '@tutti-os/agent-acp-kit';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServer, resolveRuntimeConfig } from './main';
 import {
@@ -27,13 +32,13 @@ type TestCreateServer = (options?: {
   runtimeDir?: string;
   builtInDesignSystemsRoot?: string;
   userDesignSystemsRoot?: string;
-  detectAgentAvailability?: () => Promise<Array<{
+  detectAgentAvailability?: (context?: DetectContext) => Promise<Array<{
     id: string;
     label: string;
     available: boolean;
     unavailableReason?: string;
   }>>;
-  detectAgentModelCatalog?: () => Promise<Array<{
+  detectAgentModelCatalog?: (context?: DetectContext) => Promise<Array<{
     id: string;
     label: string;
     models: Array<{ id: string; label: string; description?: string }>;
@@ -44,6 +49,7 @@ type TestCreateServer = (options?: {
     run: ChatRun;
     runs: ChatRunService;
     request: Record<string, unknown>;
+    managedAgentRunContext?: ManagedAgentRunContext;
   }) => Promise<void> | void;
 }) => Server;
 
@@ -225,6 +231,44 @@ async function postCliStatus(port: number, command: string, input: Record<string
   return response.status;
 }
 
+async function postJsonWithHeaders(
+  port: number,
+  path: string,
+  headers: Record<string, string>,
+  body: Record<string, unknown>,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const payload = JSON.stringify(body);
+  return await new Promise((resolve, reject) => {
+    const request = httpRequest(
+      {
+        hostname: '127.0.0.1',
+        port,
+        path,
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'content-length': String(Buffer.byteLength(payload)),
+          ...headers,
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        response.on('error', reject);
+        response.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          resolve({
+            status: response.statusCode ?? 0,
+            body: text ? JSON.parse(text) as Record<string, unknown> : {},
+          });
+        });
+      },
+    );
+    request.on('error', reject);
+    request.end(payload);
+  });
+}
+
 function readInitialDataFromHtml(html: string): Record<string, unknown> {
   const match = /window\.__VIBE_DESIGN_INITIAL__=(.*?);<\/script>/s.exec(html);
   if (!match) {
@@ -296,6 +340,113 @@ describe('createServer', () => {
     });
   });
 
+  it('passes the managed agent credential header to SSR availability detection without leaking it', async () => {
+    const runtimeRoot = await createRuntimeDir();
+    const observedContexts: Array<DetectContext | undefined> = [];
+    writeProjectToStore(join(runtimeRoot, 'projects'), {
+      id: 'project-managed-agent-ssr',
+      designSystemId: null,
+      createdAt: 1,
+      updatedAt: 2,
+      tabsState: { tabs: [], activeTabKey: null },
+      metadata: {
+        title: 'Managed agent SSR',
+        prompt: 'Check managed agents.',
+        projectKind: 'prototype',
+      },
+    });
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: runtimeRoot,
+        detectAgentAvailability: async (context) => {
+          observedContexts.push(context);
+          return [
+            { id: 'codex', label: 'Codex', available: true },
+            { id: 'claude', label: 'Claude Code', available: true },
+          ];
+        },
+      }),
+    );
+
+    const response = await fetch(`http://127.0.0.1:${port}/project/project-managed-agent-ssr`, {
+      headers: { [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-ssr-1' },
+    });
+    const html = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(observedContexts[0]?.env).not.toHaveProperty('TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL');
+    expect(observedContexts[0]?.managedAgentInvocation).toEqual({
+      credential: 'credential-ssr-1',
+      cwd: runtimeRoot,
+    });
+    expect(html).not.toContain('credential-ssr-1');
+    expect(JSON.stringify(readInitialDataFromHtml(html))).not.toContain('credential-ssr-1');
+  });
+
+  it('does not reuse managed agent availability detection across credential headers', async () => {
+    const runtimeRoot = await createRuntimeDir();
+    let detectCalls = 0;
+    writeProjectToStore(join(runtimeRoot, 'projects'), {
+      id: 'project-managed-agent-availability-cache',
+      designSystemId: null,
+      createdAt: 1,
+      updatedAt: 2,
+      tabsState: { tabs: [], activeTabKey: null },
+      metadata: {
+        title: 'Managed agent availability cache',
+        prompt: 'Check managed agents.',
+        projectKind: 'prototype',
+      },
+    });
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: runtimeRoot,
+        detectAgentAvailability: async () => {
+          detectCalls += 1;
+          if (detectCalls > 1) {
+            return [
+              {
+                id: 'codex',
+                label: 'Codex',
+                available: false,
+                unavailableReason: 'Unable to run codex --version: context canceled',
+              },
+              { id: 'claude', label: 'Claude Code', available: true },
+            ];
+          }
+          return [
+            { id: 'codex', label: 'Codex', available: true },
+            { id: 'claude', label: 'Claude Code', available: true },
+          ];
+        },
+      }),
+    );
+
+    const first = await fetch(`http://127.0.0.1:${port}/project/project-managed-agent-availability-cache`, {
+      headers: { [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-ssr-cache-1' },
+    });
+    const second = await fetch(`http://127.0.0.1:${port}/project/project-managed-agent-availability-cache`, {
+      headers: { [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-ssr-cache-2' },
+    });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(detectCalls).toBe(2);
+    expect(readInitialDataFromHtml(await second.text())).toMatchObject({
+      projectEditor: {
+        agentAvailability: [
+          {
+            id: 'codex',
+            label: 'Codex',
+            available: false,
+            unavailableReason: 'Unable to run codex --version: context canceled',
+          },
+          { id: 'claude', label: 'Claude Code', available: true },
+        ],
+      },
+    });
+  });
+
   it('lists model catalogs from agent runtime detection', async () => {
     const port = await listenOnRandomPort(
       createTestServer({
@@ -341,6 +492,82 @@ describe('createServer', () => {
             { id: 'default', label: 'Default (CLI config)' },
             { id: 'gpt-5.5', label: 'GPT-5.5', description: 'Detected by Codex.' },
           ],
+        },
+      ],
+    });
+  });
+
+  it('passes an explicit managed agent credential header to model catalog detection without leaking it', async () => {
+    const observedContexts: Array<DetectContext | undefined> = [];
+    const runtimeRoot = await createRuntimeDir();
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: runtimeRoot,
+        detectAgentModelCatalog: async (context) => {
+          observedContexts.push(context);
+          return [
+            {
+              id: 'codex',
+              label: 'Codex',
+              models: [{ id: 'default', label: 'Default' }],
+            },
+          ];
+        },
+      }),
+    );
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/agents/models`, {
+      headers: { [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-models-1' },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(observedContexts[0]?.env).not.toHaveProperty('TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL');
+    expect(observedContexts[0]?.managedAgentInvocation).toEqual({
+      credential: 'credential-models-1',
+      cwd: runtimeRoot,
+    });
+    expect(JSON.stringify(body)).not.toContain('credential-models-1');
+  });
+
+  it('does not reuse managed agent model catalog detection across credential headers', async () => {
+    let detectCalls = 0;
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentModelCatalog: async () => {
+          detectCalls += 1;
+          return [
+            {
+              id: 'codex',
+              label: 'Codex',
+              models: [
+                {
+                  id: detectCalls === 1 ? 'gpt-5.5' : 'transient-fallback',
+                  label: detectCalls === 1 ? 'GPT-5.5' : 'Transient fallback',
+                },
+              ],
+            },
+          ];
+        },
+      }),
+    );
+
+    const first = await fetch(`http://127.0.0.1:${port}/api/agents/models`, {
+      headers: { [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-model-cache-1' },
+    });
+    const second = await fetch(`http://127.0.0.1:${port}/api/agents/models`, {
+      headers: { [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-model-cache-2' },
+    });
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(detectCalls).toBe(2);
+    expect(await second.json()).toMatchObject({
+      agents: [
+        {
+          id: 'codex',
+          models: [{ id: 'transient-fallback', label: 'Transient fallback' }],
         },
       ],
     });
@@ -546,6 +773,9 @@ describe('createServer', () => {
         },
       ],
     });
+    const listedAbsolutePath = (files.body.value as { files: Array<{ absolutePath: string }> }).files[0].absolutePath;
+    expect(isAbsolute(listedAbsolutePath)).toBe(true);
+    expect(listedAbsolutePath.endsWith(`projects/${projectId}/assets/hero.html`)).toBe(true);
 
     const staticFile = await fetch(`http://127.0.0.1:${port}/static/projects/${projectId}/assets/hero.html`);
     expect(staticFile.status).toBe(200);
@@ -558,6 +788,9 @@ describe('createServer', () => {
       encoding: 'utf8',
       file: { name: 'hero.html' },
     });
+    const fetchedAbsolutePath = (fileContent.body.value as { file: { absolutePath: string } }).file.absolutePath;
+    expect(isAbsolute(fetchedAbsolutePath)).toBe(true);
+    expect(fetchedAbsolutePath).toBe(listedAbsolutePath);
 
     const comments = await postCli(port, 'comments', { 'project-id': projectId });
     expect(comments.status).toBe(200);
@@ -565,11 +798,8 @@ describe('createServer', () => {
 
     const removedCommands = [
       'project-get',
-      'project-create',
-      'project-update',
       'project-delete',
       'project-data',
-      'session-start',
       'conversation-create',
       'conversation-rename',
       'comment-create',
@@ -582,6 +812,336 @@ describe('createServer', () => {
     for (const command of removedCommands) {
       await expect(postCliStatus(port, command, { 'project-id': projectId, 'conversation-id': conversationId })).resolves.toBe(404);
     }
+  });
+
+  it('creates and updates projects through Tutti CLI handlers', async () => {
+    const port = await listenOnRandomPort(createTestServer({ runtimeDir: await createRuntimeDir() }));
+
+    const created = await postCli(port, 'project-create', {
+      prompt: 'Generate a polished analytics dashboard.',
+      title: 'Analytics dashboard',
+      projectKind: 'prototype',
+    });
+
+    expect(created.status).toBe(200);
+    expect(created.body.value).toMatchObject({
+      project: {
+        id: expect.any(String),
+        metadata: {
+          title: 'Analytics dashboard',
+          prompt: 'Generate a polished analytics dashboard.',
+          projectKind: 'prototype',
+        },
+      },
+      conversationId: expect.stringMatching(/^conversation-[0-9a-f-]{8}$/),
+      resolvedDir: expect.any(String),
+    });
+
+    const projectId = ((created.body.value as Record<string, unknown>).project as { id: string }).id;
+    const updated = await postCli(port, 'project-update', {
+      'project-id': projectId,
+      title: 'Updated analytics dashboard',
+    });
+
+    expect(updated.status).toBe(200);
+    expect(updated.body.value).toMatchObject({
+      project: {
+        id: projectId,
+        metadata: {
+          title: 'Updated analytics dashboard',
+          prompt: 'Generate a polished analytics dashboard.',
+          projectKind: 'prototype',
+        },
+      },
+      resolvedDir: expect.any(String),
+    });
+  });
+
+  it('starts Tutti CLI sessions with local files uploaded as run attachments', async () => {
+    const testRuntimeDir = await createRuntimeDir();
+    const localFilePath = join(testRuntimeDir, 'reference.png');
+    await writeFile(localFilePath, 'local-image-bytes', 'utf8');
+    const startedRequests: Record<string, unknown>[] = [];
+    const startedRuns: ChatRun[] = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: testRuntimeDir,
+        startAgentRun: ({ run, runs, request }) => {
+          startedRuns.push(run);
+          startedRequests.push(request);
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+    const createdProject = await postCli(port, 'project-create', {
+      prompt: 'Create a visual direction.',
+      projectKind: 'prototype',
+    });
+    const projectId = ((createdProject.body.value as Record<string, unknown>).project as { id: string }).id;
+    const conversationId = (createdProject.body.value as { conversationId: string }).conversationId;
+
+    const started = await postCli(port, 'session-start', {
+      'project-id': projectId,
+      'conversation-id': conversationId,
+      prompt: 'Use the uploaded reference image.',
+      agentId: 'claude',
+      attachments: [
+        {
+          path: 'assets/existing.md',
+          name: 'existing.md',
+          kind: 'file',
+          size: 12,
+          mimeType: 'text/markdown',
+        },
+      ],
+      localFiles: [
+        {
+          path: localFilePath,
+          name: 'reference.png',
+        },
+      ],
+      mediaExecution: {
+        mode: 'enabled',
+        allowedSurfaces: ['image'],
+      },
+      toolBundle: {
+        id: 'media-tools',
+      },
+    });
+
+    expect(started.status).toBe(200);
+    expect(started.body.value).toMatchObject({
+      runId: expect.stringMatching(/[0-9a-f-]{36}/),
+      conversationId,
+      assistantMessageId: expect.stringMatching(/^assistant-[0-9a-f-]{8}$/),
+      provider: 'claude',
+      status: 'succeeded',
+    });
+    // session-start runs synchronously and returns the agent conversation verbatim.
+    const sessionMessages = (started.body.value as { messages: Array<{ role: string; content: string }> }).messages;
+    expect(Array.isArray(sessionMessages)).toBe(true);
+    expect(sessionMessages).toContainEqual(
+      expect.objectContaining({ role: 'user', content: 'Use the uploaded reference image.' }),
+    );
+    await expect(readFile(join(testRuntimeDir, 'projects', projectId, 'assets', 'reference.png'), 'utf8')).resolves.toBe('local-image-bytes');
+    expect(startedRuns[0]).not.toHaveProperty('managedAgentInvocationCredential');
+    expect(startedRequests[0]).not.toHaveProperty('managedAgentInvocationCredential');
+    expect(startedRequests).toEqual([
+      expect.objectContaining({
+        projectId,
+        conversationId,
+        prompt: 'Use the uploaded reference image.',
+        agentId: 'claude',
+        mediaExecution: {
+          mode: 'enabled',
+          allowedSurfaces: ['image'],
+        },
+        toolBundle: {
+          id: 'media-tools',
+        },
+        attachments: [
+          {
+            path: 'assets/existing.md',
+            name: 'existing.md',
+            kind: 'file',
+            size: 12,
+            mimeType: 'text/markdown',
+          },
+          {
+            path: 'assets/reference.png',
+            name: 'reference.png',
+            kind: 'image',
+            size: 'local-image-bytes'.length,
+            mimeType: 'image/png',
+          },
+        ],
+      }),
+    ]);
+
+    const messages = await postCli(port, 'conversation-messages', {
+      'project-id': projectId,
+      'conversation-id': conversationId,
+    });
+    const messagePayload = messages.body.value as {
+      messages: Array<{ role: string; content: string; attachments?: unknown[] }>;
+    };
+    expect(messagePayload.messages[0]).toMatchObject({
+      role: 'user',
+      content: 'Use the uploaded reference image.',
+      attachments: [
+        { name: 'existing.md' },
+        { name: 'reference.png', path: 'assets/reference.png', kind: 'image' },
+      ],
+    });
+    expect(messagePayload.messages[1]).toMatchObject({ role: 'assistant' });
+  });
+
+  it('falls back to Claude Code before the run when codex is unavailable up front', async () => {
+    const startedAgents: Array<string | null> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentAvailability: async () => [
+          { id: 'codex', label: 'Codex', available: false, unavailableReason: 'Codex is not authenticated.' },
+          { id: 'claude', label: 'Claude Code', available: true },
+        ],
+        startAgentRun: ({ run, runs, request }) => {
+          startedAgents.push((request.agentId as string | undefined) ?? null);
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+    const createdProject = await postCli(port, 'project-create', { prompt: 'A login page' });
+    const projectId = ((createdProject.body.value as Record<string, unknown>).project as { id: string }).id;
+
+    const started = await postCli(port, 'session-start', {
+      'project-id': projectId,
+      prompt: 'Build a modern login page',
+    });
+
+    expect(started.status).toBe(200);
+    expect(started.body.value).toMatchObject({
+      provider: 'claude',
+      status: 'succeeded',
+      agentFallback: {
+        from: 'codex',
+        to: 'claude',
+        stage: 'pre-session',
+        reason: 'Codex is not authenticated.',
+      },
+    });
+    // Codex is never started; only Claude Code runs.
+    expect(startedAgents).toEqual(['claude']);
+  });
+
+  it('retries on Claude Code in a new conversation when a codex run breaks mid-session', async () => {
+    const startedAgents: Array<string | null> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentAvailability: async () => [
+          { id: 'codex', label: 'Codex', available: true },
+          { id: 'claude', label: 'Claude Code', available: true },
+        ],
+        startAgentRun: ({ run, runs, request }) => {
+          const agentId = (request.agentId as string | undefined) ?? null;
+          startedAgents.push(agentId);
+          if (agentId === 'codex') {
+            runs.fail(run, 'AGENT_EXECUTION_FAILED', '401 Unauthorized: Missing bearer or basic authentication');
+            return;
+          }
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+    const createdProject = await postCli(port, 'project-create', { prompt: 'A login page' });
+    const projectId = ((createdProject.body.value as Record<string, unknown>).project as { id: string }).id;
+    const codexConversationId = (createdProject.body.value as { conversationId: string }).conversationId;
+
+    const started = await postCli(port, 'session-start', {
+      'project-id': projectId,
+      'conversation-id': codexConversationId,
+      'agent-id': 'codex',
+      prompt: 'Build a modern login page',
+    });
+
+    expect(started.status).toBe(200);
+    expect(started.body.value).toMatchObject({
+      provider: 'claude',
+      status: 'succeeded',
+      agentFallback: {
+        from: 'codex',
+        to: 'claude',
+        stage: 'in-session',
+      },
+    });
+    // The fallback runs in a fresh conversation, not the codex-locked one.
+    expect((started.body.value as { conversationId: string }).conversationId).not.toBe(codexConversationId);
+    expect(startedAgents).toEqual(['codex', 'claude']);
+  });
+
+  it('reports no fallback and surfaces the failure when codex breaks and Claude Code is unavailable', async () => {
+    const startedAgents: Array<string | null> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentAvailability: async () => [
+          { id: 'codex', label: 'Codex', available: true },
+          { id: 'claude', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not installed.' },
+        ],
+        startAgentRun: ({ run, runs, request }) => {
+          startedAgents.push((request.agentId as string | undefined) ?? null);
+          runs.fail(run, 'AGENT_EXECUTION_FAILED', '401 Unauthorized: Missing bearer or basic authentication');
+        },
+      }),
+    );
+    const createdProject = await postCli(port, 'project-create', { prompt: 'A login page' });
+    const projectId = ((createdProject.body.value as Record<string, unknown>).project as { id: string }).id;
+
+    const started = await postCli(port, 'session-start', {
+      'project-id': projectId,
+      'agent-id': 'codex',
+      prompt: 'Build a modern login page',
+    });
+
+    expect(started.status).toBe(200);
+    expect(started.body.value).toMatchObject({
+      provider: 'codex',
+      status: 'failed',
+      agentFallback: null,
+    });
+    // Codex runs once; there is no usable provider to fall back to.
+    expect(startedAgents).toEqual(['codex']);
+  });
+
+  it('starts a new conversation when the requested provider differs from a locked conversation', async () => {
+    const startedAgents: Array<string | null> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentAvailability: async () => [
+          { id: 'codex', label: 'Codex', available: true },
+          { id: 'claude', label: 'Claude Code', available: true },
+        ],
+        startAgentRun: ({ run, runs, request }) => {
+          startedAgents.push((request.agentId as string | undefined) ?? null);
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+    const createdProject = await postCli(port, 'project-create', { prompt: 'A login page' });
+    const projectId = ((createdProject.body.value as Record<string, unknown>).project as { id: string }).id;
+    const codexConversationId = (createdProject.body.value as { conversationId: string }).conversationId;
+
+    // First run locks the conversation to codex.
+    await postCli(port, 'session-start', {
+      'project-id': projectId,
+      'conversation-id': codexConversationId,
+      'agent-id': 'codex',
+      prompt: 'Build with codex',
+    });
+
+    // Re-targeting the same conversation with Claude Code would collide with the codex lock; the
+    // call transparently runs in a fresh conversation instead of failing.
+    const started = await postCli(port, 'session-start', {
+      'project-id': projectId,
+      'conversation-id': codexConversationId,
+      'agent-id': 'claude',
+      prompt: 'Now build with Claude Code',
+    });
+
+    expect(started.status).toBe(200);
+    expect(started.body.value).toMatchObject({
+      provider: 'claude',
+      status: 'succeeded',
+      agentFallback: {
+        from: 'codex',
+        to: 'claude',
+        stage: 'conversation-locked',
+      },
+    });
+    expect((started.body.value as { conversationId: string }).conversationId).not.toBe(codexConversationId);
+    expect(startedAgents).toEqual(['codex', 'claude']);
   });
 
   it('serves the dashboard page at the root route', async () => {
@@ -1238,6 +1798,210 @@ describe('createServer', () => {
     ]);
   });
 
+  it('keeps managed agent invocation credentials out of starter requests and status responses', async () => {
+    const started: Array<{
+      run: ChatRun;
+      request: Record<string, unknown>;
+      managedAgentRunContext?: ManagedAgentRunContext;
+    }> = [];
+    const observedContexts: Array<DetectContext | undefined> = [];
+    const runtimeRoot = await createRuntimeDir();
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: runtimeRoot,
+        detectAgentAvailability: async (context) => {
+          observedContexts.push(context);
+          return [
+            { id: 'codex', label: 'Codex', available: true },
+            { id: 'claude', label: 'Claude Code', available: true },
+          ];
+        },
+        startAgentRun: ({ run, request, managedAgentRunContext }) => {
+          started.push({ run, request, managedAgentRunContext });
+        },
+      }),
+    );
+
+    const createResponse = await fetch(`http://127.0.0.1:${port}/api/runs`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-header-1',
+      },
+      body: JSON.stringify({
+        projectId: 'project-managed-agent',
+        prompt: 'Build a small page',
+        agentId: 'codex',
+        managedAgentInvocationCredential: 'credential-run-body-ignored',
+      }),
+    });
+
+    expect(createResponse.status).toBe(202);
+    const created = await createResponse.json() as { runId: string };
+    expect(started).toHaveLength(1);
+    expect(observedContexts[0]?.env).not.toHaveProperty('TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL');
+    expect(observedContexts[0]?.managedAgentInvocation).toEqual({
+      credential: 'credential-header-1',
+      cwd: runtimeRoot,
+    });
+    expect(started[0]?.run).not.toHaveProperty('managedAgentInvocationCredential');
+    expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
+    expect(started[0]?.managedAgentRunContext?.managedAgentInvocation).toEqual({
+      credential: 'credential-header-1',
+      cwd: started[0]?.managedAgentRunContext?.cwd,
+    });
+    expect(started[0]?.managedAgentRunContext?.cwd).toContain(join(runtimeRoot, '.agent-runs', 'codex-'));
+
+    const statusResponse = await fetch(`http://127.0.0.1:${port}/api/runs/${created.runId}`);
+    expect(statusResponse.status).toBe(200);
+    const statusBody = JSON.stringify(await statusResponse.json());
+    expect(statusBody).not.toContain('credential-header-1');
+    expect(statusBody).not.toContain('credential-run-body-ignored');
+  });
+
+  it('uses managed agent invocation credentials from request headers when creating runs', async () => {
+    const started: Array<{
+      run: ChatRun;
+      request: Record<string, unknown>;
+      managedAgentRunContext?: ManagedAgentRunContext;
+    }> = [];
+    const observedContexts: Array<DetectContext | undefined> = [];
+    const runtimeRoot = await createRuntimeDir();
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: runtimeRoot,
+        detectAgentAvailability: async (context) => {
+          observedContexts.push(context);
+          return [
+            { id: 'codex', label: 'Codex', available: true },
+          ];
+        },
+        startAgentRun: ({ run, request, managedAgentRunContext }) => {
+          started.push({ run, request, managedAgentRunContext });
+        },
+      }),
+    );
+
+    const createResponse = await fetch(`http://127.0.0.1:${port}/api/runs`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-run-header-1',
+      },
+      body: JSON.stringify({
+        projectId: 'project-managed-agent-header',
+        prompt: 'Build a small page',
+        agentId: 'codex',
+      }),
+    });
+
+    expect(createResponse.status).toBe(202);
+    const created = await createResponse.json() as { runId: string };
+    expect(started).toHaveLength(1);
+    expect(observedContexts[0]?.env).not.toHaveProperty('TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL');
+    expect(observedContexts[0]?.managedAgentInvocation).toEqual({
+      credential: 'credential-run-header-1',
+      cwd: runtimeRoot,
+    });
+    expect(started[0]?.run).not.toHaveProperty('managedAgentInvocationCredential');
+    expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
+    expect(started[0]?.managedAgentRunContext?.managedAgentInvocation).toEqual({
+      credential: 'credential-run-header-1',
+      cwd: started[0]?.managedAgentRunContext?.cwd,
+    });
+    expect(started[0]?.managedAgentRunContext?.cwd).toContain(join(runtimeRoot, '.agent-runs', 'codex-'));
+
+    const statusResponse = await fetch(`http://127.0.0.1:${port}/api/runs/${created.runId}`);
+    expect(statusResponse.status).toBe(200);
+    expect(JSON.stringify(await statusResponse.json())).not.toContain('credential-run-header-1');
+  });
+
+  it('ignores legacy chat body managed agent invocation credentials', async () => {
+    const started: Array<{ run: ChatRun; request: Record<string, unknown> }> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        startAgentRun: ({ run, runs, request }) => {
+          started.push({ run, request });
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: 'project-managed-agent-chat',
+        prompt: 'Build a small page',
+        agentId: 'codex',
+        managedAgentInvocationCredential: 'credential-chat-body-ignored',
+      }),
+    });
+    const streamText = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(started).toHaveLength(1);
+    expect(started[0]?.run).not.toHaveProperty('managedAgentInvocationCredential');
+    expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
+    expect(streamText).not.toContain('credential-chat-body-ignored');
+  });
+
+  it('uses managed agent invocation credentials from request headers for legacy chat', async () => {
+    const started: Array<{
+      run: ChatRun;
+      request: Record<string, unknown>;
+      managedAgentRunContext?: ManagedAgentRunContext;
+    }> = [];
+    const observedContexts: Array<DetectContext | undefined> = [];
+    const runtimeRoot = await createRuntimeDir();
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: runtimeRoot,
+        detectAgentAvailability: async (context) => {
+          observedContexts.push(context);
+          return [
+            { id: 'codex', label: 'Codex', available: true },
+          ];
+        },
+        startAgentRun: ({ run, runs, request, managedAgentRunContext }) => {
+          started.push({ run, request, managedAgentRunContext });
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/chat`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-chat-header-1',
+      },
+      body: JSON.stringify({
+        projectId: 'project-managed-agent-chat-header',
+        prompt: 'Build a small page',
+        agentId: 'codex',
+      }),
+    });
+    const streamText = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(started).toHaveLength(1);
+    expect(observedContexts[0]?.env).not.toHaveProperty('TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL');
+    expect(observedContexts[0]?.managedAgentInvocation).toEqual({
+      credential: 'credential-chat-header-1',
+      cwd: runtimeRoot,
+    });
+    expect(started[0]?.run).not.toHaveProperty('managedAgentInvocationCredential');
+    expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
+    expect(started[0]?.managedAgentRunContext?.managedAgentInvocation).toEqual({
+      credential: 'credential-chat-header-1',
+      cwd: started[0]?.managedAgentRunContext?.cwd,
+    });
+    expect(started[0]?.managedAgentRunContext?.cwd).toContain(join(runtimeRoot, '.agent-runs', 'codex-'));
+    expect(streamText).not.toContain('credential-chat-header-1');
+  });
+
   it('keeps a conversation provider locked while updating its remembered model for same-provider runs', async () => {
     const startedRequests: Record<string, unknown>[] = [];
     const port = await listenOnRandomPort(
@@ -1435,6 +2199,54 @@ describe('createServer', () => {
     expect(missingProjectResponse.status).toBe(400);
     expect(await missingProjectResponse.json()).toMatchObject({
       error: { code: 'BAD_REQUEST' },
+    });
+
+    const previewProxyOriginResponse = await fetch(`http://127.0.0.1:${port}/api/projects`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        origin: 'http://localhost:33793',
+      },
+      body: JSON.stringify({ prompt: 'hello through preview proxy', projectKind: 'prototype' }),
+    });
+    expect(previewProxyOriginResponse.status).toBe(201);
+
+    const remotePreviewHostResponse = await postJsonWithHeaders(
+      port,
+      '/api/projects',
+      {
+        host: '33793-i4vtfk8xfk5cmnenyetku.e2b.app',
+        origin: 'http://localhost:33793',
+        'sec-fetch-site': 'same-origin',
+      },
+      { prompt: 'hello through remote preview host', projectKind: 'prototype' },
+    );
+    expect(remotePreviewHostResponse.status).toBe(201);
+
+    const wildcardPreviewHostResponse = await postJsonWithHeaders(
+      port,
+      '/api/projects',
+      {
+        host: '0.0.0.0:33793',
+        origin: 'http://localhost:33793',
+      },
+      { prompt: 'hello through wildcard preview host', projectKind: 'prototype' },
+    );
+    expect(wildcardPreviewHostResponse.status).toBe(201);
+
+    const spoofedPreviewOriginResponse = await postJsonWithHeaders(
+      port,
+      '/api/projects',
+      {
+        host: '33793-i4vtfk8xfk5cmnenyetku.e2b.app',
+        origin: 'http://localhost:33793',
+        'sec-fetch-site': 'cross-site',
+      },
+      { prompt: 'hello through spoofed preview origin', projectKind: 'prototype' },
+    );
+    expect(spoofedPreviewOriginResponse.status).toBe(403);
+    expect(spoofedPreviewOriginResponse.body).toMatchObject({
+      error: { code: 'FORBIDDEN_ORIGIN' },
     });
 
     const crossOriginResponse = await fetch(`http://127.0.0.1:${port}/api/runs`, {

@@ -6,15 +6,12 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { AtSign, Square, SwatchBook } from 'lucide-react';
+import { AtSign, Square } from 'lucide-react';
 import {
   Badge,
   Button,
-  DropdownMenu,
-  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuTrigger,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -22,11 +19,9 @@ import {
 } from '@tutti-os/ui-system/components';
 import {
   CheckIcon,
-  ChevronDownIcon,
   CloseIcon,
   FileTextIcon,
   ImageFileIcon,
-  LoadingIcon,
   ToolsIcon,
   UploadIcon,
 } from '@tutti-os/ui-system/icons';
@@ -37,10 +32,20 @@ import type {
 import type { CanvasCommentAttachment, ChatAttachment } from '../types';
 import { useTranslation } from '../i18n';
 import { DesignSystemPickerDialog } from './DesignSystemPickerDialog';
+import {
+  ComposerDesignSystemTrigger,
+  ComposerIconButton,
+  ComposerModelPicker,
+  ComposerModelProviderIcon,
+  ComposerSendButton,
+  type ComposerModelGroup,
+  type ComposerModelProvider,
+} from './ComposerControls';
 import { PromptInput, type PromptInputHandle } from './PromptInput';
+import { extractMentionQuery, removeActiveMentionToken } from './composer-mention';
 
 type ActiveModelProvider = 'codex' | 'claude-code';
-type ModelProvider = ActiveModelProvider | 'tutti' | 'hermes' | 'openclaw';
+type ModelProvider = ComposerModelProvider;
 type AgentId = 'codex' | 'claude';
 type MentionFilter = 'all' | ContextSearchResultItem['kind'];
 
@@ -51,14 +56,6 @@ const MODEL_PROVIDERS: Array<{ value: ModelProvider; label: string; comingSoon?:
   { value: 'hermes', label: 'Hermes', comingSoon: true },
   { value: 'openclaw', label: 'OpenClaw', comingSoon: true },
 ];
-
-const MODEL_PROVIDER_ICON_URLS: Record<ModelProvider, string> = {
-  codex: '/assets/agent-icons/workspace-dock-agent-codex.png',
-  'claude-code': '/assets/agent-icons/workspace-dock-agent-claude-code.png',
-  tutti: '/assets/agent-icons/manage-agent-tutti.png',
-  hermes: '/assets/agent-icons/hermes-rounded.png',
-  openclaw: '/assets/agent-icons/openclaw-rounded.png',
-};
 
 const ACTIVE_MODEL_PROVIDERS = new Set<ModelProvider>(['codex', 'claude-code']);
 
@@ -503,7 +500,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
             key={provider.value}
             onSelect={() => updateModelProvider(provider.value)}
           >
-            <ModelProviderIcon provider={provider.value} />
+            <ComposerModelProviderIcon provider={provider.value} />
             <span>{provider.label}</span>
           </DropdownMenuItem>
         );
@@ -515,7 +512,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
             className="composer-model-provider-label"
             data-provider-option={provider.value}
           >
-            <ModelProviderIcon provider={provider.value} />
+            <ComposerModelProviderIcon provider={provider.value} />
             <span>{provider.label}</span>
           </DropdownMenuLabel>
           <div className="composer-model-provider-models" data-provider-models={provider.value}>
@@ -559,7 +556,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           key={provider.value}
           title={provider.comingSoon ? disabledReason ?? undefined : undefined}
         >
-          <ModelProviderIcon provider={provider.value} />
+          <ComposerModelProviderIcon provider={provider.value} />
           <span>{provider.label}</span>
         </DropdownMenuItem>
       );
@@ -693,17 +690,11 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
 
         <div className="composer-shell">
           <div className="chat-composer__topbar">
-            <Button
-              type="button"
-              className="chat-composer__design-system-trigger"
-              variant="ghost"
-              size="sm"
-              aria-label={t('chat.composer.chooseDesignSystem')}
+            <ComposerDesignSystemTrigger
+              ariaLabel={t('chat.composer.chooseDesignSystem')}
+              label={selectedDesignSystemLabel}
               onClick={() => updateDesignSystemDialog(true)}
-            >
-              <SwatchBook size={14} aria-hidden />
-              <span>{selectedDesignSystemLabel}</span>
-            </Button>
+            />
           </div>
 
           {selectedChips.length > 0 ? (
@@ -833,15 +824,13 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           ) : null}
 
           <div className="composer-row">
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label={t('chat.composer.openMentions')}
+            <ComposerIconButton
+              ariaLabel={t('chat.composer.openMentions')}
               title={t('chat.composer.openMentions')}
               onClick={insertMentionTrigger}
             >
               <AtSign size={14} aria-hidden />
-            </button>
+            </ComposerIconButton>
 
             <input
               ref={fileInputRef}
@@ -851,87 +840,84 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
               type="file"
               onChange={(event) => stageSelectedFiles(event.currentTarget.files)}
             />
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label={t('chat.composer.attachFiles')}
+            <ComposerIconButton
+              ariaLabel={t('chat.composer.attachFiles')}
               title={t('chat.composer.attachFiles')}
               onClick={() => fileInputRef.current?.click()}
             >
               <UploadIcon size={14} />
-            </button>
+            </ComposerIconButton>
 
             <span className="composer-spacer" />
 
             <TooltipProvider delayDuration={120}>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={t('chat.composer.modelProvider')}
-                    className="composer-model-menu-trigger"
-                  >
-                    {isActiveModelProvider(modelProvider) ? (
-                      <ModelProviderIcon provider={modelProvider} />
-                    ) : null}
-                    <span className="composer-model-menu-trigger-provider">{selectedProviderLabel}</span>
-                    {selectedModelLabel ? (
-                      <span className="composer-model-menu-trigger-model">{selectedModelLabel}</span>
-                    ) : null}
-                    <ChevronDownIcon className="composer-model-menu-chevron" size={14} aria-hidden />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  className="composer-model-menu-content"
-                  align="end"
-                  side="top"
-                >
-                  {MODEL_PROVIDERS.map((provider) => renderModelProviderMenuEntry(provider))}
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <ComposerModelPicker
+                ariaLabel={t('chat.composer.modelProvider')}
+                groups={MODEL_PROVIDERS.flatMap((p): ComposerModelGroup[] => {
+                  if (!isActiveModelProvider(p.value)) return [];
+                  if (p.comingSoon) return [];
+                  if (unavailableReasonForProvider(p.value, agentAvailability)) return [];
+                  if (providerLocked && p.value !== lockedModelProvider) return [];
+                  return [{
+                    provider: p.value,
+                    providerLabel: p.label,
+                    models: modelOptionsForProvider(p.value, agentModelCatalog).map((m) => ({
+                      id: m.id,
+                      label: m.label,
+                      ...(m.description ? { description: m.description } : {}),
+                    })),
+                  }];
+                })}
+                selectedKey={selectedModel ? `${modelProvider}:${selectedModel}` : modelProvider}
+                selectedProvider={modelProvider}
+                selectedProviderLabel={selectedProviderLabel}
+                selectedModelLabel={selectedModelLabel}
+                menuClassName="composer-model-menu-content"
+                onSelect={(provider, modelId) => {
+                  if (modelId) {
+                    selectProviderModel(provider as ActiveModelProvider, modelId);
+                  } else {
+                    updateModelProvider(provider);
+                  }
+                }}
+                additionalItems={MODEL_PROVIDERS
+                  .filter((p) =>
+                    !isActiveModelProvider(p.value) ||
+                    p.comingSoon ||
+                    Boolean(unavailableReasonForProvider(p.value, agentAvailability)) ||
+                    (providerLocked && p.value !== lockedModelProvider)
+                  )
+                  .map((p) => renderModelProviderMenuEntry(p))}
+              />
             </TooltipProvider>
 
             {sendPending ? (
-              <Button
-                type="button"
-                className="project-primary-button composer-send"
-                size="sm"
-                aria-label={t('chat.composer.responseLoading')}
+              <ComposerSendButton
+                ariaLabel={t('chat.composer.responseLoading')}
                 disabled
+                loading
               >
-                <span className="composer-send-loading-icon">
-                  <LoadingIcon size={14} title={t('chat.composer.responseLoading')} />
-                </span>
-              </Button>
+                {t('chat.composer.send')}
+              </ComposerSendButton>
             ) : canInterrupt ? (
-              <Button
-                type="button"
-                className="project-primary-button composer-send composer-send--stop"
-                size="sm"
-                aria-label={t('chat.composer.stopRun')}
+              <ComposerSendButton
+                ariaLabel={t('chat.composer.stopRun')}
                 title={t('chat.composer.stopRunTitle')}
                 disabled={stopPending}
+                loading={stopPending}
+                stop
                 onClick={() => void interrupt()}
               >
-                {stopPending ? (
-                  <span className="composer-send-loading-icon">
-                    <LoadingIcon size={14} title={t('chat.composer.stoppingRun')} />
-                  </span>
-                ) : (
-                  <Square size={12} aria-hidden fill="currentColor" />
-                )}
-              </Button>
+                <Square size={12} aria-hidden fill="currentColor" />
+              </ComposerSendButton>
             ) : (
-              <Button
-                type="button"
-                className="project-primary-button composer-send"
-                size="sm"
-                aria-label={t('chat.composer.sendMessage')}
+              <ComposerSendButton
+                ariaLabel={t('chat.composer.sendMessage')}
                 disabled={!canSend}
                 onClick={() => void submit()}
               >
                 {t('chat.composer.send')}
-              </Button>
+              </ComposerSendButton>
             )}
           </div>
         </div>
@@ -977,21 +963,6 @@ function MentionResultIcon({ kind }: { kind: ContextSearchResultItem['kind'] }) 
     return <FileTextIcon size={14} aria-hidden data-mention-icon="design-file" />;
   }
   return <ToolsIcon size={14} aria-hidden data-mention-icon="skill" />;
-}
-
-function ModelProviderIcon({ provider }: { provider: ModelProvider }) {
-  const label = MODEL_PROVIDERS.find((candidate) => candidate.value === provider)?.label ?? provider;
-  const iconUrl = MODEL_PROVIDER_ICON_URLS[provider];
-  return (
-    <img
-      src={iconUrl}
-      alt=""
-      aria-hidden
-      className="composer-model-provider-icon"
-      data-provider-icon={provider}
-      title={label}
-    />
-  );
 }
 
 function agentIdFromModelProvider(provider: ModelProvider): AgentId {
@@ -1247,16 +1218,4 @@ function CommentAttachmentChips({
       ))}
     </div>
   );
-}
-
-const ACTIVE_MENTION_QUERY_PATTERN = /[@＠]([^\s@＠]*)$/;
-const ACTIVE_MENTION_TOKEN_PATTERN = /[@＠][^\s@＠]*$/;
-
-function extractMentionQuery(value: string): string | null {
-  const match = ACTIVE_MENTION_QUERY_PATTERN.exec(value);
-  return match ? match[1] : null;
-}
-
-function removeActiveMentionToken(value: string): string {
-  return value.replace(ACTIVE_MENTION_TOKEN_PATTERN, '').trimEnd();
 }

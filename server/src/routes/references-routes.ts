@@ -35,15 +35,17 @@ interface SearchOptions {
   limit: number;
   offset: number;
   timeRange: TimeRange | null;
+  filters: Set<FileCategory> | null;
   wantsFiles: boolean;
 }
 
 type ProjectSummary = ReturnType<typeof listProjectSummariesFromStore>[number];
 
-interface ScoredFile {
+interface MatchedFile {
   project: ProjectSummary;
   file: StoredProjectFile;
-  score: number;
+  // null in filter-only search (empty query), where recency decides order.
+  score: number | null;
 }
 
 // Implements the Tutti workspace app "Reference List Runtime Protocol".
@@ -83,7 +85,10 @@ export function registerReferencesRoutes(app: Express, ctx: ReferencesRouteDeps)
     const body = isRecord(req.body) ? req.body : {};
     const rawQuery = readString(body.query);
     const query = rawQuery ? rawQuery.slice(0, SEARCH_QUERY_MAX_LENGTH).toLowerCase() : '';
-    if (!query) {
+    const filters = readFilters(body.filters);
+    // Filtering and search are one capability: either a non-empty query or a
+    // non-empty filter set is a valid request. Nothing to match → empty result.
+    if (!query && !filters) {
       res.json({ items: [], nextCursor: null });
       return;
     }
@@ -93,6 +98,7 @@ export function registerReferencesRoutes(app: Express, ctx: ReferencesRouteDeps)
       limit: clamp(readInteger(body.limit, MAX_PAGE_LIMIT), 1, MAX_PAGE_LIMIT),
       offset: decodeCursor(body.cursor),
       timeRange: readTimeRange(body.timeRange),
+      filters,
       wantsFiles: readKindsWantsFiles(body.kinds),
     };
 
@@ -160,22 +166,34 @@ function searchProjectFileReferences(projectsDir: string, options: SearchOptions
   }
 
   const projects = listProjectSummariesFromStore(projectsDir, PROJECT_SCAN_LIMIT);
-  const matches: ScoredFile[] = [];
+  const matches: MatchedFile[] = [];
   for (const project of projects) {
-    // A matching project title surfaces its files too, ranked below direct name hits.
-    const titleScore = scoreText(project.title.toLowerCase(), options.query);
     const files = filterFilesByRange(listProjectFilesFromStore(projectsDir, project.id), options.timeRange);
     for (const file of files) {
       if (!isSafeFileName(file.name)) continue;
-      const nameScore = scoreText(file.name.toLowerCase(), options.query);
-      const score = nameScore > 0 ? nameScore : titleScore * 0.5;
+      // Result = intersection of the file-name query and the file-type filters.
+      // OR semantics across the requested categories.
+      if (options.filters && !options.filters.has(categoryOf(file.name))) continue;
+      if (!options.query) {
+        // Filter-only search: every file passing the category/time filters is a
+        // match; recency decides order, so no relevance score is attached.
+        matches.push({ project, file, score: null });
+        continue;
+      }
+      // The query matches against the file name only, never the project title.
+      const score = scoreText(file.name.toLowerCase(), options.query);
       if (score <= 0) continue;
       matches.push({ project, file, score });
     }
   }
 
-  // Descending relevance; stable tie-break by name so cursor paging is deterministic.
-  matches.sort((left, right) => right.score - left.score || left.file.name.localeCompare(right.file.name));
+  if (options.query) {
+    // Descending relevance; stable tie-break by name so cursor paging is deterministic.
+    matches.sort((left, right) => (right.score ?? 0) - (left.score ?? 0) || left.file.name.localeCompare(right.file.name));
+  } else {
+    // Filter-only: newest first, with the same stable name tie-break.
+    matches.sort((left, right) => mtimeMsOf(right.file) - mtimeMsOf(left.file) || left.file.name.localeCompare(right.file.name));
+  }
 
   const page = paginate(matches, options.offset, options.limit);
   const items = page.slice.map(({ project, file, score }) => ({
@@ -190,7 +208,8 @@ function searchProjectFileReferences(projectsDir: string, options: SearchOptions
       sizeBytes: file.size,
       mtimeMs: mtimeMsOf(file),
       mimeType: file.mime,
-      score: roundScore(score),
+      // Omitted in filter-only search so Tutti preserves the recency order.
+      ...(score != null ? { score: roundScore(score) } : {}),
       // Owning project's title: shown as the result's context subtitle so users
       // can tell which project a flattened search hit belongs to.
       parentGroupLabel: project.title,
@@ -234,6 +253,54 @@ function inRange(ms: number, range: TimeRange): boolean {
 function mtimeMsOf(file: StoredProjectFile): number {
   const ms = Date.parse(file.mtime);
   return Number.isFinite(ms) ? ms : 0;
+}
+
+// Global file-type categories from the Tutti reference search protocol. Every
+// file resolves to exactly one; unrecognized extensions fall into `other`.
+// Authoritative source: Tutti packages/workspace/file-reference/src/core/referenceFilterCategories.ts.
+// `document` includes spreadsheets; audio/code/archive extensions are not listed
+// and therefore resolve to `other`.
+type FileCategory = 'image' | 'video' | 'document' | 'webpage' | 'other';
+
+const KNOWN_CATEGORIES = new Set<FileCategory>([
+  'image',
+  'video',
+  'document',
+  'webpage',
+  'other',
+]);
+
+// Lowercase extension (no dot) → category. Anything absent maps to `other`.
+const EXTENSION_CATEGORY: Readonly<Record<string, FileCategory>> = {
+  png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', svg: 'image',
+  bmp: 'image', ico: 'image', tiff: 'image', tif: 'image', avif: 'image', heic: 'image',
+  mp4: 'video', mov: 'video', avi: 'video', mkv: 'video', webm: 'video', m4v: 'video',
+  pdf: 'document', doc: 'document', docx: 'document', md: 'document', markdown: 'document',
+  txt: 'document', rtf: 'document', odt: 'document', pages: 'document', key: 'document',
+  ppt: 'document', pptx: 'document',
+  xls: 'document', xlsx: 'document', csv: 'document', tsv: 'document', ods: 'document',
+  numbers: 'document',
+  html: 'webpage', htm: 'webpage', mhtml: 'webpage', url: 'webpage', webloc: 'webpage',
+};
+
+function categoryOf(fileName: string): FileCategory {
+  const dot = fileName.lastIndexOf('.');
+  // No dot, leading-dot (dotfile), or trailing-dot name has no usable extension.
+  if (dot <= 0 || dot === fileName.length - 1) return 'other';
+  return EXTENSION_CATEGORY[fileName.slice(dot + 1).toLowerCase()] ?? 'other';
+}
+
+// Parses the `filters` array into a category set, ignoring unknown ids. Returns
+// null when no recognized category remains, meaning "no category constraint".
+function readFilters(value: unknown): Set<FileCategory> | null {
+  if (!Array.isArray(value)) return null;
+  const set = new Set<FileCategory>();
+  for (const entry of value) {
+    if (typeof entry === 'string' && KNOWN_CATEGORIES.has(entry as FileCategory)) {
+      set.add(entry as FileCategory);
+    }
+  }
+  return set.size > 0 ? set : null;
 }
 
 function readKindsWantsFiles(value: unknown): boolean {

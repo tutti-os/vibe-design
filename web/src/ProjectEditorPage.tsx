@@ -13,9 +13,10 @@ import {
 } from './features/canvas-workspace';
 import type { CanvasPreviewCommentTarget } from './features/canvas-workspace/canvas-comment/canvas-comment-types';
 import type { FileOpEntry } from './runtime/file-ops';
-import { consumeInitialProjectPrompt } from './initial-project-prompt';
+import { consumeInitialProjectPrompt, consumeInitialProjectSkills } from './initial-project-prompt';
+import { useServiceSnapshot } from './hooks/use-service-snapshot';
 import { IChatSessionService } from './services/chat-session/chat-session-service.interface';
-import type { ChatSessionSnapshot } from './services/chat-session/chat-session-types';
+import type { ChatSessionSnapshot, SendTurnInput } from './services/chat-session/chat-session-types';
 import { IChatTimelineService } from './services/chat-timeline/chat-timeline-service.interface';
 import type { ChatTimelineSnapshot, GeneratedFileEntry } from './services/chat-timeline/chat-timeline-types';
 import type {
@@ -42,11 +43,8 @@ const CHAT_PANEL_DEFAULT_WIDTH_CSS = `clamp(${CHAT_PANEL_DEFAULT_WIDTH}px, 29vw,
 const CHAT_PANEL_KEYBOARD_STEP = 24;
 const PROJECT_EDITOR_COMPACT_WIDTH = 1540;
 const PROJECT_PREVIEW_COVER_NAME = 'cover.svg';
+const DESIGN_STYLE_UPLOAD_FILE_NAME = 'design.md';
 
-interface SubscribableSnapshotService<TSnapshot> {
-  subscribe(listener: () => void): () => void;
-  getSnapshot(): TSnapshot;
-}
 
 export function ProjectEditorPage({ projectId, initialData }: { projectId: string; initialData?: ProjectEditorInitialData }) {
   const { locale, t } = useTranslation();
@@ -83,13 +81,14 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
   const observedCompletedRunKeysRef = React.useRef<Set<string> | null>(null);
   const initialTabs = initialData?.project.tabsState ?? { tabs: [], activeTabKey: null };
   const [workspaceTabsState, setWorkspaceTabsState] = React.useState<WorkspaceTabsState>(initialTabs);
-  const effectiveChatPanelWidth = compactEditorLayout ? CHAT_PANEL_COMPACT_WIDTH : chatPanelWidth;
+  const effectiveChatPanelWidth = chatPanelWidth ?? (compactEditorLayout ? CHAT_PANEL_COMPACT_WIDTH : null);
   const chatPanelColumn = effectiveChatPanelWidth ? `${effectiveChatPanelWidth}px` : CHAT_PANEL_DEFAULT_WIDTH_CSS;
   const chatPanelAriaWidth = effectiveChatPanelWidth ?? CHAT_PANEL_DEFAULT_WIDTH;
   const [activeDesignSystemId, setActiveDesignSystemId] = React.useState<string | null>(
     initialData?.project.designSystemId ?? null,
   );
   const [designSystems, setDesignSystems] = React.useState<ChatComposerDesignSystem[]>([]);
+  const [importedDesignStyle, setImportedDesignStyle] = React.useState<ChatComposerDesignSystem | null>(null);
   const [designSystemsLocale, setDesignSystemsLocale] = React.useState<string | null>(null);
   const [designSystemPickerState, setDesignSystemPickerState] =
     React.useState<ChatComposerDesignSystemPickerState>('idle');
@@ -97,12 +96,12 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
   const designSystemRequestRef = React.useRef(0);
   const activeDesignSystem = React.useMemo(
     () =>
-      resolveActiveDesignSystem(activeDesignSystemId, designSystems, {
+      resolveActiveDesignSystem(activeDesignSystemId, mergedDesignSystems(designSystems, importedDesignStyle), {
         category: t('projectEditor.designSystemFallback.category'),
         summary: t('projectEditor.designSystemFallback.summary'),
         title: t('projectEditor.designSystemFallback.title'),
       }),
-    [activeDesignSystemId, designSystems, t],
+    [activeDesignSystemId, designSystems, importedDesignStyle, t],
   );
   const activeWorkspaceFilePath = React.useMemo(
     () => activeFilePathFromTabsState(workspaceTabsState),
@@ -187,6 +186,24 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
       setActiveDesignSystemId(updatedProject.designSystemId ?? designSystemId ?? null);
     },
     [projectId, projects],
+  );
+  const handleImportDesignStyleFile = React.useCallback(
+    async (file: File) => {
+      const importedDesignSystem = await saveUploadedDesignStyleFile(file, activeDesignSystem, {
+        category: t('projectEditor.importedDesignStyle.category'),
+        importError: t('projectEditor.errors.designStyleImport'),
+        summary: t('projectEditor.importedDesignStyle.summary'),
+        title: t('projectEditor.importedDesignStyle.title'),
+      });
+      setDesignSystems((currentDesignSystems) =>
+        upsertDesignSystem(currentDesignSystems, importedDesignSystem),
+      );
+      setImportedDesignStyle(importedDesignSystem);
+      const updatedProject = await projects.updateProjectDesignSystem(projectId, importedDesignSystem.id);
+      setActiveDesignSystemId(updatedProject.designSystemId ?? importedDesignSystem.id);
+      return importedDesignSystem;
+    },
+    [activeDesignSystem, projectId, projects, t],
   );
   const handleInstallAgent = React.useCallback(async (agentId: string) => {
     if (agentId !== 'claude') {
@@ -549,11 +566,12 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
             onOpenGeneratedFile={handleOpenGeneratedFile}
             onOpenFileOp={handleOpenFileOp}
             activeDesignSystem={activeDesignSystem}
-            designSystems={designSystems}
+            designSystems={mergedDesignSystems(designSystems, importedDesignStyle)}
             designSystemPickerState={designSystemPickerState}
             designSystemPickerError={designSystemPickerError}
             onOpenDesignSystemPicker={handleOpenDesignSystemPicker}
             onSelectDesignSystem={handleSelectDesignSystem}
+            onImportDesignStyleFile={handleImportDesignStyleFile}
             onInstallAgent={handleInstallAgent}
             onRenameProject={handleRenameProject}
           />
@@ -572,7 +590,11 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
           >
             <span className="my-2 w-px rounded-full bg-transparent" />
           </div>
-          <InitialProjectPromptStarter projectId={projectId} />
+          <InitialProjectPromptStarter
+            projectId={projectId}
+            hasExistingMessages={timelineSnapshot.messages.length > 0}
+            onSendTurn={(draft) => void session.sendTurn({ draft, files: [] })}
+          />
           <CanvasWorkspace
             files={files}
             initialTabs={initialTabs}
@@ -614,6 +636,48 @@ async function fetchOfficialDesignSystems(
   }
 
   return readDesignSystems(data, fallbackCategory).filter((designSystem) => designSystem.source === 'built-in');
+}
+
+async function saveUploadedDesignStyleFile(
+  file: File,
+  activeDesignSystem: ChatComposerDesignSystem | null,
+  text: {
+    category: string;
+    importError: string;
+    summary: string;
+    title: string;
+  },
+): Promise<ChatComposerDesignSystem & { source: 'user' }> {
+  const body = await file.text();
+  const existingUserDesignSystemId =
+    activeDesignSystem && isUserDesignSystemId(activeDesignSystem.id) ? activeDesignSystem.id : null;
+  const response = await fetch(
+    existingUserDesignSystemId
+      ? `/api/design-systems/${encodeURIComponent(existingUserDesignSystemId)}`
+      : '/api/design-systems',
+    {
+      method: existingUserDesignSystemId ? 'PATCH' : 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        title: existingUserDesignSystemId ? activeDesignSystem?.title ?? text.title : text.title,
+        category: text.category,
+        summary: text.summary,
+        body,
+        status: 'draft',
+      }),
+    },
+  );
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(readApiErrorMessage(data) ?? text.importError);
+  }
+
+  const designSystem = readDesignSystem(isRecord(data) ? data.designSystem : null, text.category);
+  if (!designSystem || designSystem.source !== 'user') {
+    throw new Error(text.importError);
+  }
+  return { ...designSystem, source: 'user' };
 }
 
 async function installClaudeCodeAgent(): Promise<ChatComposerAgentAvailability[]> {
@@ -717,6 +781,42 @@ function resolveActiveDesignSystem(
       swatches: [],
     }
   );
+}
+
+function upsertDesignSystem(
+  designSystems: ChatComposerDesignSystem[],
+  designSystem: ChatComposerDesignSystem,
+): ChatComposerDesignSystem[] {
+  const existingIndex = designSystems.findIndex((candidate) => candidate.id === designSystem.id);
+  if (existingIndex === -1) return [designSystem, ...designSystems];
+
+  return designSystems.map((candidate, index) => (index === existingIndex ? designSystem : candidate));
+}
+
+function mergedDesignSystems(
+  designSystems: ChatComposerDesignSystem[],
+  designSystem: ChatComposerDesignSystem | null,
+): ChatComposerDesignSystem[] {
+  return designSystem ? upsertDesignSystem(designSystems, designSystem) : designSystems;
+}
+
+function splitDesignStyleUploadFiles(files: SendTurnInput['files']): {
+  designStyleFile: File | null;
+  turnFiles: File[];
+} {
+  const designStyleFiles = files.filter(isDesignStyleUploadFile);
+  return {
+    designStyleFile: designStyleFiles.at(-1) ?? null,
+    turnFiles: files.filter((file) => !isDesignStyleUploadFile(file)),
+  };
+}
+
+function isDesignStyleUploadFile(file: File): boolean {
+  return file.name.trim().toLowerCase() === DESIGN_STYLE_UPLOAD_FILE_NAME;
+}
+
+function isUserDesignSystemId(id: string): boolean {
+  return id.startsWith('user:');
 }
 
 function readDesignSystems(
@@ -1154,9 +1254,14 @@ function escapeSvgText(value: string): string {
 
 function InitialProjectPromptStarter({
   projectId,
+  hasExistingMessages,
+  onSendTurn,
 }: {
   projectId: string;
+  hasExistingMessages: boolean;
+  onSendTurn: (draft: string) => void;
 }) {
+  const context = useService(IContextPickerService);
   const startedRef = React.useRef(false);
 
   React.useEffect(() => {
@@ -1165,8 +1270,28 @@ function InitialProjectPromptStarter({
     }
 
     startedRef.current = true;
-    consumeInitialProjectPrompt(projectId);
-  }, [projectId]);
+    const prompt = consumeInitialProjectPrompt(projectId);
+    const skillIds = consumeInitialProjectSkills(projectId);
+    // Only replay the dashboard handoff to kick off a brand-new project. If the
+    // conversation already has messages (reload or revisit), clear the stale
+    // handoff without replaying so we never double-send the first turn.
+    if (!prompt || hasExistingMessages) {
+      return;
+    }
+
+    void (async () => {
+      // Re-apply the skills picked on the dashboard so the project's first run
+      // includes them (the project owns a fresh context picker instance).
+      for (const skillId of skillIds) {
+        try {
+          await context.selectSkill(skillId);
+        } catch {
+          // Best-effort: a skill that no longer exists is simply skipped.
+        }
+      }
+      onSendTurn(prompt);
+    })();
+  }, [projectId, hasExistingMessages, onSendTurn, context]);
 
   return null;
 }
@@ -1188,6 +1313,7 @@ function ChatPanel({
   files,
   onOpenDesignSystemPicker,
   onSelectDesignSystem,
+  onImportDesignStyleFile,
   onInstallAgent,
   onRenameProject,
   onClearSentCommentAttachments,
@@ -1216,6 +1342,7 @@ function ChatPanel({
   files: WorkspaceFile[];
   onOpenDesignSystemPicker: () => void | Promise<void>;
   onSelectDesignSystem: (designSystemId: string | null) => void | Promise<void>;
+  onImportDesignStyleFile: (file: File) => Promise<ChatComposerDesignSystem>;
   onInstallAgent: (agentId: string) => void | Promise<void>;
   onRenameProject: (title: string) => void | Promise<void>;
   onOpenAttachment?: (attachment: ChatAttachment) => void;
@@ -1271,8 +1398,21 @@ function ChatPanel({
           onRenameProject={(_projectId, title) => onRenameProject(title)}
           onSend={async (input) => {
             const sentCommentAttachments = input.commentAttachments ?? [];
+            const { designStyleFile, turnFiles } = splitDesignStyleUploadFiles(input.files);
+            if (designStyleFile) {
+              await onImportDesignStyleFile(designStyleFile);
+            }
+            const shouldSendTurn =
+              input.draft.trim().length > 0 ||
+              turnFiles.length > 0 ||
+              (input.attachments?.length ?? 0) > 0 ||
+              sentCommentAttachments.length > 0 ||
+              contextSnapshot.selectedSkills.length > 0 ||
+              contextSnapshot.selectedDesignFiles.length > 0;
+            if (!shouldSendTurn) return;
             await session.sendTurn({
               ...input,
+              files: turnFiles,
               ...(input.draft.trim().length === 0 && sentCommentAttachments.length > 0
                 ? { displayDraft: previewCommentDisplayDraft(sentCommentAttachments) }
                 : {}),
@@ -1307,20 +1447,4 @@ function previewCommentDisplayDraft(attachments: readonly CanvasCommentAttachmen
     })
     .filter((message) => message.length > 0)
     .join('\n');
-}
-
-function useServiceSnapshot<TSnapshot>(service: SubscribableSnapshotService<TSnapshot>): TSnapshot {
-  const versionRef = React.useRef(0);
-  const subscribe = React.useCallback(
-    (listener: () => void) =>
-      service.subscribe(() => {
-        versionRef.current += 1;
-        listener();
-      }),
-    [service],
-  );
-  const getVersion = React.useCallback(() => versionRef.current, []);
-  const version = React.useSyncExternalStore(subscribe, getVersion, getVersion);
-
-  return React.useMemo(() => service.getSnapshot(), [service, version]);
 }
