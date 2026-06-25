@@ -39,6 +39,7 @@ type TestCreateServer = (options?: {
     models: Array<{ id: string; label: string; description?: string }>;
   }>>;
   installClaudeCode?: () => Promise<void>;
+  openApp?: (input: { route: string; projectId?: string }) => Promise<void> | void;
   startAgentRun?: (input: {
     run: ChatRun;
     runs: ChatRunService;
@@ -495,11 +496,36 @@ describe('createServer', () => {
       note: 'Make the headline sharper.',
     });
 
-    const port = await listenOnRandomPort(createTestServer({ runtimeDir: testRuntimeDir }));
+    const openRequests: Array<{ route: string; projectId?: string }> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: testRuntimeDir,
+        openApp: (input) => {
+          openRequests.push(input);
+        },
+      }),
+    );
 
     const projects = await postCli(port, 'projects');
     expect(projects.status).toBe(200);
     expect(projects.body.value).toMatchObject({ projects: [{ id: projectId, title: 'Landing redesign' }] });
+
+    const openDashboard = await postCli(port, 'open');
+    expect(openDashboard.status).toBe(200);
+    expect(openDashboard.body.value).toMatchObject({ openRequested: true, route: '/' });
+
+    const openProject = await postCli(port, 'open', { 'project-id': projectId });
+    expect(openProject.status).toBe(200);
+    expect(openProject.body.value).toMatchObject({ openRequested: true, projectId, route: `/project/${projectId}` });
+    expect(openRequests).toEqual([
+      { route: '/' },
+      { projectId, route: `/project/${projectId}` },
+    ]);
+
+    const missingProject = await postCli(port, 'open', { 'project-id': 'missing-project' });
+    expect(missingProject.status).toBe(404);
+    expect(missingProject.body).toMatchObject({ error: { code: 'PROJECT_NOT_FOUND' } });
+    expect(projectRowExists(testRuntimeDir, 'missing-project')).toBe(false);
 
     const conversations = await postCli(port, 'conversations', { 'project-id': projectId });
     expect(conversations.status).toBe(200);
@@ -539,8 +565,11 @@ describe('createServer', () => {
 
     const removedCommands = [
       'project-get',
+      'project-create',
+      'project-update',
       'project-delete',
       'project-data',
+      'session-start',
       'conversation-create',
       'conversation-rename',
       'comment-create',
@@ -553,156 +582,6 @@ describe('createServer', () => {
     for (const command of removedCommands) {
       await expect(postCliStatus(port, command, { 'project-id': projectId, 'conversation-id': conversationId })).resolves.toBe(404);
     }
-  });
-
-  it('creates and updates projects through Tutti CLI handlers', async () => {
-    const port = await listenOnRandomPort(createTestServer({ runtimeDir: await createRuntimeDir() }));
-
-    const created = await postCli(port, 'project-create', {
-      prompt: 'Generate a polished analytics dashboard.',
-      title: 'Analytics dashboard',
-      projectKind: 'prototype',
-    });
-
-    expect(created.status).toBe(200);
-    expect(created.body.value).toMatchObject({
-      project: {
-        id: expect.any(String),
-        metadata: {
-          title: 'Analytics dashboard',
-          prompt: 'Generate a polished analytics dashboard.',
-          projectKind: 'prototype',
-        },
-      },
-      conversationId: expect.stringMatching(/^conversation-[0-9a-f-]{8}$/),
-      resolvedDir: expect.any(String),
-    });
-
-    const projectId = ((created.body.value as Record<string, unknown>).project as { id: string }).id;
-    const updated = await postCli(port, 'project-update', {
-      'project-id': projectId,
-      title: 'Updated analytics dashboard',
-    });
-
-    expect(updated.status).toBe(200);
-    expect(updated.body.value).toMatchObject({
-      project: {
-        id: projectId,
-        metadata: {
-          title: 'Updated analytics dashboard',
-          prompt: 'Generate a polished analytics dashboard.',
-          projectKind: 'prototype',
-        },
-      },
-      resolvedDir: expect.any(String),
-    });
-  });
-
-  it('starts Tutti CLI sessions with local files uploaded as run attachments', async () => {
-    const testRuntimeDir = await createRuntimeDir();
-    const localFilePath = join(testRuntimeDir, 'reference.png');
-    await writeFile(localFilePath, 'local-image-bytes', 'utf8');
-    const startedRequests: Record<string, unknown>[] = [];
-    const port = await listenOnRandomPort(
-      createTestServer({
-        runtimeDir: testRuntimeDir,
-        startAgentRun: ({ request }) => {
-          startedRequests.push(request);
-        },
-      }),
-    );
-    const createdProject = await postCli(port, 'project-create', {
-      prompt: 'Create a visual direction.',
-      projectKind: 'prototype',
-    });
-    const projectId = ((createdProject.body.value as Record<string, unknown>).project as { id: string }).id;
-    const conversationId = (createdProject.body.value as { conversationId: string }).conversationId;
-
-    const started = await postCli(port, 'session-start', {
-      'project-id': projectId,
-      'conversation-id': conversationId,
-      prompt: 'Use the uploaded reference image.',
-      agentId: 'claude',
-      attachments: [
-        {
-          path: 'assets/existing.md',
-          name: 'existing.md',
-          kind: 'file',
-          size: 12,
-          mimeType: 'text/markdown',
-        },
-      ],
-      localFiles: [
-        {
-          path: localFilePath,
-          name: 'reference.png',
-        },
-      ],
-      mediaExecution: {
-        mode: 'enabled',
-        allowedSurfaces: ['image'],
-      },
-      toolBundle: {
-        id: 'media-tools',
-      },
-    });
-
-    expect(started.status).toBe(200);
-    expect(started.body.value).toMatchObject({
-      runId: expect.stringMatching(/[0-9a-f-]{36}/),
-      conversationId,
-      assistantMessageId: expect.stringMatching(/^assistant-[0-9a-f-]{8}$/),
-      provider: 'claude',
-    });
-    await expect(readFile(join(testRuntimeDir, 'projects', projectId, 'assets', 'reference.png'), 'utf8')).resolves.toBe('local-image-bytes');
-    expect(startedRequests).toEqual([
-      expect.objectContaining({
-        projectId,
-        conversationId,
-        prompt: 'Use the uploaded reference image.',
-        agentId: 'claude',
-        mediaExecution: {
-          mode: 'enabled',
-          allowedSurfaces: ['image'],
-        },
-        toolBundle: {
-          id: 'media-tools',
-        },
-        attachments: [
-          {
-            path: 'assets/existing.md',
-            name: 'existing.md',
-            kind: 'file',
-            size: 12,
-            mimeType: 'text/markdown',
-          },
-          {
-            path: 'assets/reference.png',
-            name: 'reference.png',
-            kind: 'image',
-            size: 'local-image-bytes'.length,
-            mimeType: 'image/png',
-          },
-        ],
-      }),
-    ]);
-
-    const messages = await postCli(port, 'conversation-messages', {
-      'project-id': projectId,
-      'conversation-id': conversationId,
-    });
-    const messagePayload = messages.body.value as {
-      messages: Array<{ role: string; content: string; attachments?: unknown[] }>;
-    };
-    expect(messagePayload.messages[0]).toMatchObject({
-      role: 'user',
-      content: 'Use the uploaded reference image.',
-      attachments: [
-        { name: 'existing.md' },
-        { name: 'reference.png', path: 'assets/reference.png', kind: 'image' },
-      ],
-    });
-    expect(messagePayload.messages[1]).toMatchObject({ role: 'assistant' });
   });
 
   it('serves the dashboard page at the root route', async () => {

@@ -53,12 +53,13 @@ test('keeps catalog display metadata in the source Tutti app manifest', async ()
   assert.equal(zhCNManifest.description, '创建并迭代产品原型设计');
 });
 
-test('exposes only read-only Tutti CLI capabilities', async () => {
+test('exposes read-only data and app-open Tutti CLI capabilities', async () => {
   const manifest = JSON.parse(await readFile(new URL('../tutti.cli.json', import.meta.url), 'utf8'));
   const commandPaths = manifest.commands.map((command) => command.path.join(' '));
 
   assert.deepEqual(commandPaths, [
     'projects',
+    'open',
     'conversations',
     'conversation-messages',
     'files',

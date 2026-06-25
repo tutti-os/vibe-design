@@ -5,6 +5,7 @@ import { isSafeConversationId, listConversationMessages, listConversations } fro
 import type { CliServiceResult, RouteDeps } from '../server-context.js';
 import {
   getProjectFileFromStore,
+  getProjectFromStore,
   listPreviewCommentsFromStore,
   listProjectFilesFromStore,
   listProjectSummariesFromStore,
@@ -28,16 +29,18 @@ export function registerCliRoutes(app: Express, ctx: CliRouteDeps): void {
     });
   });
 
-  postCli('/tutti/cli/project-create', async (req: Request, res: Response) => {
-    sendCliServiceResult(res, await ctx.cli.createProject(cliInput(req.body)));
-  });
+  postCli('/tutti/cli/open', async (req: Request, res: Response) => {
+    const input = cliInput(req.body);
+    const projectId = readOptionalSafeProjectId(res, input);
+    if (projectId === null) return;
 
-  postCli('/tutti/cli/project-update', async (req: Request, res: Response) => {
-    sendCliServiceResult(res, await ctx.cli.updateProject(cliInput(req.body)));
-  });
+    if (projectId && !getProjectFromStore(ctx.paths.projectsDir, projectId)) {
+      sendCliError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
+      return;
+    }
 
-  postCli('/tutti/cli/session-start', async (req: Request, res: Response) => {
-    sendCliServiceResult(res, await ctx.cli.startSession(cliInput(req.body)));
+    const route = projectId ? `/project/${encodeURIComponent(projectId)}` : '/';
+    sendCliServiceResult(res, await ctx.cli.openApp({ route, ...(projectId ? { projectId } : {}) }));
   });
 
   postCli('/tutti/cli/conversations', async (req: Request, res: Response) => {
@@ -128,6 +131,21 @@ function readRequiredSafeProjectId(res: Response, input: CliInput): string | nul
     sendCliError(res, 400, 'BAD_REQUEST', 'project-id is required and must be path-safe');
     return null;
   }
+  return projectId;
+}
+
+function readOptionalSafeProjectId(res: Response, input: CliInput): string | null | undefined {
+  const rawProjectId = input['project-id'] ?? input.projectId;
+  if (rawProjectId === undefined) {
+    return undefined;
+  }
+
+  const projectId = readString(rawProjectId);
+  if (!projectId || !isSafeProjectId(projectId)) {
+    sendCliError(res, 400, 'BAD_REQUEST', 'project-id must be path-safe when provided');
+    return null;
+  }
+
   return projectId;
 }
 

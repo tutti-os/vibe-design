@@ -19,6 +19,19 @@
       "handler": { "kind": "http", "method": "POST", "path": "/tutti/cli/projects", "timeoutMs": 30000 }
     },
     {
+      "path": ["open"],
+      "summary": "Open Prototype Design",
+      "description": "Open the Prototype Design dashboard or an existing project.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project-id": { "type": "string", "description": "Project id. Omit to open the dashboard." }
+        }
+      },
+      "output": { "defaultMode": "json", "json": true },
+      "handler": { "kind": "http", "method": "POST", "path": "/tutti/cli/open", "timeoutMs": 30000 }
+    },
+    {
       "path": ["conversations"],
       "summary": "List project conversations",
       "description": "List conversations for one project.",
