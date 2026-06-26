@@ -1219,4 +1219,3 @@ function CommentAttachmentChips({
     </div>
   );
 }
-

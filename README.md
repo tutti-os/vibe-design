@@ -133,10 +133,12 @@ pnpm --filter @vibe-design/server type-check
 
 ### Tutti CLI
 
-Prototype Design registers read-only CLI commands under the `vibe-design` scope. See `COMMANDS.md` for the full reference.
+Prototype Design registers read-only data commands and an app-open command under the `vibe-design` scope. See `COMMANDS.md` for the full reference.
 
 ```bash
 tutti --json vibe-design projects
+tutti --json vibe-design open
+tutti --json vibe-design open --project-id <id>
 tutti --json vibe-design conversations --project-id <id>
 tutti --json vibe-design conversation-messages --project-id <id> --conversation-id <id>
 tutti --json vibe-design files --project-id <id>

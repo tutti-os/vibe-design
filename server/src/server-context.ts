@@ -34,6 +34,11 @@ export type CliServiceResult =
   | { ok: true; value: unknown }
   | { ok: false; status: number; code: string; message: string };
 
+export interface CliOpenAppInput {
+  route: string;
+  projectId?: string;
+}
+
 export interface ServerContext {
   design: {
     runs: ChatRunService;
@@ -49,6 +54,7 @@ export interface ServerContext {
     ) => SubmitToolResultResult;
   };
   cli: {
+    openApp: (input: CliOpenAppInput) => Promise<CliServiceResult>;
     createProject: (input: Record<string, unknown>) => Promise<CliServiceResult>;
     updateProject: (input: Record<string, unknown>) => Promise<CliServiceResult>;
     startSession: (input: Record<string, unknown>) => Promise<CliServiceResult>;

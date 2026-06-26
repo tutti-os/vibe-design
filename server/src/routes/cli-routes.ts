@@ -1,10 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Express, Request, Response } from 'express';
+import { isProjectId } from '@vibe-design/web';
 import { isSafeConversationId, listConversationMessages, listConversations } from '../conversations.js';
 import type { CliServiceResult, RouteDeps } from '../server-context.js';
 import {
   getProjectFileFromStore,
+  getProjectFromStore,
   listPreviewCommentsFromStore,
   listProjectFilesFromStore,
   listProjectSummariesFromStore,
@@ -26,6 +28,20 @@ export function registerCliRoutes(app: Express, ctx: CliRouteDeps): void {
     sendCliJson(res, {
       projects: listProjectSummariesFromStore(ctx.paths.projectsDir, clamp(limit, 1, 500)),
     });
+  });
+
+  postCli('/tutti/cli/open', async (req: Request, res: Response) => {
+    const input = cliInput(req.body);
+    const projectId = readOptionalRoutableProjectId(res, input);
+    if (projectId === null) return;
+
+    if (projectId && !getProjectFromStore(ctx.paths.projectsDir, projectId)) {
+      sendCliError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
+      return;
+    }
+
+    const route = projectId ? `/project/${encodeURIComponent(projectId)}` : '/';
+    sendCliServiceResult(res, await ctx.cli.openApp({ route, ...(projectId ? { projectId } : {}) }));
   });
 
   postCli('/tutti/cli/project-create', async (req: Request, res: Response) => {
@@ -130,6 +146,21 @@ function readRequiredSafeProjectId(res: Response, input: CliInput): string | nul
     sendCliError(res, 400, 'BAD_REQUEST', 'project-id is required and must be path-safe');
     return null;
   }
+  return projectId;
+}
+
+function readOptionalRoutableProjectId(res: Response, input: CliInput): string | null | undefined {
+  const rawProjectId = input['project-id'] ?? input.projectId;
+  if (rawProjectId === undefined) {
+    return undefined;
+  }
+
+  const projectId = readString(rawProjectId);
+  if (!projectId || !isSafeProjectId(projectId) || !isProjectId(projectId)) {
+    sendCliError(res, 400, 'BAD_REQUEST', 'project-id must be routable and path-safe when provided');
+    return null;
+  }
+
   return projectId;
 }
 

@@ -256,6 +256,7 @@ export const en = {
       removeImage: 'Remove image {{name}}',
       stagedImages: 'Staged images',
       title: 'New prototype',
+      untitledProjectTitle: 'Untitled',
       uploadImages: 'Upload images',
     },
     designSystem: {

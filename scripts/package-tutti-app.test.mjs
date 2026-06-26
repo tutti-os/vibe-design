@@ -59,6 +59,7 @@ test('exposes the expected Tutti CLI capabilities', async () => {
 
   assert.deepEqual(commandPaths, [
     'projects',
+    'open',
     'project-create',
     'session-start',
     'conversations',
