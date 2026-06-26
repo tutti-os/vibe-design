@@ -2,6 +2,7 @@ import { createDecorator } from '@tutti-os/infra/di';
 import type { WorkspaceTabsState } from '../../features/canvas-workspace';
 
 export interface CreateProjectInput {
+  title?: string;
   prompt: string;
   projectKind: string;
   designSystemId?: string | null;

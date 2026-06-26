@@ -1069,6 +1069,7 @@ async function createProjectEditorInitialData(
     project: {
       id: project.id,
       title: readProjectTitle(project),
+      prompt: readProjectPrompt(project),
       designSystemId: project.designSystemId,
       tabsState: { tabs, activeTabKey },
     },
@@ -1296,6 +1297,10 @@ function staticImageContentType(name: string): string {
 
 function readProjectTitle(project: StoredProject): string | null {
   return typeof project.metadata.title === 'string' ? project.metadata.title : null;
+}
+
+function readProjectPrompt(project: StoredProject): string | null {
+  return typeof project.metadata.prompt === 'string' ? project.metadata.prompt : null;
 }
 
 async function sendCssFile(res: Response, filePaths: string[], notFoundMessage: string): Promise<void> {

@@ -626,12 +626,153 @@ describe('VibeDesignApp', () => {
 
       expect(createdInputs).toEqual([
         {
+          title: 'Untitled',
           prompt: '我想生成一个登陆页',
           projectKind: 'prototype',
         },
       ]);
-      expect(projectName!.textContent).toBe('');
+      expect(projectName!.textContent).toContain('我想生成一个登陆页');
       expect(openedProjects).toEqual(['project-12345678']);
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('uses the active locale for the default dashboard-created project title', async () => {
+    const createdInputs: CreateProjectInput[] = [];
+    const projectService: IProjectService = {
+      _serviceBrand: undefined,
+      async createProject(input) {
+        createdInputs.push(input);
+        return {
+          id: 'project-zh-title',
+          title: input.title ?? input.prompt,
+          prompt: input.prompt,
+          projectKind: input.projectKind,
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      },
+      async updateProjectTabsState() {},
+      async updateProjectTitle(projectId, title) {
+        return {
+          id: projectId,
+          title,
+          prompt: 'Project',
+          projectKind: 'prototype',
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      },
+      async updateProjectDesignSystem(projectId, designSystemId) {
+        return {
+          id: projectId,
+          title: 'Project',
+          prompt: 'Project',
+          projectKind: 'prototype',
+          designSystemId,
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      },
+      async deleteProject() {},
+    };
+    const flow = createVibeDesignFlow({
+      locale: 'zh-CN',
+      projectService,
+      openProject: vi.fn(),
+    });
+
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      const projectName = getByLabelText(container, '原型描述');
+      const submit = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="创建原型"]',
+      );
+
+      await changeText(projectName, '创建一个中文品牌首页');
+
+      await act(async () => {
+        fireEvent.click(submit!);
+      });
+
+      expect(createdInputs).toEqual([
+        {
+          title: '未命名',
+          prompt: '创建一个中文品牌首页',
+          projectKind: 'prototype',
+        },
+      ]);
+    } finally {
+      cleanup(root, container);
+      applyLocale('en');
+    }
+  });
+
+  it('creates a project on Enter while keeping the dashboard prompt draft', async () => {
+    const createdInputs: CreateProjectInput[] = [];
+    const projectService: IProjectService = {
+      _serviceBrand: undefined,
+      async createProject(input) {
+        createdInputs.push(input);
+        return {
+          id: 'project-enter-key',
+          title: input.title ?? input.prompt,
+          prompt: input.prompt,
+          projectKind: input.projectKind,
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      },
+      async updateProjectTabsState() {},
+      async updateProjectTitle(projectId, title) {
+        return {
+          id: projectId,
+          title,
+          prompt: 'Project',
+          projectKind: 'prototype',
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      },
+      async updateProjectDesignSystem(projectId, designSystemId) {
+        return {
+          id: projectId,
+          title: 'Project',
+          prompt: 'Project',
+          projectKind: 'prototype',
+          designSystemId,
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      },
+      async deleteProject() {},
+    };
+    const flow = createVibeDesignFlow({
+      projectService,
+      openProject: vi.fn(),
+    });
+
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      const projectName = getByLabelText(container, 'Prototype prompt');
+
+      await changeText(projectName, '不要被回车清空');
+
+      await act(async () => {
+        fireEvent.keyDown(projectName, { key: 'Enter', code: 'Enter' });
+      });
+
+      expect(createdInputs).toEqual([
+        {
+          title: 'Untitled',
+          prompt: '不要被回车清空',
+          projectKind: 'prototype',
+        },
+      ]);
+      expect(projectName!.textContent).toContain('不要被回车清空');
     } finally {
       cleanup(root, container);
     }
@@ -791,6 +932,7 @@ describe('VibeDesignApp', () => {
 
       expect(createdInputs).toEqual([
         {
+          title: 'Untitled',
           prompt: '品牌仪表盘',
           projectKind: 'prototype',
           designSystemId: 'anthropic-web',
@@ -885,6 +1027,7 @@ describe('VibeDesignApp', () => {
 
       expect(createdInputs).toEqual([
         {
+          title: 'Untitled',
           prompt: '无默认设计系统项目',
           projectKind: 'prototype',
         },
@@ -1021,6 +1164,7 @@ describe('VibeDesignApp', () => {
 
       expect(createdInputs).toEqual([
         {
+          title: 'Untitled',
           prompt: '运营面板',
           projectKind: 'prototype',
           designSystemId: 'default',
@@ -1165,6 +1309,7 @@ describe('VibeDesignApp', () => {
 
       expect(createdInputs).toEqual([
         {
+          title: 'Untitled',
           prompt: '无设计系统项目',
           projectKind: 'prototype',
         },
@@ -1304,6 +1449,7 @@ describe('VibeDesignApp', () => {
 
       expect(createdInputs).toEqual([
         {
+          title: 'Untitled',
           prompt: '提交创建项目',
           projectKind: 'prototype',
         },
@@ -1511,6 +1657,7 @@ describe('VibeDesignApp', () => {
 
       expect(createdInputs).toEqual([
         {
+          title: 'Untitled',
           prompt: '生成品牌首页',
           projectKind: 'prototype',
           agentId: 'claude',
@@ -1663,6 +1810,38 @@ describe('VibeDesignApp', () => {
       expect(sessionStorage.getItem(pendingInitialPromptKey('project-from-dashboard'))).toBeNull();
     } finally {
       sessionStorage.clear();
+      cleanup(root, container);
+    }
+  });
+
+  it('starts a new project from its persisted prompt when the dashboard handoff is unavailable', async () => {
+    const sendTurn = vi.fn<(input: SendTurnInput) => Promise<void>>(async () => undefined);
+    const flow = createVibeDesignFlow({
+      route: { kind: 'project', projectId: 'project-from-server' },
+      projectEditor: {
+        project: {
+          id: 'project-from-server',
+          prompt: '服务端带入的首页指令',
+          tabsState: { tabs: [], activeTabKey: null },
+        },
+        files: [],
+        conversations: [{ id: 'conversation-1', title: 'New conversation', createdAt: 1, updatedAt: 1 }],
+        activeConversationId: 'conversation-1',
+        messages: [],
+      },
+      chatSessionService: createTestChatSessionService(sendTurn),
+    });
+
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(sendTurn).toHaveBeenCalledTimes(1);
+      expect(sendTurn.mock.calls[0]?.[0]).toMatchObject({ draft: '服务端带入的首页指令' });
+    } finally {
       cleanup(root, container);
     }
   });

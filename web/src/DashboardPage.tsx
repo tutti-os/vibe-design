@@ -413,6 +413,20 @@ function ProjectCreator({
     promptInputRef.current?.insertText('@');
   }
 
+  function submitPromptFromEditor(event: KeyboardEvent): boolean {
+    if (!isPlainEnter(event)) {
+      return false;
+    }
+
+    event.preventDefault();
+    if (mentionQuery !== null && mentionItems.length > 0) {
+      void selectMention(mentionItems[0]);
+    } else {
+      formRef.current?.requestSubmit();
+    }
+    return true;
+  }
+
   async function selectMention(item: ContextSearchResultItem): Promise<void> {
     if (selectingContextId !== null) return;
     setSelectingContextId(item.id);
@@ -460,6 +474,7 @@ function ProjectCreator({
     setError(null);
     try {
       const project = await projectService.createProject({
+        title: t('dashboard.creator.untitledProjectTitle'),
         prompt: nextPrompt,
         projectKind: typeof formProjectKind === 'string' ? formProjectKind : 'prototype',
         ...(designSystemId ? { designSystemId } : {}),
@@ -470,7 +485,6 @@ function ProjectCreator({
       await uploadDashboardImages(project.id, stagedImages);
       stashInitialProjectPrompt(project.id, nextPrompt);
       stashInitialProjectSkills(project.id, selectedSkillIds);
-      setProjectPrompt('');
       setMentionQuery(null);
       setMentionAnchor(null);
       setStagedImages([]);
@@ -560,14 +574,7 @@ function ProjectCreator({
               placeholder={t('dashboard.creator.projectNamePlaceholder')}
               value={projectPrompt}
               onChange={updatePrompt}
-              shouldSubmitOnEnter={(event) => !event.shiftKey}
-              onSubmitShortcut={() => {
-                if (mentionQuery !== null && mentionItems.length > 0) {
-                  void selectMention(mentionItems[0]);
-                  return;
-                }
-                formRef.current?.requestSubmit();
-              }}
+              onEditorKeyDown={submitPromptFromEditor}
             />
             {stagedImages.length > 0 ? (
               <div
@@ -1347,6 +1354,18 @@ function sortProjectsByUpdatedTime(projects: DashboardProject[]): DashboardProje
 
 function compareProjectsByUpdatedTime(left: DashboardProject, right: DashboardProject): number {
   return right.updatedAt - left.updatedAt || right.createdAt - left.createdAt || left.id.localeCompare(right.id);
+}
+
+function isPlainEnter(event: KeyboardEvent): boolean {
+  return (
+    event.key === 'Enter' &&
+    !event.shiftKey &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.isComposing &&
+    event.keyCode !== 229
+  );
 }
 
 function filterDesignSystems(designSystems: DashboardDesignSystem[], query: string): DashboardDesignSystem[] {

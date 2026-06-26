@@ -592,6 +592,7 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
           </div>
           <InitialProjectPromptStarter
             projectId={projectId}
+            persistedPrompt={initialData?.project.prompt ?? null}
             hasExistingMessages={timelineSnapshot.messages.length > 0}
             onSendTurn={(draft) => void session.sendTurn({ draft, files: [] })}
           />
@@ -1254,10 +1255,12 @@ function escapeSvgText(value: string): string {
 
 function InitialProjectPromptStarter({
   projectId,
+  persistedPrompt,
   hasExistingMessages,
   onSendTurn,
 }: {
   projectId: string;
+  persistedPrompt: string | null;
   hasExistingMessages: boolean;
   onSendTurn: (draft: string) => void;
 }) {
@@ -1270,7 +1273,7 @@ function InitialProjectPromptStarter({
     }
 
     startedRef.current = true;
-    const prompt = consumeInitialProjectPrompt(projectId);
+    const prompt = consumeInitialProjectPrompt(projectId) ?? persistedPrompt?.trim() ?? null;
     const skillIds = consumeInitialProjectSkills(projectId);
     // Only replay the dashboard handoff to kick off a brand-new project. If the
     // conversation already has messages (reload or revisit), clear the stale
@@ -1291,7 +1294,7 @@ function InitialProjectPromptStarter({
       }
       onSendTurn(prompt);
     })();
-  }, [projectId, hasExistingMessages, onSendTurn, context]);
+  }, [projectId, persistedPrompt, hasExistingMessages, onSendTurn, context]);
 
   return null;
 }

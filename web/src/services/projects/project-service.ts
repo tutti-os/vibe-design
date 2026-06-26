@@ -7,7 +7,9 @@ export class ProjectService implements IProjectService {
   constructor(private readonly api: ProjectApi) {}
 
   async createProject(input: CreateProjectInput): Promise<CreatedProject> {
+    const title = input.title?.trim();
     return this.api.createProject({
+      ...(title ? { title } : {}),
       prompt: input.prompt.trim(),
       projectKind: input.projectKind,
       ...(input.designSystemId ? { designSystemId: input.designSystemId } : {}),
