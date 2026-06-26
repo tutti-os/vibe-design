@@ -13,6 +13,7 @@ type ReferencesRouteDeps = RouteDeps<'paths'>;
 // page size to 1..50, so this only caps the in-memory candidate set.
 const PROJECT_SCAN_LIMIT = 1000;
 const MAX_PAGE_LIMIT = 50;
+const DISPLAY_NAME_MAX_LENGTH = 160;
 const DESCRIPTION_MAX_LENGTH = 140;
 // Tutti already trims the query; this is a defensive bound mirroring the daemon.
 const SEARCH_QUERY_MAX_LENGTH = 200;
@@ -120,7 +121,7 @@ function listRootGroups(projectsDir: string, options: ListOptions): unknown {
     return {
       type: 'group',
       id: project.id,
-      displayName: project.title,
+      displayName: truncate(project.title, DISPLAY_NAME_MAX_LENGTH),
       ...(description ? { description } : {}),
       referenceCount: options.wantsFiles ? files.length : 0,
     };
@@ -212,7 +213,7 @@ function searchProjectFileReferences(projectsDir: string, options: SearchOptions
       ...(score != null ? { score: roundScore(score) } : {}),
       // Owning project's title: shown as the result's context subtitle so users
       // can tell which project a flattened search hit belongs to.
-      parentGroupLabel: project.title,
+      parentGroupLabel: truncate(project.title, DISPLAY_NAME_MAX_LENGTH),
     },
   }));
 

@@ -878,6 +878,49 @@ describe('createServer', () => {
     });
   });
 
+  it('summarizes CLI-created project titles to 20 characters when title is omitted', async () => {
+    const port = await listenOnRandomPort(createTestServer({ runtimeDir: await createRuntimeDir() }));
+
+    const created = await postCli(port, 'project-create', {
+      prompt: '制作一个安全、合规的登录页面产品原型。要求包含邮箱、密码、第三方登录和错误状态。',
+      projectKind: 'prototype',
+    });
+
+    expect(created.status).toBe(200);
+    expect(created.body.value).toMatchObject({
+      project: {
+        metadata: {
+          title: '制作一个安全、合规的登录页面产品原型',
+          prompt: '制作一个安全、合规的登录页面产品原型。要求包含邮箱、密码、第三方登录和错误状态。',
+          projectKind: 'prototype',
+        },
+      },
+    });
+  });
+
+  it('limits explicit project titles to 20 characters when creating projects', async () => {
+    const port = await listenOnRandomPort(createTestServer({ runtimeDir: await createRuntimeDir() }));
+    const longTitle = '一个非常非常非常长的项目名称应该被截断处理掉';
+
+    const createResponse = await fetch(`http://127.0.0.1:${port}/api/projects`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        title: longTitle,
+        prompt: '生成一个项目。',
+        projectKind: 'prototype',
+      }),
+    });
+
+    expect(createResponse.status).toBe(201);
+    const created = (await createResponse.json()) as { project: { metadata: Record<string, unknown> } };
+    expect(created.project.metadata).toMatchObject({
+      title: Array.from(longTitle).slice(0, 20).join(''),
+      prompt: '生成一个项目。',
+      projectKind: 'prototype',
+    });
+  });
+
   it('starts Tutti CLI sessions with local files uploaded as run attachments', async () => {
     const testRuntimeDir = await createRuntimeDir();
     const localFilePath = join(testRuntimeDir, 'reference.png');

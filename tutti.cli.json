@@ -34,12 +34,12 @@
     {
       "path": ["project-create"],
       "summary": "Create a Prototype Design project",
-      "description": "Create a new project from a prompt and initialize its default conversation. Returns the project and the created conversationId.",
+      "description": "Create a new project from a prompt and initialize its default conversation. Returns the project and the created conversationId. When invoking as an agent, summarize the prompt into a concise project title within 20 characters and pass it as title.",
       "inputSchema": {
         "type": "object",
         "properties": {
           "prompt": { "type": "string", "description": "Design prompt describing the prototype to build." },
-          "title": { "type": "string", "description": "Optional project title. Defaults to the prompt." },
+          "title": { "type": "string", "description": "Optional project title summarized from the prompt, within 20 characters. If omitted, the server derives a short title from the prompt." },
           "project-kind": { "type": "string", "description": "Optional project kind." },
           "design-system-id": { "type": "string", "description": "Optional design system id to apply." }
         },

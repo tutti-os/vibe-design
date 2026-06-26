@@ -130,6 +130,22 @@ describe('references list endpoint', () => {
     expect(root.nextCursor).toBeNull();
   });
 
+  it('keeps project group labels within the project title bound', async () => {
+    const api = await startApi();
+    const longPrompt = `${'Safe SaaS login prototype with compliance states. '.repeat(5)}Final section.`;
+    const projectId = await createProject(api, longPrompt);
+    await createFile(api, projectId, 'login.html', '<!doctype html><title>login</title>');
+
+    const root = await listReferences(api, {});
+    const group = root.items.find((item) => item.type === 'group' && item.id === projectId);
+    expect(group?.displayName).toBe('Safe SaaS login prot');
+    expect(Array.from(group?.displayName ?? '')).toHaveLength(20);
+
+    const search = await searchReferences(api, { query: 'login' });
+    const match = search.items.find((item) => item.reference?.displayName === 'login.html');
+    expect(match?.reference?.parentGroupLabel).toBe(group?.displayName);
+  });
+
   it('returns app-data-relative file references inside a project group', async () => {
     const api = await startApi();
     const projectId = await createProject(api, 'Build a landing page');
