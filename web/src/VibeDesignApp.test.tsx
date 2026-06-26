@@ -53,6 +53,20 @@ function queryButtonByText(container: HTMLElement, text: string): HTMLButtonElem
   ) ?? null;
 }
 
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  reject: (reason?: unknown) => void;
+  resolve: (value: T | PromiseLike<T>) => void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+  return { promise, reject, resolve };
+}
+
 function getByLabelText(container: HTMLElement, label: string): HTMLElement {
   const element = container.querySelector(`[aria-label="${label}"]`);
   if (!(element instanceof HTMLElement)) {
@@ -633,6 +647,164 @@ describe('VibeDesignApp', () => {
       ]);
       expect(projectName!.textContent).toContain('我想生成一个登陆页');
       expect(openedProjects).toEqual(['project-12345678']);
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('shows a loading state while the dashboard prompt is creating a project', async () => {
+    const createProjectResult = createDeferred<Awaited<ReturnType<IProjectService['createProject']>>>();
+    const projectService: IProjectService = {
+      _serviceBrand: undefined,
+      createProject: vi.fn(async (input) => {
+        await createProjectResult.promise;
+        return {
+          id: 'project-loading',
+          title: input.prompt,
+          prompt: input.prompt,
+          projectKind: input.projectKind,
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      }),
+      async updateProjectTabsState() {},
+      async updateProjectTitle(projectId, title) {
+        return {
+          id: projectId,
+          title,
+          prompt: 'Project',
+          projectKind: 'prototype',
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      },
+      async updateProjectDesignSystem(projectId, designSystemId) {
+        return {
+          id: projectId,
+          title: 'Project',
+          prompt: 'Project',
+          projectKind: 'prototype',
+          designSystemId,
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      },
+      async deleteProject() {},
+    };
+    const flow = createVibeDesignFlow({
+      projectService,
+      openProject: vi.fn(),
+    });
+
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      const projectName = getByLabelText(container, 'Prototype prompt');
+      const submit = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Create prototype"]',
+      );
+
+      await changeText(projectName, 'Loading dashboard project');
+
+      await act(async () => {
+        fireEvent.click(submit!);
+      });
+
+      await waitFor(() => {
+        expect(submit?.disabled).toBe(true);
+        expect(submit?.querySelector('.composer-send-loading-icon')).not.toBeNull();
+      });
+
+      await act(async () => {
+        createProjectResult.resolve({
+          id: 'project-loading',
+          title: 'Loading dashboard project',
+          prompt: 'Loading dashboard project',
+          projectKind: 'prototype',
+          createdAt: 1,
+          updatedAt: 1,
+        });
+        await createProjectResult.promise;
+      });
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('ignores duplicate dashboard create submissions while the first create is pending', async () => {
+    const createProjectResult = createDeferred<Awaited<ReturnType<IProjectService['createProject']>>>();
+    const projectService: IProjectService = {
+      _serviceBrand: undefined,
+      createProject: vi.fn(async (input) => {
+        await createProjectResult.promise;
+        return {
+          id: 'project-single-submit',
+          title: input.prompt,
+          prompt: input.prompt,
+          projectKind: input.projectKind,
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      }),
+      async updateProjectTabsState() {},
+      async updateProjectTitle(projectId, title) {
+        return {
+          id: projectId,
+          title,
+          prompt: 'Project',
+          projectKind: 'prototype',
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      },
+      async updateProjectDesignSystem(projectId, designSystemId) {
+        return {
+          id: projectId,
+          title: 'Project',
+          prompt: 'Project',
+          projectKind: 'prototype',
+          designSystemId,
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      },
+      async deleteProject() {},
+    };
+    const flow = createVibeDesignFlow({
+      projectService,
+      openProject: vi.fn(),
+    });
+
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      const projectName = getByLabelText(container, 'Prototype prompt');
+      const submit = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Create prototype"]',
+      );
+      const form = container.querySelector<HTMLFormElement>('form[action="/projects"]');
+
+      await changeText(projectName, 'Deduplicate dashboard project');
+
+      await act(async () => {
+        fireEvent.click(submit!);
+        fireEvent.submit(form!);
+        fireEvent.click(submit!);
+      });
+
+      expect(projectService.createProject).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        createProjectResult.resolve({
+          id: 'project-single-submit',
+          title: 'Deduplicate dashboard project',
+          prompt: 'Deduplicate dashboard project',
+          projectKind: 'prototype',
+          createdAt: 1,
+          updatedAt: 1,
+        });
+        await createProjectResult.promise;
+      });
     } finally {
       cleanup(root, container);
     }
