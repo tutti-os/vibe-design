@@ -86,6 +86,28 @@ async function flushAsyncWork(): Promise<void> {
   });
 }
 
+function setTuttiExternalAtQuery(
+  query: (input: {
+    keyword: string;
+    maxResults?: number;
+    providers?: readonly string[];
+  }) => Promise<unknown[]>,
+): void {
+  (window as Window & {
+    tuttiExternal?: {
+      at?: {
+        query: typeof query;
+      };
+    };
+  }).tuttiExternal = {
+    at: { query },
+  };
+}
+
+function clearTuttiExternal(): void {
+  delete (window as Window & { tuttiExternal?: unknown }).tuttiExternal;
+}
+
 function deferred<T = void>(): {
   promise: Promise<T>;
   resolve(value: T): void;
@@ -846,6 +868,74 @@ describe('ChatComposer', () => {
 
       expect(onSend).toHaveBeenCalledWith({ draft: 'Build a hero', files: [file], agentId: 'codex' });
     } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('queries Tutti external at providers and inserts a workspace app mention', async () => {
+    const selectResult = vi.fn();
+    const atQuery = vi.fn(async () => [
+      {
+        providerId: 'workspace-app',
+        itemId: 'automation',
+        label: 'Automation',
+        subtitle: 'Workspace app',
+        thumbnailUrl: '/assets/automation.png',
+        insert: {
+          kind: 'mention',
+          mention: {
+            entityId: 'automation',
+            label: 'Automation',
+            scope: {
+              workspaceId: 'workspace-1',
+            },
+            presentation: {
+              iconUrl: '/assets/automation.png',
+              subtitle: 'Workspace app',
+            },
+          },
+        },
+      },
+    ]);
+    setTuttiExternalAtQuery(atQuery);
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult,
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      const message = getByLabelText(container, 'Message');
+      await changeText(message, '@auto');
+
+      await waitFor(() =>
+        expect(atQuery).toHaveBeenCalledWith({
+          keyword: 'auto',
+          maxResults: 20,
+          providers: ['workspace-app'],
+        }),
+      );
+      await waitFor(() => expect(container.textContent).toContain('Automation'));
+      expect(container.textContent).toContain('Workspace app');
+      expect(container.querySelector('[data-mention-icon="workspace-app"]')).toBeTruthy();
+
+      await act(async () => buttonByName(container, 'Automation').click());
+      await flushAsyncWork();
+
+      expect(selectResult).not.toHaveBeenCalled();
+      expect(editorText(message)).toBe(
+        '[@Automation](mention://workspace-app/automation?workspaceId=workspace-1)',
+      );
+      expect(container.querySelector('[aria-label="Mention results"]')).toBeNull();
+    } finally {
+      clearTuttiExternal();
       cleanup(root, container);
     }
   });

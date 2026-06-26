@@ -16,3 +16,7 @@ export function extractMentionQuery(value: string): string | null {
 export function removeActiveMentionToken(value: string): string {
   return value.replace(ACTIVE_MENTION_TOKEN_PATTERN, '').trimEnd();
 }
+
+export function replaceActiveMentionToken(value: string, replacement: string): string {
+  return value.replace(ACTIVE_MENTION_TOKEN_PATTERN, replacement).trimEnd();
+}

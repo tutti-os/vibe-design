@@ -87,6 +87,31 @@ describe('PromptInput', () => {
     }
   });
 
+  it('renders mention markdown as an inline reference while preserving the form value', () => {
+    const value = 'Ask [@群聊](mention://workspace-app/group-chat?workspaceId=workspace-1) for context';
+    const { container, root } = renderComponent(
+      <PromptInput
+        ariaLabel="Prompt"
+        name="prompt"
+        value={value}
+        onChange={vi.fn()}
+      />,
+    );
+
+    try {
+      const promptEditor = editor(container);
+      const hiddenInput = container.querySelector<HTMLInputElement>('input[type="hidden"][name="prompt"]');
+      const mention = container.querySelector('[data-rich-text-mention-reference]');
+
+      expect(promptEditor.textContent).toBe('Ask @群聊 for context');
+      expect(mention?.textContent).toBe('@群聊');
+      expect(promptEditor.textContent).not.toContain('mention://workspace-app');
+      expect(hiddenInput?.value).toBe(value);
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('submits on Enter only when the caller accepts the shortcut', async () => {
     const submit = vi.fn();
     const { container, root } = renderComponent(

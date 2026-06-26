@@ -9,6 +9,7 @@
 @import "./components/chat-ui.css";
 
 @source "./";
+@source "../node_modules/@tutti-os/ui-rich-text/dist";
 @source "../node_modules/@tutti-os/ui-system/dist";
 
 @theme {
@@ -140,6 +141,10 @@ textarea:focus-visible {
   right: auto;
   bottom: auto;
   width: min(360px, 100%);
+}
+
+.dashboard-mention-list .chat-composer__mention-tabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .dashboard-composer-square-button {

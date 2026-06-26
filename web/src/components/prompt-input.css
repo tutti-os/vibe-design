@@ -32,3 +32,30 @@
   position: relative;
   font: inherit;
 }
+
+.prompt-input__reference {
+  display: inline-flex;
+  max-width: min(100%, 18rem);
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--project-primary) 16%, var(--border-1));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--project-primary) 8%, transparent);
+  color: var(--text-primary);
+  font-size: 0.95em;
+  font-weight: 500;
+  line-height: 1.35;
+  padding: 0 0.45rem;
+  text-overflow: ellipsis;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.prompt-input__reference.ProseMirror-selectednode {
+  border-color: color-mix(in srgb, var(--project-primary) 42%, var(--border-1));
+  background: color-mix(in srgb, var(--project-primary) 14%, transparent);
+}
+
+.prompt-input__workspace-reference {
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+}

@@ -15,6 +15,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@tutti-os/ui-system/components';
+import { RichTextReadonlyContent } from '@tutti-os/ui-rich-text/editor';
 import {
   AddIcon,
   ChatIcon,
@@ -886,7 +887,13 @@ function QueuedTurnContent({ turn }: { turn: QueuedTurnPreview }) {
     return null;
   }
 
-  return <span className="queued-turn__plain">{turn.content}</span>;
+  return (
+    <UserRichTextContent
+      className="queued-turn__plain"
+      content={turn.content}
+      paragraphClassName="queued-turn__plain-paragraph"
+    />
+  );
 }
 
 function PreviewCommentsPanel({
@@ -1260,7 +1267,13 @@ function UserMessageText({
   if (isDefaultFileReviewContent(content) && attachments.length > 0) return null;
 
   if (!shouldSummarizeUserPreviewComments(content, commentAttachments)) {
-    return <div className="user-text">{formatUserMessageContentForDisplay(content, t)}</div>;
+    return (
+      <UserRichTextContent
+        className="user-text"
+        content={formatUserMessageContentForDisplay(content, t)}
+        paragraphClassName="user-text__paragraph"
+      />
+    );
   }
 
   return (
@@ -1272,6 +1285,24 @@ function UserMessageText({
         </div>
       ))}
     </div>
+  );
+}
+
+function UserRichTextContent({
+  className,
+  content,
+  paragraphClassName,
+}: {
+  className: string;
+  content: string;
+  paragraphClassName?: string;
+}) {
+  return (
+    <RichTextReadonlyContent
+      className={className}
+      paragraphClassName={paragraphClassName}
+      value={content}
+    />
   );
 }
 

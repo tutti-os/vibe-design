@@ -221,6 +221,52 @@ describe('ChatPane', () => {
     }
   });
 
+  it('renders rich mention markdown in user messages without exposing mention hrefs', () => {
+    const snapshot: ChatTimelineSnapshot = {
+      activeRunId: null,
+      phase: 'idle',
+      activeConversationId: 'conversation-1',
+      activeConversationTitle: 'New conversation',
+      conversations: [{ id: 'conversation-1', title: 'New conversation', createdAt: 1, updatedAt: 1 }],
+      pinnedTodoInput: null,
+      messages: [
+        {
+          id: 'user-1',
+          role: 'user',
+          content: 'Ask [@群聊](mention://workspace-app/group-chat?workspaceId=workspace-1) for context',
+          events: [],
+          blocks: [],
+        },
+      ],
+    };
+
+    const { container, root } = renderComponent(
+      <ChatPane
+        snapshot={snapshot}
+        contextSnapshot={{ selectedSkills: [], selectedDesignFiles: [] }}
+        contextSearch={async () => ({ items: [] })}
+        contextSelect={vi.fn()}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onAnswerToolQuestion={vi.fn()}
+        onCreateConversation={vi.fn()}
+        onSelectConversation={vi.fn()}
+        onRenameConversation={vi.fn()}
+      />,
+    );
+
+    try {
+      const userText = container.querySelector('.msg.user .user-text');
+      const mention = userText?.querySelector('.tutti-rich-text-mention');
+
+      expect(userText?.textContent).toBe('Ask @群聊 for context');
+      expect(userText?.textContent).not.toContain('mention://workspace-app');
+      expect(mention?.getAttribute('data-provider-id')).toBe('workspace-app');
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('renames the project title from the active header when a project title is shown', async () => {
     const onRenameConversation = vi.fn();
     const onRenameProject = vi.fn();

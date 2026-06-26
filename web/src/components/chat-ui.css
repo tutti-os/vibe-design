@@ -580,6 +580,14 @@
   box-shadow: var(--project-shadow-none);
 }
 
+.msg.user .user-text__paragraph {
+  margin: 0;
+}
+
+.msg.user .user-text .tutti-rich-text-mention {
+  max-width: 100%;
+}
+
 .msg.user .user-preview-comment-summary {
   cursor: default;
   outline: none;
@@ -1405,6 +1413,13 @@ button.user-attachment-file {
   min-width: 0;
 }
 
+.queued-turn__plain-paragraph {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .queued-turn__plain,
 .queued-turn .user-text,
 .queued-turn .user-preview-comment-message {
@@ -1678,7 +1693,7 @@ button.user-attachment-file {
 
 .chat-composer__mention-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 2px;
   border-radius: var(--project-radius-md);
   background: var(--background);
@@ -1700,6 +1715,14 @@ button.user-attachment-file {
   max-width: 100%;
   justify-content: flex-start;
   overflow: hidden;
+}
+
+.chat-composer__mention-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border-radius: var(--project-radius-sm);
+  object-fit: cover;
 }
 
 .chat-composer__mention-button > span {

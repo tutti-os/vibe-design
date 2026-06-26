@@ -1,5 +1,10 @@
-import { EditorContent, useEditor, type JSONContent } from '@tiptap/react';
+import { Node, type JSONContent } from '@tiptap/core';
+import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import {
+  parseRichTextContentToDocument,
+  serializeRichTextDocumentToContent,
+} from '@tutti-os/ui-rich-text/core';
 import React, {
   forwardRef,
   useEffect,
@@ -61,14 +66,16 @@ export const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(
           codeBlock: false,
           dropcursor: false,
           gapcursor: false,
-          hardBreak: false,
+          hardBreak: {},
           heading: false,
           horizontalRule: false,
           listItem: false,
           orderedList: false,
         }),
+        PromptMentionReference,
+        PromptWorkspaceReference,
       ],
-      content: plainTextToContent(value),
+      content: promptValueToContent(value),
       editable: !disabled,
       editorProps: {
         attributes: {
@@ -93,7 +100,7 @@ export const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(
         },
       },
       onUpdate({ editor: nextEditor }) {
-        commitText(nextEditor.getText({ blockSeparator: '\n' }));
+        commitText(serializePromptContent(nextEditor.getJSON()));
       },
     });
 
@@ -118,11 +125,11 @@ export const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(
     }, [disabled, editor]);
 
     useLayoutEffect(() => {
-      if (!editor || editor.getText({ blockSeparator: '\n' }) === value) {
+      if (!editor || serializePromptContent(editor.getJSON()) === serializePromptValue(value)) {
         return;
       }
 
-      editor.commands.setContent(plainTextToContent(value), { emitUpdate: false });
+      editor.commands.setContent(promptValueToContent(value), { emitUpdate: false });
     }, [editor, value]);
 
     useImperativeHandle(
@@ -158,7 +165,9 @@ export const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(
     }
 
     function handleInput(event: React.FormEvent<HTMLDivElement>): void {
-      const nextText = editor?.getText({ blockSeparator: '\n' }) ?? event.currentTarget.textContent ?? '';
+      const nextText = editor
+        ? serializePromptContent(editor.getJSON())
+        : event.currentTarget.textContent ?? '';
       if (nextText !== latestValueRef.current) {
         commitText(nextText);
       }
@@ -185,9 +194,14 @@ export const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(
         return;
       }
 
-      if (event.shiftKey || event.metaKey || event.ctrlKey) {
+      if (event.shiftKey || event.ctrlKey) {
         event.preventDefault();
-        editor?.chain().focus().splitBlock().run();
+        return;
+      }
+
+      if (event.metaKey) {
+        event.preventDefault();
+        editor?.chain().focus().setHardBreak().run();
       }
     }
 
@@ -207,15 +221,127 @@ export const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(
   },
 );
 
-function plainTextToContent(value: string): JSONContent {
-  const lines = value.split(/\r?\n/);
-  return {
-    type: 'doc',
-    content: lines.map((line) => ({
-      type: 'paragraph',
-      content: line.length > 0 ? [{ type: 'text', text: line }] : undefined,
-    })),
-  };
+const PromptMentionReference = Node.create({
+  name: 'mentionReference',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  selectable: true,
+
+  addAttributes() {
+    return {
+      entityId: { default: '' },
+      label: { default: '' },
+      presentation: { default: null },
+      providerId: { default: '' },
+      scope: { default: null },
+      trigger: { default: '@' },
+    };
+  },
+
+  parseHTML() {
+    return [{ tag: 'span[data-rich-text-mention-reference]' }];
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    const label = normalizePromptReferenceLabel(HTMLAttributes.label);
+    return [
+      'span',
+      {
+        'data-rich-text-mention-reference': 'true',
+        class: 'prompt-input__reference prompt-input__mention-reference',
+      },
+      label ? `@${label}` : '@',
+    ];
+  },
+});
+
+const PromptWorkspaceReference = Node.create({
+  name: 'workspaceReference',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  selectable: true,
+
+  addAttributes() {
+    return {
+      kind: { default: 'file' },
+      label: { default: '' },
+      path: { default: '' },
+    };
+  },
+
+  parseHTML() {
+    return [{ tag: 'span[data-rich-text-workspace-reference]' }];
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    const label = normalizePromptReferenceLabel(HTMLAttributes.label) || normalizePromptReferenceLabel(HTMLAttributes.path);
+    return [
+      'span',
+      {
+        'data-rich-text-workspace-reference': 'true',
+        class: 'prompt-input__reference prompt-input__workspace-reference',
+      },
+      label || 'file',
+    ];
+  },
+});
+
+function promptValueToContent(value: string): JSONContent {
+  const content = parseRichTextContentToDocument(value);
+  const trailingLineBreaks = countTrailingLineBreaks(value);
+  if (trailingLineBreaks > 0) {
+    appendTrailingHardBreaks(content, trailingLineBreaks);
+  }
+  return content;
+}
+
+function serializePromptValue(value: string): string {
+  return serializeRichTextDocumentToContent(promptValueToContent(value));
+}
+
+function serializePromptContent(content: JSONContent): string {
+  const serialized = serializeRichTextDocumentToContent(content);
+  const trailingHardBreaks = countTrailingHardBreaks(content);
+  return trailingHardBreaks > 0 ? `${serialized}${'\n'.repeat(trailingHardBreaks)}` : serialized;
+}
+
+function normalizePromptReferenceLabel(value: unknown): string {
+  return typeof value === 'string' ? value.trim().replace(/^@+/, '').trim() : '';
+}
+
+function countTrailingLineBreaks(value: string): number {
+  return value.replace(/\r\n?/g, '\n').match(/\n+$/)?.[0].length ?? 0;
+}
+
+function appendTrailingHardBreaks(content: JSONContent, count: number): void {
+  const blocks = content.content ?? (content.content = [{ type: 'paragraph' }]);
+  let lastBlock = blocks.at(-1);
+  if (!lastBlock) {
+    lastBlock = { type: 'paragraph' };
+    blocks.push(lastBlock);
+  }
+  const inlineContent = lastBlock.content ?? (lastBlock.content = []);
+  for (let index = 0; index < count; index += 1) {
+    inlineContent.push({ type: 'hardBreak' });
+  }
+}
+
+function countTrailingHardBreaks(content: JSONContent): number {
+  const lastBlock = content.content?.at(-1);
+  if (!lastBlock?.content?.length) {
+    return 0;
+  }
+
+  let count = 0;
+  for (let index = lastBlock.content.length - 1; index >= 0; index -= 1) {
+    if (lastBlock.content[index]?.type !== 'hardBreak') {
+      break;
+    }
+    count += 1;
+  }
+  return count;
 }
 
 function isCompositionEnter(event: React.KeyboardEvent<HTMLDivElement>): boolean {
