@@ -126,8 +126,8 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     provider: agentId,
   });
   const runtimeSystemPrompt = [
-    tuttiSkillBundle.recommendedSystemPrompt?.content,
     systemPrompt,
+    tuttiSkillBundle.recommendedSystemPrompt?.content,
   ].filter((part): part is string => typeof part === 'string' && part.trim().length > 0).join('\n\n');
   const agentEnv = tuttiCliEnv();
 
@@ -218,7 +218,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       ...(readString(request.model) ? { model: readString(request.model) ?? undefined } : {}),
       ...(readString(request.reasoning) ? { reasoning: readString(request.reasoning) ?? undefined } : {}),
       ...(managedAgentInvocation ? { managedAgentInvocation } : {}),
-      ...(tuttiSkillBundle.skills.length > 0 ? { skillManifest: tuttiSkillBundle.skills } : {}),
+      ...(tuttiSkillBundle.skillManifest.length > 0 ? { skillManifest: tuttiSkillBundle.skillManifest } : {}),
       ...(Object.keys(agentEnv).length > 0 ? { env: agentEnv } : {}),
       signal: controller.signal,
       resume,

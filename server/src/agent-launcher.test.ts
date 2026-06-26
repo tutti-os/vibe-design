@@ -1,7 +1,7 @@
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   startAgentRun,
   type LocalAgentRuntime,
@@ -342,7 +342,7 @@ describe('startAgentRun', () => {
         '--json',
       ]);
       expect(runtime.inputs[0]?.systemPrompt).toContain('Use Tutti routing.');
-      expect(runtime.inputs[0]?.systemPrompt?.startsWith('Use Tutti routing.\n\n')).toBe(true);
+      expect(runtime.inputs[0]?.systemPrompt?.trim().endsWith('Use Tutti routing.')).toBe(true);
       expect(runtime.inputs[0]?.env).toEqual({ TUTTI_CLI: cliPath });
       expect(runtime.inputs[0]?.skillManifest).toEqual([
         {
@@ -350,6 +350,7 @@ describe('startAgentRun', () => {
           slug: 'tutti-cli',
           deliveryMode: 'materialized-files',
           content: '# Tutti CLI\nUse the host CLI.',
+          materializedPath: '/tmp/should-be-ignored',
           files: [{ path: 'COMMANDS.md', content: 'commands' }],
         },
       ]);
@@ -419,7 +420,7 @@ describe('startAgentRun', () => {
         '--json',
       ]);
       expect(runtime.inputs[0]?.systemPrompt).toContain('Use Tutti routing locally.');
-      expect(runtime.inputs[0]?.systemPrompt?.startsWith('Use Tutti routing locally.\n\n')).toBe(true);
+      expect(runtime.inputs[0]?.systemPrompt?.trim().endsWith('Use Tutti routing locally.')).toBe(true);
       expect(runtime.inputs[0]?.env).toEqual({ TUTTI_CLI: cliPath });
       expect(runtime.inputs[0]?.skillManifest).toEqual([
         {
@@ -434,8 +435,9 @@ describe('startAgentRun', () => {
     }
   });
 
-  it('falls back to the legacy Tutti skill bundle command and injects mention routing guidance', async () => {
+  it('continues without a Tutti skill bundle when the SDK helper command fails', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
       const builtInSkillsRoot = join(root, 'skills');
       const userSkillsRoot = join(root, 'user-skills');
@@ -452,20 +454,8 @@ describe('startAgentRun', () => {
         'const args = process.argv.slice(2);',
         'calls.push(args);',
         'writeFileSync(callsPath, JSON.stringify(calls));',
-        'if (args.includes("tutti-cli-skill-bundle")) {',
-        '  process.stderr.write("unknown command: agent tutti-cli-skill-bundle\\n");',
-        '  process.exit(2);',
-        '}',
-        'process.stdout.write(JSON.stringify({',
-        '  schemaVersion: 1,',
-        '  provider: "codex",',
-        '  skills: [{',
-        '    skillId: "tutti/tutti-cli",',
-        '    slug: "tutti-cli",',
-        '    deliveryMode: "materialized-files",',
-        '    content: "# Tutti CLI\\nUse the host CLI."',
-        '  }]',
-        '}));',
+        'process.stderr.write("unknown command: agent tutti-cli-skill-bundle\\n");',
+        'process.exit(2);',
         '',
       ].join('\n'));
       await chmod(cliPath, 0o755);
@@ -502,28 +492,13 @@ describe('startAgentRun', () => {
           run.id,
           '--json',
         ],
-        [
-          'agent',
-          'skill-bundle',
-          '--provider',
-          'codex',
-          '--agent-session-id',
-          run.id,
-          '--json',
-        ],
       ]);
-      expect(runtime.inputs[0]?.systemPrompt).toContain('When a request contains a mention:// URI');
-      expect(runtime.inputs[0]?.systemPrompt?.startsWith('Tutti workspace context may be available through injected Tutti skills.\n')).toBe(true);
+      expect(runtime.inputs[0]?.systemPrompt).not.toContain('When a request contains a mention:// URI');
       expect(runtime.inputs[0]?.env).toEqual({ TUTTI_CLI: cliPath });
-      expect(runtime.inputs[0]?.skillManifest).toEqual([
-        {
-          skillId: 'tutti/tutti-cli',
-          slug: 'tutti-cli',
-          deliveryMode: 'materialized-files',
-          content: '# Tutti CLI\nUse the host CLI.',
-        },
-      ]);
+      expect(runtime.inputs[0]).not.toHaveProperty('skillManifest');
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Unable to load Tutti agent skill context'));
     } finally {
+      warn.mockRestore();
       await rm(root, { recursive: true, force: true });
     }
   });
