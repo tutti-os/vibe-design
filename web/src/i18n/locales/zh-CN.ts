@@ -258,6 +258,7 @@ export const zhCN = {
       removeImage: '移除图片 {{name}}',
       stagedImages: '待发送图片',
       title: '新建原型',
+      untitledProjectTitle: '未命名',
       uploadImages: '上传图片',
     },
     designSystem: {
