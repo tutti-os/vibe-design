@@ -21,6 +21,7 @@ import {
 import { composeSystemPrompt, type ComposeInput } from './prompts/system.js';
 import { localAgentRuntime } from './local-agent-runtime.js';
 import { findSkillById, listSkills, type SkillInfo } from './skills.js';
+import { resolveTuttiAgentSkillBundle, tuttiCliEnv } from './tutti-agent-skill-bundle.js';
 import {
   readAvailableDesignSystemDetail,
   resolveDesignSystemAssets,
@@ -119,6 +120,16 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   ].join('\n');
   const history = await buildConversationHistory(paths.projectsDir, run, userPrompt);
   const resume = buildProviderResume(run);
+  const tuttiSkillBundle = await resolveTuttiAgentSkillBundle({
+    agentSessionId: run.id,
+    cwd: resolveTuttiWorkspaceCwd(projectWorkspaceDir),
+    provider: agentId,
+  });
+  const runtimeSystemPrompt = [
+    systemPrompt,
+    tuttiSkillBundle.recommendedSystemPrompt?.content,
+  ].filter((part): part is string => typeof part === 'string' && part.trim().length > 0).join('\n\n');
+  const agentEnv = tuttiCliEnv();
 
   run.status = 'running';
   run.updatedAt = Date.now();
@@ -202,11 +213,13 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       provider: agentId,
       cwd: agentCwd,
       prompt,
-      systemPrompt,
+      systemPrompt: runtimeSystemPrompt,
       ...(history.length > 0 ? { history } : {}),
       ...(readString(request.model) ? { model: readString(request.model) ?? undefined } : {}),
       ...(readString(request.reasoning) ? { reasoning: readString(request.reasoning) ?? undefined } : {}),
       ...(managedAgentInvocation ? { managedAgentInvocation } : {}),
+      ...(tuttiSkillBundle.skillManifest.length > 0 ? { skillManifest: tuttiSkillBundle.skillManifest } : {}),
+      ...(Object.keys(agentEnv).length > 0 ? { env: agentEnv } : {}),
       signal: controller.signal,
       resume,
     };
@@ -499,6 +512,10 @@ function buildProviderResume(run: ChatRun): AcpAgentRunInput['resume'] {
     ...(providerSessionId ? { providerSessionId } : {}),
     ...(resumeToken ? { resumeToken } : {}),
   };
+}
+
+function resolveTuttiWorkspaceCwd(fallback: string): string {
+  return process.env.TUTTI_WORKSPACE_ROOT?.trim() || process.env.VIBE_WORKSPACE_ROOT?.trim() || fallback;
 }
 
 async function buildConversationHistory(

@@ -1,7 +1,7 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   startAgentRun,
   type LocalAgentRuntime,
@@ -37,6 +37,35 @@ const codexDef: RuntimeAgentDef = {
 };
 
 type RuntimeInput = Parameters<LocalAgentRuntime['run']>[0];
+const originalTuttiCli = process.env.TUTTI_CLI;
+const originalTuttiAppId = process.env.TUTTI_APP_ID;
+const originalVibeTuttiCli = process.env.VIBE_TUTTI_CLI;
+const originalTuttiWorkspaceRoot = process.env.TUTTI_WORKSPACE_ROOT;
+const originalVibeWorkspaceRoot = process.env.VIBE_WORKSPACE_ROOT;
+
+beforeEach(() => {
+  delete process.env.TUTTI_CLI;
+  delete process.env.TUTTI_APP_ID;
+  delete process.env.VIBE_TUTTI_CLI;
+  delete process.env.TUTTI_WORKSPACE_ROOT;
+  delete process.env.VIBE_WORKSPACE_ROOT;
+});
+
+afterEach(() => {
+  restoreOptionalEnv('TUTTI_CLI', originalTuttiCli);
+  restoreOptionalEnv('TUTTI_APP_ID', originalTuttiAppId);
+  restoreOptionalEnv('VIBE_TUTTI_CLI', originalVibeTuttiCli);
+  restoreOptionalEnv('TUTTI_WORKSPACE_ROOT', originalTuttiWorkspaceRoot);
+  restoreOptionalEnv('VIBE_WORKSPACE_ROOT', originalVibeWorkspaceRoot);
+});
+
+function restoreOptionalEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+}
 
 function createRecordingRuntime(
   events: Array<{ type: string; [key: string]: unknown }> = [{ type: 'done', status: 'completed', exitCode: 0 }],
@@ -238,6 +267,238 @@ describe('startAgentRun', () => {
         isError: false,
       });
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('passes a dynamic Tutti agent skill bundle into managed ACP kit runs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
+    try {
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(root, 'projects');
+      const cliPath = join(root, 'tutti-cli.mjs');
+      const argsPath = join(root, 'tutti-cli-args.json');
+      await mkdir(builtInSkillsRoot, { recursive: true });
+      await mkdir(userSkillsRoot, { recursive: true });
+      await writeFile(cliPath, [
+        '#!/usr/bin/env node',
+        'import { writeFileSync } from "node:fs";',
+        `writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)));`,
+        'process.stdout.write(JSON.stringify({',
+        '  schemaVersion: 1,',
+        '  provider: "codex",',
+        '  recommendedSystemPrompt: { format: "text/markdown", content: "Use Tutti routing." },',
+        '  skills: [{',
+        '    skillId: "tutti/tutti-cli",',
+        '    slug: "tutti-cli",',
+        '    deliveryMode: "materialized-files",',
+        '    content: "# Tutti CLI\\nUse the host CLI.",',
+        '    materializedPath: "/tmp/should-be-ignored",',
+        '    files: [{ path: "COMMANDS.md", content: "commands" }]',
+        '  }]',
+        '}));',
+        '',
+      ].join('\n'));
+      await chmod(cliPath, 0o755);
+      process.env.TUTTI_CLI = cliPath;
+
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({ projectId: 'project-1', agentId: 'codex' });
+      const managedRunCwd = join(root, 'managed-run');
+      const runtime = createRecordingRuntime();
+
+      await startAgentRun({
+        run,
+        runs,
+        request: {
+          projectId: 'project-1',
+          prompt: 'Use Tutti context.',
+          agentId: 'codex',
+        },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+        managedAgentRunContext: {
+          cwd: managedRunCwd,
+          managedAgentInvocation: {
+            credential: 'credential-run-1',
+            cwd: managedRunCwd,
+          },
+        },
+      });
+
+      expect(JSON.parse(await readFile(argsPath, 'utf8'))).toEqual([
+        'agent',
+        'tutti-cli-skill-bundle',
+        '--provider',
+        'codex',
+        '--agent-session-id',
+        run.id,
+        '--json',
+      ]);
+      expect(runtime.inputs[0]?.systemPrompt).toContain('Use Tutti routing.');
+      expect(runtime.inputs[0]?.systemPrompt?.trim().endsWith('Use Tutti routing.')).toBe(true);
+      expect(runtime.inputs[0]?.env).toEqual({ TUTTI_CLI: cliPath });
+      expect(runtime.inputs[0]?.skillManifest).toEqual([
+        {
+          skillId: 'tutti/tutti-cli',
+          slug: 'tutti-cli',
+          deliveryMode: 'materialized-files',
+          content: '# Tutti CLI\nUse the host CLI.',
+          materializedPath: '/tmp/should-be-ignored',
+          files: [{ path: 'COMMANDS.md', content: 'commands' }],
+        },
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('passes a dynamic Tutti agent skill bundle into non-managed ACP kit runs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
+    try {
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(root, 'projects');
+      const cliPath = join(root, 'tutti-cli.mjs');
+      const argsPath = join(root, 'tutti-cli-args.json');
+      await mkdir(builtInSkillsRoot, { recursive: true });
+      await mkdir(userSkillsRoot, { recursive: true });
+      await writeFile(cliPath, [
+        '#!/usr/bin/env node',
+        'import { writeFileSync } from "node:fs";',
+        `writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)));`,
+        'process.stdout.write(JSON.stringify({',
+        '  schemaVersion: 1,',
+        '  provider: "codex",',
+        '  recommendedSystemPrompt: { format: "text/markdown", content: "Use Tutti routing locally." },',
+        '  skills: [{',
+        '    skillId: "tutti/tutti-cli",',
+        '    slug: "tutti-cli",',
+        '    deliveryMode: "materialized-files",',
+        '    content: "# Tutti CLI\\nUse the host CLI."',
+        '  }]',
+        '}));',
+        '',
+      ].join('\n'));
+      await chmod(cliPath, 0o755);
+      process.env.TUTTI_CLI = cliPath;
+
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({ projectId: 'project-1', agentId: 'codex' });
+      const runtime = createRecordingRuntime();
+
+      await startAgentRun({
+        run,
+        runs,
+        request: {
+          projectId: 'project-1',
+          prompt: 'Use local context.',
+          agentId: 'codex',
+        },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+      });
+
+      expect(JSON.parse(await readFile(argsPath, 'utf8'))).toEqual([
+        'agent',
+        'tutti-cli-skill-bundle',
+        '--provider',
+        'codex',
+        '--agent-session-id',
+        run.id,
+        '--json',
+      ]);
+      expect(runtime.inputs[0]?.systemPrompt).toContain('Use Tutti routing locally.');
+      expect(runtime.inputs[0]?.systemPrompt?.trim().endsWith('Use Tutti routing locally.')).toBe(true);
+      expect(runtime.inputs[0]?.env).toEqual({ TUTTI_CLI: cliPath });
+      expect(runtime.inputs[0]?.skillManifest).toEqual([
+        {
+          skillId: 'tutti/tutti-cli',
+          slug: 'tutti-cli',
+          deliveryMode: 'materialized-files',
+          content: '# Tutti CLI\nUse the host CLI.',
+        },
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('continues without a Tutti skill bundle when the SDK helper command fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(root, 'projects');
+      const cliPath = join(root, 'tutti-cli.mjs');
+      const callsPath = join(root, 'tutti-cli-calls.json');
+      await mkdir(builtInSkillsRoot, { recursive: true });
+      await mkdir(userSkillsRoot, { recursive: true });
+      await writeFile(cliPath, [
+        '#!/usr/bin/env node',
+        'import { existsSync, readFileSync, writeFileSync } from "node:fs";',
+        `const callsPath = ${JSON.stringify(callsPath)};`,
+        'const calls = existsSync(callsPath) ? JSON.parse(readFileSync(callsPath, "utf8")) : [];',
+        'const args = process.argv.slice(2);',
+        'calls.push(args);',
+        'writeFileSync(callsPath, JSON.stringify(calls));',
+        'process.stderr.write("unknown command: agent tutti-cli-skill-bundle\\n");',
+        'process.exit(2);',
+        '',
+      ].join('\n'));
+      await chmod(cliPath, 0o755);
+      process.env.VIBE_TUTTI_CLI = cliPath;
+
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({ projectId: 'project-1', agentId: 'codex' });
+      const runtime = createRecordingRuntime();
+
+      await startAgentRun({
+        run,
+        runs,
+        request: {
+          projectId: 'project-1',
+          prompt: 'Use @ group chat mention context.',
+          agentId: 'codex',
+        },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+      });
+
+      expect(JSON.parse(await readFile(callsPath, 'utf8'))).toEqual([
+        [
+          'agent',
+          'tutti-cli-skill-bundle',
+          '--provider',
+          'codex',
+          '--agent-session-id',
+          run.id,
+          '--json',
+        ],
+      ]);
+      expect(runtime.inputs[0]?.systemPrompt).not.toContain('When a request contains a mention:// URI');
+      expect(runtime.inputs[0]?.env).toEqual({ TUTTI_CLI: cliPath });
+      expect(runtime.inputs[0]).not.toHaveProperty('skillManifest');
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Unable to load Tutti agent skill context'));
+    } finally {
+      warn.mockRestore();
       await rm(root, { recursive: true, force: true });
     }
   });
