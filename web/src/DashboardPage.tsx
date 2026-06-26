@@ -337,6 +337,7 @@ function ProjectCreator({
   const imageInputRef = React.useRef<HTMLInputElement | null>(null);
   const promptInputRef = React.useRef<PromptInputHandle | null>(null);
   const modelCatalogRequestedRef = React.useRef(false);
+  const createProjectInFlightRef = React.useRef(false);
 
   // The dashboard has no project yet, so only global skills are mentionable.
   const selectedSkillChips = React.useMemo(
@@ -464,12 +465,13 @@ function ProjectCreator({
     const formPrompt = formData.get('prompt');
     const formProjectKind = formData.get('projectKind');
     const nextPrompt = typeof formPrompt === 'string' ? formPrompt.trim() : '';
-    if (!nextPrompt || isCreating) {
+    if (!nextPrompt || createProjectInFlightRef.current) {
       return;
     }
 
     const selectedSkillIds = context.buildRunContext()?.skillIds ?? [];
 
+    createProjectInFlightRef.current = true;
     setIsCreating(true);
     setError(null);
     try {
@@ -499,6 +501,7 @@ function ProjectCreator({
     } catch (projectError) {
       setError(projectError instanceof Error ? projectError.message : t('dashboard.creator.errorFallback'));
     } finally {
+      createProjectInFlightRef.current = false;
       setIsCreating(false);
     }
   }
@@ -633,6 +636,7 @@ function ProjectCreator({
               <ComposerSendButton
                 ariaLabel={t('dashboard.creator.createAria')}
                 disabled={!canCreate}
+                loading={isCreating}
                 onClick={() => formRef.current?.requestSubmit()}
               >
                 {t('dashboard.creator.createAction')}
