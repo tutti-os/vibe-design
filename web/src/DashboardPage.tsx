@@ -1,36 +1,48 @@
 import {
+  Badge,
   Button,
   Card,
   CardContent,
+  ConfirmationDialog,
   Input,
 } from '@tutti-os/ui-system';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@tutti-os/ui-system/components';
 import {
-  CheckIcon,
   ChevronDownIcon,
   CloseIcon,
+  DeleteIcon,
+  MoreHorizontalIcon,
   SearchIcon,
+  ToolsIcon,
   UploadIcon,
 } from '@tutti-os/ui-system/icons';
+import { AtSign } from 'lucide-react';
 import { useService } from '@tutti-os/infra/di';
 import React from 'react';
 import {
   ComposerDesignSystemTrigger,
   ComposerIconButton,
-  ComposerModelProviderIcon,
-  ComposerModelTrigger,
+  ComposerModelPicker,
   ComposerSendButton,
+  type ComposerModelGroup,
   type ComposerModelProvider,
 } from './components/ComposerControls';
+import { extractMentionQuery, removeActiveMentionToken } from './components/composer-mention';
+import { stashInitialProjectPrompt, stashInitialProjectSkills } from './initial-project-prompt';
 import { DesignSystemPickerDialog } from './components/DesignSystemPickerDialog';
-import { PromptInput } from './components/PromptInput';
+import { PromptInput, type PromptInputHandle } from './components/PromptInput';
 import type { ChatComposerAgentModelCatalogEntry } from './components/ChatComposer';
+import { useServiceSnapshot } from './hooks/use-service-snapshot';
+import { IContextPickerService } from './services/context-picker/context-picker-service.interface';
+import type {
+  ContextPickerSnapshot,
+  ContextSearchResultItem,
+} from './services/context-picker/context-picker-types';
 import { type TranslateFn, useTranslation } from './i18n';
 import { IProjectService } from './services/projects/project-service.interface';
 
@@ -72,6 +84,7 @@ export function DashboardPage({
   recentProjects?: DashboardProject[];
 }) {
   const { locale, t } = useTranslation();
+  const projectService = useService(IProjectService);
   const [projects, setProjects] = React.useState<DashboardProject[]>(recentProjects);
   const [selectedDesignSystemId, setSelectedDesignSystemId] = React.useState<string | null>(null);
   const [pendingDesignSystemId, setPendingDesignSystemId] = React.useState<string | null>(null);
@@ -234,6 +247,10 @@ export function DashboardPage({
         />
         <ProjectBrowser
           projects={projects}
+          onDeleteProject={async (projectId) => {
+            await projectService.deleteProject(projectId);
+            setProjects((current) => current.filter((p) => p.id !== projectId));
+          }}
         />
         <DashboardDesignSystemPicker
           designSystems={designSystems}
@@ -302,15 +319,130 @@ function ProjectCreator({
 }) {
   const { t } = useTranslation();
   const projectService = useService(IProjectService);
+  const context = useService(IContextPickerService);
+  const contextSnapshot = useServiceSnapshot<ContextPickerSnapshot>(context);
   const [projectPrompt, setProjectPrompt] = React.useState('');
   const [stagedImages, setStagedImages] = React.useState<File[]>([]);
   const [selectedModel, setSelectedModel] = React.useState<DashboardModelOption>(DASHBOARD_MODEL_OPTIONS[0]);
   const [agentModelCatalog, setAgentModelCatalog] = React.useState<ChatComposerAgentModelCatalogEntry[]>([]);
   const [isCreating, setIsCreating] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
+  const [mentionItems, setMentionItems] = React.useState<ContextSearchResultItem[]>([]);
+  const [mentionPending, setMentionPending] = React.useState(false);
+  const [mentionError, setMentionError] = React.useState<string | null>(null);
+  const [mentionAnchor, setMentionAnchor] = React.useState<{ top: number; left: number } | null>(null);
+  const [selectingContextId, setSelectingContextId] = React.useState<string | null>(null);
   const formRef = React.useRef<HTMLFormElement | null>(null);
   const imageInputRef = React.useRef<HTMLInputElement | null>(null);
+  const promptInputRef = React.useRef<PromptInputHandle | null>(null);
   const modelCatalogRequestedRef = React.useRef(false);
+
+  // The dashboard has no project yet, so only global skills are mentionable.
+  const selectedSkillChips = React.useMemo(
+    () =>
+      contextSnapshot.selectedSkills.map((skill) => ({
+        id: `skill:${skill.id}`,
+        value: skill.id,
+        label: skill.name,
+      })),
+    [contextSnapshot.selectedSkills],
+  );
+
+  React.useEffect(() => {
+    if (mentionQuery === null) {
+      setMentionItems([]);
+      setMentionPending(false);
+      setMentionError(null);
+      return;
+    }
+
+    let canceled = false;
+    setMentionPending(true);
+    setMentionError(null);
+    void context
+      .search(mentionQuery)
+      .then((result) => {
+        if (canceled) return;
+        setMentionItems(result.items.filter((item) => item.kind === 'skill'));
+        setMentionPending(false);
+      })
+      .catch(() => {
+        if (canceled) return;
+        setMentionItems([]);
+        setMentionPending(false);
+        setMentionError(t('chat.composer.contextSearchUnavailable'));
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, [context, mentionQuery, t]);
+
+  // Position the mention popover just beneath the caret (the active "@"),
+  // measured relative to the composer form so it tracks where the user typed.
+  function computeMentionAnchor(): { top: number; left: number } | null {
+    if (typeof window === 'undefined') return null;
+    const form = formRef.current;
+    const selection = window.getSelection();
+    if (!form || !selection || selection.rangeCount === 0) return null;
+
+    const range = selection.getRangeAt(0).cloneRange();
+    range.collapse(true);
+    let rect = range.getBoundingClientRect();
+    if (!rect || (rect.top === 0 && rect.left === 0 && rect.height === 0)) {
+      const rects = range.getClientRects();
+      rect = rects.length > 0 ? rects[0] : rect;
+    }
+    if (!rect) return null;
+
+    const formRect = form.getBoundingClientRect();
+    const menuWidth = Math.min(360, formRect.width);
+    const left = Math.max(0, Math.min(rect.left - formRect.left, formRect.width - menuWidth));
+    return { top: rect.bottom - formRect.top + 6, left };
+  }
+
+  function updatePrompt(value: string): void {
+    setProjectPrompt(value);
+    const query = extractMentionQuery(value);
+    setMentionQuery(query);
+    setMentionAnchor(query === null ? null : computeMentionAnchor());
+  }
+
+  function insertMentionTrigger(): void {
+    promptInputRef.current?.insertText('@');
+  }
+
+  function submitPromptFromEditor(event: KeyboardEvent): boolean {
+    if (!isPlainEnter(event)) {
+      return false;
+    }
+
+    event.preventDefault();
+    if (mentionQuery !== null && mentionItems.length > 0) {
+      void selectMention(mentionItems[0]);
+    } else {
+      formRef.current?.requestSubmit();
+    }
+    return true;
+  }
+
+  async function selectMention(item: ContextSearchResultItem): Promise<void> {
+    if (selectingContextId !== null) return;
+    setSelectingContextId(item.id);
+    setMentionError(null);
+    try {
+      await context.selectResult(item);
+      updatePrompt(removeActiveMentionToken(projectPrompt));
+      setMentionQuery(null);
+      setMentionAnchor(null);
+      setMentionItems([]);
+    } catch {
+      setMentionError(t('chat.composer.contextSelectionFailed'));
+    } finally {
+      setSelectingContextId(null);
+    }
+  }
   const modelOptions = React.useMemo(() => {
     const catalogOptions = dashboardModelOptionsFromCatalog(agentModelCatalog);
     return catalogOptions.length > 0 ? catalogOptions : DASHBOARD_MODEL_OPTIONS;
@@ -336,10 +468,13 @@ function ProjectCreator({
       return;
     }
 
+    const selectedSkillIds = context.buildRunContext()?.skillIds ?? [];
+
     setIsCreating(true);
     setError(null);
     try {
       const project = await projectService.createProject({
+        title: t('dashboard.creator.untitledProjectTitle'),
         prompt: nextPrompt,
         projectKind: typeof formProjectKind === 'string' ? formProjectKind : 'prototype',
         ...(designSystemId ? { designSystemId } : {}),
@@ -348,8 +483,15 @@ function ProjectCreator({
           : {}),
       });
       await uploadDashboardImages(project.id, stagedImages);
-      setProjectPrompt('');
+      stashInitialProjectPrompt(project.id, nextPrompt);
+      stashInitialProjectSkills(project.id, selectedSkillIds);
+      setMentionQuery(null);
+      setMentionAnchor(null);
       setStagedImages([]);
+      // Clear the dashboard's skill selections so they don't leak into the next project.
+      for (const skillId of selectedSkillIds) {
+        context.removeSelection('skill', skillId);
+      }
       if (imageInputRef.current) {
         imageInputRef.current.value = '';
       }
@@ -392,7 +534,7 @@ function ProjectCreator({
       </h2>
       <form
         ref={formRef}
-        className="mt-6 w-full"
+        className="relative mt-6 w-full"
         method="post"
         action="/projects"
         onSubmit={(event) => void createProject(event)}
@@ -400,20 +542,39 @@ function ProjectCreator({
         <input type="hidden" name="projectKind" value="prototype" />
         {designSystemId ? <input type="hidden" name="designSystemId" value={designSystemId} /> : null}
         <Card className="rounded-[20px] border-[var(--border-1)] bg-[var(--background-fronted)] py-0 shadow-[0_14px_32px_rgba(15,23,42,0.10)] transition-colors focus-within:border-[var(--border-2)]">
-          <CardContent className="p-4 text-left sm:p-5">
+          <CardContent className="px-4 pt-4 pb-0 text-left sm:px-5 sm:pt-5 sm:pb-0">
             <h3 className="sr-only">
               {t('dashboard.creator.title')}
             </h3>
+            {selectedSkillChips.length > 0 ? (
+              <div className="chat-composer__chips" aria-label={t('chat.composer.selectedContext')}>
+                {selectedSkillChips.map((chip) => (
+                  <Badge key={chip.id} className="chat-composer__context-chip" variant="secondary">
+                    {chip.label}
+                    <Button
+                      type="button"
+                      className="chat-composer__context-remove"
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label={t('chat.composer.removeContext', { name: chip.label })}
+                      onClick={() => context.removeSelection('skill', chip.value)}
+                    >
+                      <CloseIcon size={10} aria-hidden />
+                    </Button>
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
             <PromptInput
+              ref={promptInputRef}
               ariaLabel={t('dashboard.creator.projectNameLabel')}
-              className="dashboard-prompt-input min-h-[112px] px-2 py-2"
-              editorClassName="dashboard-prompt-input__editor min-h-[96px] text-sm font-normal leading-5 text-[var(--text-primary)]"
+              className="dashboard-prompt-input h-[112px] px-2 py-2"
+              editorClassName="dashboard-prompt-input__editor h-[96px] overflow-y-auto text-sm font-normal leading-5 text-[var(--text-primary)]"
               name="prompt"
               placeholder={t('dashboard.creator.projectNamePlaceholder')}
               value={projectPrompt}
-              onChange={setProjectPrompt}
-              shouldSubmitOnEnter={(event) => !event.shiftKey}
-              onSubmitShortcut={() => formRef.current?.requestSubmit()}
+              onChange={updatePrompt}
+              onEditorKeyDown={submitPromptFromEditor}
             />
             {stagedImages.length > 0 ? (
               <div
@@ -430,7 +591,7 @@ function ProjectCreator({
               </div>
             ) : null}
             {error ? <div className="mt-3 text-sm text-[var(--state-danger)]">{error}</div> : null}
-            <div className="composer-row mt-4 flex-wrap">
+            <div className="composer-row mt-5 flex-wrap" style={{ paddingTop: '10px', paddingBottom: '10px' }}>
               <input
                 ref={imageInputRef}
                 aria-label={t('dashboard.creator.uploadImages')}
@@ -447,13 +608,27 @@ function ProjectCreator({
               >
                 <UploadIcon aria-hidden="true" size={16} />
               </ComposerIconButton>
+              <ComposerIconButton
+                ariaLabel={t('chat.composer.openMentions')}
+                title={t('chat.composer.openMentions')}
+                onClick={insertMentionTrigger}
+              >
+                <AtSign aria-hidden="true" size={16} />
+              </ComposerIconButton>
               <DesignSystemPrompt selectedDesignSystem={selectedDesignSystem} onSetup={onSetupDesignSystem} />
               <span className="min-w-0 flex-1" />
-              <DashboardModelPicker
-                modelOptions={modelOptions}
-                selectedModel={selectedModel}
-                onOpenModelMenu={() => void loadModelCatalog()}
-                onSelectModel={setSelectedModel}
+              <ComposerModelPicker
+                ariaLabel={t('dashboard.creator.modelLabel')}
+                groups={groupDashboardModelOptions(modelOptions)}
+                selectedKey={selectedModel.key}
+                selectedProvider={selectedModel.provider}
+                selectedProviderLabel={selectedModel.providerLabel}
+                selectedModelLabel={selectedModel.modelLabel}
+                onOpenMenu={() => void loadModelCatalog()}
+                onSelect={(provider, modelId) => {
+                  const option = modelOptions.find((m) => m.provider === provider && m.modelId === modelId);
+                  if (option) setSelectedModel(option);
+                }}
               />
               <ComposerSendButton
                 ariaLabel={t('dashboard.creator.createAria')}
@@ -465,6 +640,34 @@ function ProjectCreator({
             </div>
           </CardContent>
         </Card>
+        {mentionQuery !== null && (!mentionError || mentionItems.length > 0) ? (
+          <div
+            className="chat-composer__mention-list dashboard-mention-list"
+            aria-label={t('chat.composer.mentionResults')}
+            style={mentionAnchor ? { top: mentionAnchor.top, left: mentionAnchor.left, right: 'auto' } : undefined}
+          >
+            {mentionPending ? (
+              <div className="chat-composer__mention-empty">{t('chat.composer.searchingContext')}</div>
+            ) : mentionItems.length > 0 ? (
+              mentionItems.map((item) => (
+                <Button
+                  className="chat-composer__mention-button"
+                  key={item.id}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={selectingContextId !== null}
+                  onClick={() => void selectMention(item)}
+                >
+                  <ToolsIcon size={14} aria-hidden data-mention-icon="skill" />
+                  <span>{item.label}</span>
+                </Button>
+              ))
+            ) : (
+              <div className="chat-composer__mention-empty">{t('chat.composer.noContextResults')}</div>
+            )}
+          </div>
+        ) : null}
       </form>
     </section>
   );
@@ -546,28 +749,28 @@ function dashboardModelOptionsFromCatalog(
   });
 }
 
-function groupDashboardModelOptions(modelOptions: DashboardModelOption[]): Array<{
-  provider: ComposerModelProvider;
-  providerLabel: string;
-  options: DashboardModelOption[];
-}> {
-  const groups: Array<{
-    provider: ComposerModelProvider;
-    providerLabel: string;
-    options: DashboardModelOption[];
-  }> = [];
+function groupDashboardModelOptions(modelOptions: DashboardModelOption[]): ComposerModelGroup[] {
+  const groups: ComposerModelGroup[] = [];
 
   for (const model of modelOptions) {
-    const group = groups.find((candidate) => candidate.provider === model.provider);
+    const group = groups.find((g) => g.provider === model.provider);
     if (group) {
-      group.options.push(model);
+      group.models.push({
+        id: model.modelId,
+        label: model.modelLabel,
+        ...(model.description ? { description: model.description } : {}),
+      });
       continue;
     }
 
     groups.push({
       provider: model.provider,
       providerLabel: model.providerLabel,
-      options: [model],
+      models: [{
+        id: model.modelId,
+        label: model.modelLabel,
+        ...(model.description ? { description: model.description } : {}),
+      }],
     });
   }
 
@@ -636,88 +839,6 @@ function DashboardStagedImage({
   );
 }
 
-function DashboardModelPicker({
-  modelOptions,
-  selectedModel,
-  onOpenModelMenu,
-  onSelectModel,
-}: {
-  modelOptions: DashboardModelOption[];
-  selectedModel: DashboardModelOption;
-  onOpenModelMenu: () => void;
-  onSelectModel: (model: DashboardModelOption) => void;
-}) {
-  const { t } = useTranslation();
-  const groupedModelOptions = groupDashboardModelOptions(modelOptions);
-
-  return (
-    <DropdownMenu
-      onOpenChange={(open) => {
-        if (open) onOpenModelMenu();
-      }}
-    >
-      <DropdownMenuTrigger asChild>
-        <ComposerModelTrigger
-          ariaLabel={t('dashboard.creator.modelLabel')}
-          provider={selectedModel.provider}
-          providerLabel={selectedModel.providerLabel}
-          modelLabel={selectedModel.modelLabel}
-        />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" side="top">
-        {groupedModelOptions.map((group) => {
-          const hasModelLabels = group.options.some((model) => model.modelLabel !== null);
-
-          if (!hasModelLabels) {
-            return group.options.map((model) => (
-              <DropdownMenuItem
-                className="composer-model-menu-item"
-                key={model.key}
-                data-dashboard-model-option-id={model.modelId}
-                onSelect={() => onSelectModel(model)}
-              >
-                <ComposerModelProviderIcon provider={model.provider} />
-                {model.providerLabel}
-              </DropdownMenuItem>
-            ));
-          }
-
-          return (
-            <React.Fragment key={group.provider}>
-              <DropdownMenuLabel
-                className="composer-model-provider-label"
-                data-provider-option={group.provider}
-              >
-                <ComposerModelProviderIcon provider={group.provider} />
-                <span>{group.providerLabel}</span>
-              </DropdownMenuLabel>
-              <div className="composer-model-provider-models" data-provider-models={group.provider}>
-                {group.options.map((model) => (
-                  <DropdownMenuItem
-                    className="composer-model-menu-item composer-model-menu-item--model"
-                    data-dashboard-model-option-id={model.modelId}
-                    key={model.key}
-                    onSelect={() => onSelectModel(model)}
-                  >
-                    <span className="composer-model-menu-check" aria-hidden>
-                      {selectedModel.key === model.key ? <CheckIcon size={12} /> : null}
-                    </span>
-                    <span className="composer-model-menu-option-text">
-                      <span className="composer-model-menu-option-label">{model.modelLabel}</span>
-                      {model.description ? (
-                        <span className="composer-model-menu-option-description">{model.description}</span>
-                      ) : null}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-              </div>
-            </React.Fragment>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
 
 interface DashboardDesignSystem {
   id: string;
@@ -924,8 +1045,10 @@ function openProjectInCurrentWindow(projectId: string): void {
 
 function ProjectBrowser({
   projects,
+  onDeleteProject,
 }: {
   projects: DashboardProject[];
+  onDeleteProject: (projectId: string) => Promise<void>;
 }) {
   const { t } = useTranslation();
   const [search, setSearch] = React.useState('');
@@ -961,7 +1084,7 @@ function ProjectBrowser({
         data-testid="dashboard-project-grid"
       >
         {visibleProjects.map((project) => (
-          <ProjectCard key={project.id} project={project} />
+          <ProjectCard key={project.id} project={project} onDelete={onDeleteProject} />
         ))}
         {projects.length === 0 ? <EmptyProjectCard /> : null}
       </div>
@@ -1077,24 +1200,74 @@ function DesignSystemCard({
   );
 }
 
-function ProjectCard({ project }: { project: DashboardProject }) {
+function ProjectCard({ project, onDelete }: { project: DashboardProject; onDelete: (projectId: string) => Promise<void> }) {
   const { t } = useTranslation();
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
+
+  async function handleConfirmDelete(): Promise<void> {
+    setDeleting(true);
+    try {
+      await onDelete(project.id);
+    } finally {
+      setDeleting(false);
+      setConfirmOpen(false);
+    }
+  }
 
   return (
-    <a className="block" href={`/project/${encodeURIComponent(project.id)}`}>
-      <Card className="gap-0 overflow-hidden rounded-[var(--project-radius-lg)] border-[var(--border-1)] bg-[var(--background-fronted)] py-0 shadow-none transition-colors hover:border-[var(--border-2)]">
-        <ProjectThumbnail project={project} />
-        <CardContent className="px-3 pb-3 pt-2">
-          <div className="truncate text-sm font-semibold text-[var(--text-primary)]">{project.title}</div>
-          <div
-            data-testid="dashboard-project-metadata"
-            className="mt-1 flex min-w-0 items-center gap-2 text-xs font-normal text-[var(--text-secondary)]"
-          >
-            <span className="truncate">{relativeProjectTime(project.updatedAt, t)}</span>
-          </div>
-        </CardContent>
-      </Card>
-    </a>
+    <div className="group/card relative block">
+      <a className="block" href={`/project/${encodeURIComponent(project.id)}`}>
+        <Card className="gap-0 overflow-hidden rounded-[var(--project-radius-lg)] border-[var(--border-1)] bg-[var(--background-fronted)] py-0 shadow-none transition-colors hover:border-[var(--border-2)]">
+          <ProjectThumbnail project={project} />
+          <CardContent className="px-3 pb-3 pt-2">
+            <div className="truncate text-sm font-semibold text-[var(--text-primary)]">{project.title}</div>
+            <div
+              data-testid="dashboard-project-metadata"
+              className="mt-1 flex min-w-0 items-center gap-2 text-xs font-normal text-[var(--text-secondary)]"
+            >
+              <span className="truncate">{relativeProjectTime(project.updatedAt, t)}</span>
+            </div>
+          </CardContent>
+        </Card>
+      </a>
+      <div className="absolute bottom-[10px] right-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={t('dashboard.projectCard.moreActions', { title: project.title })}
+              className="flex size-6 items-center justify-center text-[var(--text-tertiary)] transition-colors hover:text-[var(--text-primary)]"
+              onClick={(e) => e.preventDefault()}
+            >
+              <MoreHorizontalIcon aria-hidden="true" size={14} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" side="top">
+            <DropdownMenuItem
+              className="text-[var(--state-danger)] focus:text-[var(--state-danger)]"
+              onSelect={() => setConfirmOpen(true)}
+            >
+              <DeleteIcon aria-hidden="true" size={14} />
+              {t('dashboard.projectCard.deleteProject')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <ConfirmationDialog
+        open={confirmOpen}
+        tone="destructive"
+        title={t('dashboard.projectCard.deleteConfirmTitle')}
+        description={t('dashboard.projectCard.deleteConfirmDescription', { title: project.title })}
+        confirmLabel={t('dashboard.projectCard.deleteConfirmAction')}
+        cancelLabel={t('common.cancel')}
+        confirmBusy={deleting}
+        disableCloseWhileBusy
+        onConfirm={() => void handleConfirmDelete()}
+        onCancel={() => setConfirmOpen(false)}
+        onOpenChange={setConfirmOpen}
+      />
+    </div>
   );
 }
 
@@ -1181,6 +1354,18 @@ function sortProjectsByUpdatedTime(projects: DashboardProject[]): DashboardProje
 
 function compareProjectsByUpdatedTime(left: DashboardProject, right: DashboardProject): number {
   return right.updatedAt - left.updatedAt || right.createdAt - left.createdAt || left.id.localeCompare(right.id);
+}
+
+function isPlainEnter(event: KeyboardEvent): boolean {
+  return (
+    event.key === 'Enter' &&
+    !event.shiftKey &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.isComposing &&
+    event.keyCode !== 229
+  );
 }
 
 function filterDesignSystems(designSystems: DashboardDesignSystem[], query: string): DashboardDesignSystem[] {

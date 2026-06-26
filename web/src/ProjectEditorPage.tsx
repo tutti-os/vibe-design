@@ -13,7 +13,8 @@ import {
 } from './features/canvas-workspace';
 import type { CanvasPreviewCommentTarget } from './features/canvas-workspace/canvas-comment/canvas-comment-types';
 import type { FileOpEntry } from './runtime/file-ops';
-import { consumeInitialProjectPrompt } from './initial-project-prompt';
+import { consumeInitialProjectPrompt, consumeInitialProjectSkills } from './initial-project-prompt';
+import { useServiceSnapshot } from './hooks/use-service-snapshot';
 import { IChatSessionService } from './services/chat-session/chat-session-service.interface';
 import type { ChatSessionSnapshot, SendTurnInput } from './services/chat-session/chat-session-types';
 import { IChatTimelineService } from './services/chat-timeline/chat-timeline-service.interface';
@@ -44,10 +45,6 @@ const PROJECT_EDITOR_COMPACT_WIDTH = 1540;
 const PROJECT_PREVIEW_COVER_NAME = 'cover.svg';
 const DESIGN_STYLE_UPLOAD_FILE_NAME = 'design.md';
 
-interface SubscribableSnapshotService<TSnapshot> {
-  subscribe(listener: () => void): () => void;
-  getSnapshot(): TSnapshot;
-}
 
 export function ProjectEditorPage({ projectId, initialData }: { projectId: string; initialData?: ProjectEditorInitialData }) {
   const { locale, t } = useTranslation();
@@ -593,7 +590,12 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
           >
             <span className="my-2 w-px rounded-full bg-transparent" />
           </div>
-          <InitialProjectPromptStarter projectId={projectId} />
+          <InitialProjectPromptStarter
+            projectId={projectId}
+            persistedPrompt={initialData?.project.prompt ?? null}
+            hasExistingMessages={timelineSnapshot.messages.length > 0}
+            onSendTurn={(draft) => void session.sendTurn({ draft, files: [] })}
+          />
           <CanvasWorkspace
             files={files}
             initialTabs={initialTabs}
@@ -1253,9 +1255,16 @@ function escapeSvgText(value: string): string {
 
 function InitialProjectPromptStarter({
   projectId,
+  persistedPrompt,
+  hasExistingMessages,
+  onSendTurn,
 }: {
   projectId: string;
+  persistedPrompt: string | null;
+  hasExistingMessages: boolean;
+  onSendTurn: (draft: string) => void;
 }) {
+  const context = useService(IContextPickerService);
   const startedRef = React.useRef(false);
 
   React.useEffect(() => {
@@ -1264,8 +1273,28 @@ function InitialProjectPromptStarter({
     }
 
     startedRef.current = true;
-    consumeInitialProjectPrompt(projectId);
-  }, [projectId]);
+    const prompt = consumeInitialProjectPrompt(projectId) ?? persistedPrompt?.trim() ?? null;
+    const skillIds = consumeInitialProjectSkills(projectId);
+    // Only replay the dashboard handoff to kick off a brand-new project. If the
+    // conversation already has messages (reload or revisit), clear the stale
+    // handoff without replaying so we never double-send the first turn.
+    if (!prompt || hasExistingMessages) {
+      return;
+    }
+
+    void (async () => {
+      // Re-apply the skills picked on the dashboard so the project's first run
+      // includes them (the project owns a fresh context picker instance).
+      for (const skillId of skillIds) {
+        try {
+          await context.selectSkill(skillId);
+        } catch {
+          // Best-effort: a skill that no longer exists is simply skipped.
+        }
+      }
+      onSendTurn(prompt);
+    })();
+  }, [projectId, persistedPrompt, hasExistingMessages, onSendTurn, context]);
 
   return null;
 }
@@ -1421,20 +1450,4 @@ function previewCommentDisplayDraft(attachments: readonly CanvasCommentAttachmen
     })
     .filter((message) => message.length > 0)
     .join('\n');
-}
-
-function useServiceSnapshot<TSnapshot>(service: SubscribableSnapshotService<TSnapshot>): TSnapshot {
-  const versionRef = React.useRef(0);
-  const subscribe = React.useCallback(
-    (listener: () => void) =>
-      service.subscribe(() => {
-        versionRef.current += 1;
-        listener();
-      }),
-    [service],
-  );
-  const getVersion = React.useCallback(() => versionRef.current, []);
-  const version = React.useSyncExternalStore(subscribe, getVersion, getVersion);
-
-  return React.useMemo(() => service.getSnapshot(), [service, version]);
 }

@@ -258,6 +258,7 @@ export const zhCN = {
       removeImage: '移除图片 {{name}}',
       stagedImages: '待发送图片',
       title: '新建原型',
+      untitledProjectTitle: '未命名',
       uploadImages: '上传图片',
     },
     designSystem: {
@@ -292,6 +293,11 @@ export const zhCN = {
     projectCard: {
       owner: '所有者',
       type: '你的设计',
+      moreActions: '{{title}} 的更多操作',
+      deleteProject: '删除',
+      deleteConfirmTitle: '删除项目？',
+      deleteConfirmDescription: '将永久删除「{{title}}」，此操作不可撤销。',
+      deleteConfirmAction: '删除',
     },
     search: {
       label: '搜索设计',

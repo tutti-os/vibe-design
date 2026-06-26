@@ -1,7 +1,14 @@
+import { spawn } from 'node:child_process';
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  createManagedAgentDetectContextFromHeaders,
+  createManagedAgentRunContextFromHeaders,
+  type DetectContext,
+  type ManagedAgentRunContext,
+} from '@tutti-os/agent-acp-kit';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { isProjectId, type ProjectEditorInitialData, type VibeDesignRoute } from '@vibe-design/web';
 import { renderPage } from '@vibe-design/web/render-page';
@@ -20,6 +27,7 @@ import {
 import {
   detectLocalAgentModelCatalog,
   fallbackAgentModelCatalog,
+  type AgentModelCatalogEntry,
   type DetectAgentModelCatalog,
 } from './agent-model-catalog.js';
 import { createSseErrorPayload, createSseResponse } from './http/sse.js';
@@ -68,7 +76,7 @@ import {
   type StoredConversationMessage,
   type StoredProject,
 } from './sqlite-store.js';
-import type { CliServiceResult, ServerContext, SubmitToolResultResult } from './server-context.js';
+import type { CliOpenAppInput, CliServiceResult, ServerContext, SubmitToolResultResult } from './server-context.js';
 import type { ChatRun, ChatRunCreateMeta, ChatRunService, RunStatus } from './types/run.js';
 
 export interface CreateServerOptions {
@@ -81,6 +89,7 @@ export interface CreateServerOptions {
   detectAgentAvailability?: DetectAgentAvailability;
   detectAgentModelCatalog?: DetectAgentModelCatalog;
   installClaudeCode?: () => Promise<void>;
+  openApp?: (input: CliOpenAppInput) => Promise<void> | void;
 }
 
 type PersistentRunBodyResult =
@@ -105,6 +114,7 @@ const CHAT_UI_CSS_PATHS = [
   resolve(SERVER_DIR, '../../web/dist/assets/chat-ui.css'),
   resolve(REPO_ROOT, 'web/src/components/chat-ui.css'),
 ];
+const TUTTI_APP_OPEN_TIMEOUT_MS = 30_000;
 
 export function createServer(options: CreateServerOptions = {}): http.Server {
   const app = express();
@@ -128,6 +138,8 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   const runsLogDir = join(runtimeDir, 'runs');
   const detectAgentAvailability = options.detectAgentAvailability ?? detectLocalAgentAvailability;
   const detectAgentModelCatalog = options.detectAgentModelCatalog ?? detectLocalAgentModelCatalog;
+  const cachedAgentAvailability = createCachedAgentAvailabilityDetector(detectAgentAvailability);
+  const cachedAgentModelCatalog = createCachedAgentModelCatalogDetector(detectAgentModelCatalog);
   const installClaudeCode = options.installClaudeCode ?? installLocalClaudeCode;
   const runs = createChatRunService({
     createSseResponse,
@@ -239,6 +251,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       submitToolResultToRun,
     },
     cli: {
+      openApp: openCliApp,
       createProject: createCliProject,
       updateProject: updateCliProject,
       startSession: startCliSession,
@@ -246,7 +259,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   };
 
   app.use('/api', (req: Request, res: Response, next: NextFunction): void => {
-    if (!isMutatingMethod(req.method) || isAllowedOrigin(req.get('origin'), req.get('host'))) {
+    if (!isMutatingMethod(req.method) || isAllowedOrigin(req.get('origin'), req.get('host'), req.get('sec-fetch-site'))) {
       next();
       return;
     }
@@ -254,23 +267,32 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     sendApiError(res, 403, 'FORBIDDEN_ORIGIN', 'cross-origin API writes are not allowed');
   });
 
-  function startRunFromRequest(run: ChatRun, request: Record<string, unknown>): Promise<void> | void {
+  function startRunFromRequest(
+    run: ChatRun,
+    request: Record<string, unknown>,
+    managedAgentRunContext?: ManagedAgentRunContext,
+  ): Promise<void> | void {
     const runner = options.startAgentRun ?? startAgentRun;
     return runner({
       run,
       runs,
-      request,
+      request: withoutManagedAgentInvocationCredential(request),
       paths: {
         projectsDir,
+        appDataDir: runtimeDir,
         userSkillsRoot: ctx.paths.userSkillsRoot,
         builtInSkillsRoot: ctx.paths.builtInSkillsRoot,
         userDesignSystemsRoot: ctx.paths.userDesignSystemsRoot,
         builtInDesignSystemsRoot: ctx.paths.builtInDesignSystemsRoot,
       },
+      managedAgentRunContext,
     });
   }
 
-  async function preparePersistentRunBody(body: Record<string, unknown>): Promise<PersistentRunBodyResult> {
+  async function preparePersistentRunBody(
+    body: Record<string, unknown>,
+    detectContext?: DetectContext,
+  ): Promise<PersistentRunBodyResult> {
     const projectId = readString(body.projectId);
     if (!projectId || !isSafeProjectId(projectId)) {
       return { ok: false, status: 400, code: 'BAD_REQUEST', message: 'projectId is required and must be path-safe' };
@@ -282,7 +304,10 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     }
 
     const requestedProvider = readString(body.agentId) ?? DEFAULT_AGENT_ID;
-    const unavailableAgent = findUnavailableAgent(await safeDetectAgentAvailability(detectAgentAvailability), requestedProvider);
+    const unavailableAgent = findUnavailableAgent(
+      await cachedAgentAvailability.detect(detectContext),
+      requestedProvider,
+    );
     if (unavailableAgent) {
       return {
         ok: false,
@@ -466,11 +491,12 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const localAttachments = localFileResult.attachments;
 
     const requestedProvider = readString(body.agentId) ?? DEFAULT_AGENT_ID;
+    const detectContext = undefined;
 
     // Pre-session fallback: if we can already tell the requested provider (codex) is unavailable
     // and Claude Code is ready, switch before creating the run instead of failing the call.
     let fallback = resolvePreSessionFallback(
-      await safeDetectAgentAvailability(detectAgentAvailability),
+      await cachedAgentAvailability.detect(detectContext),
       requestedProvider,
     );
 
@@ -514,7 +540,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     // conversation, since the original conversation is now locked to codex.
     if (!fallback && first.value.status === 'failed') {
       const inSession = resolveRunFailureFallback(
-        await safeDetectAgentAvailability(detectAgentAvailability),
+        await cachedAgentAvailability.detect(detectContext),
         first.value.provider ?? requestedProvider,
         { errorCode: first.value.errorCode, error: first.value.error },
       );
@@ -725,6 +751,28 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     };
   }
 
+  async function openCliApp(input: CliOpenAppInput): Promise<CliServiceResult> {
+    try {
+      const opener = options.openApp ?? requestTuttiAppOpen;
+      await opener(input);
+      return {
+        ok: true,
+        value: {
+          openRequested: true,
+          route: input.route,
+          ...(input.projectId ? { projectId: input.projectId } : {}),
+        },
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        status: 503,
+        code: 'APP_OPEN_FAILED',
+        message: error instanceof Error ? error.message : 'app open failed',
+      };
+    }
+  }
+
   app.post('/api/runs', async (req: Request, res: Response): Promise<void> => {
     const body = readBody(req.body);
     if (!body) {
@@ -737,7 +785,10 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       return;
     }
 
-    const persistentBodyResult = await preparePersistentRunBody(body);
+    const requestBody = body;
+    const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
+
+    const persistentBodyResult = await preparePersistentRunBody(requestBody, detectContext);
     if (!persistentBodyResult.ok) {
       sendPersistentRunBodyError(res, persistentBodyResult);
       return;
@@ -745,6 +796,11 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const persistentBody = persistentBodyResult.body;
 
     const run = runs.create(createRunMeta(persistentBody));
+    const managedAgentRunContext = await createManagedAgentRunContextFromHeaders(req.headers, {
+      providerId: readString(persistentBody.agentId) ?? DEFAULT_AGENT_ID,
+      runId: run.id,
+      appDataDir: runtimeDir,
+    });
     await persistRunMessages(persistentBody, run);
     res.status(202).json({
       runId: run.id,
@@ -752,7 +808,9 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       assistantMessageId: run.assistantMessageId,
       provider: run.agentId,
     });
-    runs.start(run, (startedRun) => startRunFromRequest(startedRun, persistentBody));
+    runs.start(run, (startedRun) => (
+      startRunFromRequest(startedRun, persistentBody, managedAgentRunContext)
+    ));
   });
 
   app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
@@ -767,7 +825,10 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       return;
     }
 
-    const persistentBodyResult = await preparePersistentRunBody(body);
+    const requestBody = body;
+    const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
+
+    const persistentBodyResult = await preparePersistentRunBody(requestBody, detectContext);
     if (!persistentBodyResult.ok) {
       sendPersistentRunBodyError(res, persistentBodyResult);
       return;
@@ -775,13 +836,22 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const persistentBody = persistentBodyResult.body;
 
     const run = runs.create(createRunMeta(persistentBody));
+    const managedAgentRunContext = await createManagedAgentRunContextFromHeaders(req.headers, {
+      providerId: readString(persistentBody.agentId) ?? DEFAULT_AGENT_ID,
+      runId: run.id,
+      appDataDir: runtimeDir,
+    });
     await persistRunMessages(persistentBody, run);
     runs.stream(run, req, res);
-    runs.start(run, (startedRun) => startRunFromRequest(startedRun, persistentBody));
+    runs.start(run, (startedRun) => (
+      startRunFromRequest(startedRun, persistentBody, managedAgentRunContext)
+    ));
   });
 
-  app.get('/api/agents/models', async (_req: Request, res: Response): Promise<void> => {
-    const modelCatalog = await safeDetectAgentModelCatalog(detectAgentModelCatalog);
+  app.get('/api/agents/models', async (req: Request, res: Response): Promise<void> => {
+    const modelCatalog = await cachedAgentModelCatalog.detect(
+      createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir }),
+    );
     res.json({
       agents: modelCatalog.map((agent) => ({
         id: agent.id,
@@ -795,8 +865,9 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     });
   });
 
-  app.post('/api/agents/claude/install', async (_req: Request, res: Response): Promise<void> => {
-    const currentAvailability = await safeDetectAgentAvailability(detectAgentAvailability);
+  app.post('/api/agents/claude/install', async (req: Request, res: Response): Promise<void> => {
+    const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
+    const currentAvailability = await cachedAgentAvailability.detect(detectContext);
     const currentClaude = currentAvailability.find((agent) => agent.id === 'claude');
     if (currentClaude?.available) {
       res.status(200).json({ agentAvailability: currentAvailability });
@@ -816,7 +887,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     }
 
     res.status(200).json({
-      agentAvailability: await safeDetectAgentAvailability(detectAgentAvailability),
+      agentAvailability: await cachedAgentAvailability.detect(detectContext, { refresh: true }),
     });
   });
 
@@ -917,7 +988,9 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const projectEditor = await createProjectEditorInitialData(
       projectsDir,
       project,
-      await safeDetectAgentAvailability(detectAgentAvailability),
+      await cachedAgentAvailability.detect(
+        createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir }),
+      ),
       runs,
     );
     sendNoStore(res);
@@ -996,6 +1069,7 @@ async function createProjectEditorInitialData(
     project: {
       id: project.id,
       title: readProjectTitle(project),
+      prompt: readProjectPrompt(project),
       designSystemId: project.designSystemId,
       tabsState: { tabs, activeTabKey },
     },
@@ -1007,19 +1081,109 @@ async function createProjectEditorInitialData(
   };
 }
 
-async function safeDetectAgentAvailability(detectAgentAvailability: DetectAgentAvailability): Promise<AgentAvailability[]> {
-  try {
-    return await detectAgentAvailability();
-  } catch (error) {
-    return unavailableAgentsForDetectionFailure(error);
-  }
+interface CachedAgentDetectOptions {
+  refresh?: boolean;
 }
 
-async function safeDetectAgentModelCatalog(detectAgentModelCatalog: DetectAgentModelCatalog) {
+function createCachedAgentAvailabilityDetector(detectAgentAvailability: DetectAgentAvailability): {
+  detect: (context?: DetectContext, options?: CachedAgentDetectOptions) => Promise<AgentAvailability[]>;
+} {
+  let cached: AgentAvailability[] | null = null;
+  let inFlight: Promise<AgentAvailability[]> | null = null;
+
+  return {
+    async detect(context?: DetectContext, options: CachedAgentDetectOptions = {}): Promise<AgentAvailability[]> {
+      const isManagedRequest = Boolean(context?.managedAgentInvocation);
+      if (isManagedRequest) {
+        return safeDetectAgentAvailability(detectAgentAvailability, context);
+      }
+
+      if (!options.refresh) {
+        if (cached) return cached;
+        if (inFlight) return inFlight;
+      }
+
+      const detection = safeDetectAgentAvailability(detectAgentAvailability, context)
+        .then((next) => {
+          if (hasTransientAvailabilityFailure(next)) {
+            return cached ?? next;
+          }
+          cached = next;
+          return next;
+        })
+        .finally(() => {
+          if (inFlight === detection) {
+            inFlight = null;
+          }
+        });
+
+      if (!options.refresh) {
+        inFlight = detection;
+      }
+      return detection;
+    },
+  };
+}
+
+function createCachedAgentModelCatalogDetector(detectAgentModelCatalog: DetectAgentModelCatalog): {
+  detect: (context?: DetectContext) => Promise<AgentModelCatalogEntry[]>;
+} {
+  let cached: AgentModelCatalogEntry[] | null = null;
+  let inFlight: Promise<AgentModelCatalogEntry[]> | null = null;
+
+  return {
+    async detect(context?: DetectContext): Promise<AgentModelCatalogEntry[]> {
+      const isManagedRequest = Boolean(context?.managedAgentInvocation);
+      if (isManagedRequest) {
+        return detectAgentModelCatalog(context).catch(() => fallbackAgentModelCatalog());
+      }
+
+      if (cached) return cached;
+      if (inFlight) return inFlight;
+
+      const detection = detectAgentModelCatalog(context)
+        .then((next) => {
+          cached = next;
+          return next;
+        })
+        .catch(() => fallbackAgentModelCatalog())
+        .finally(() => {
+          if (inFlight === detection) {
+            inFlight = null;
+          }
+        });
+
+      inFlight = detection;
+      return detection;
+    },
+  };
+}
+
+function hasTransientAvailabilityFailure(agentAvailability: AgentAvailability[]): boolean {
+  return agentAvailability.some((agent) => {
+    if (agent.available) return false;
+    const reason = agent.unavailableReason?.toLowerCase() ?? '';
+    return [
+      'context canceled',
+      'context cancelled',
+      'signal: killed',
+      'request aborted',
+      'operation aborted',
+      'econnreset',
+      'socket hang up',
+      'connection reset',
+    ].some((needle) => reason.includes(needle));
+  });
+}
+
+async function safeDetectAgentAvailability(
+  detectAgentAvailability: DetectAgentAvailability,
+  context?: DetectContext,
+): Promise<AgentAvailability[]> {
   try {
-    return await detectAgentModelCatalog();
-  } catch {
-    return fallbackAgentModelCatalog();
+    return await detectAgentAvailability(context);
+  } catch (error) {
+    return unavailableAgentsForDetectionFailure(error);
   }
 }
 
@@ -1133,6 +1297,10 @@ function staticImageContentType(name: string): string {
 
 function readProjectTitle(project: StoredProject): string | null {
   return typeof project.metadata.title === 'string' ? project.metadata.title : null;
+}
+
+function readProjectPrompt(project: StoredProject): string | null {
+  return typeof project.metadata.prompt === 'string' ? project.metadata.prompt : null;
 }
 
 async function sendCssFile(res: Response, filePaths: string[], notFoundMessage: string): Promise<void> {
@@ -1562,11 +1730,90 @@ function isAttachmentKind(value: unknown): value is 'file' | 'image' {
   return value === 'file' || value === 'image';
 }
 
+function requestTuttiAppOpen(input: CliOpenAppInput): Promise<void> {
+  if (!isSafeAppOpenRoute(input.route)) {
+    return Promise.reject(new Error('open route must be an origin-root route'));
+  }
+
+  const command = process.env.TUTTI_CLI?.trim();
+  if (!command) {
+    return Promise.reject(new Error('TUTTI_CLI is not configured'));
+  }
+
+  const appId = process.env.TUTTI_APP_ID?.trim();
+  if (!appId) {
+    return Promise.reject(new Error('TUTTI_APP_ID is not configured'));
+  }
+
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(command, ['--json', 'app', 'open', '--app-id', appId, '--route', input.route], {
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      child.kill('SIGKILL');
+      reject(new Error(`tutti app open timed out: ${cliFailureDetail(stdout, stderr)}`));
+    }, TUTTI_APP_OPEN_TIMEOUT_MS);
+
+    child.stdout?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+
+    child.stderr?.setEncoding('utf8');
+    child.stderr?.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+
+    child.once('error', (error) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeout);
+      reject(error);
+    });
+
+    child.once('close', (exitCode) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timeout);
+      if (exitCode === 0) {
+        resolvePromise();
+        return;
+      }
+
+      reject(new Error(`tutti app open failed: ${cliFailureDetail(stdout, stderr)}`));
+    });
+  });
+}
+
+function isSafeAppOpenRoute(route: string): boolean {
+  return route.startsWith('/') && !route.startsWith('//') && !route.includes('\\') && !/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(route);
+}
+
+function cliFailureDetail(stdout: string, stderr: string): string {
+  return stderr.trim() || stdout.trim() || 'no output';
+}
+
 function isMutatingMethod(method: string): boolean {
   return method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
 }
 
-function isAllowedOrigin(origin: string | undefined, host: string | undefined): boolean {
+function isAllowedOrigin(origin: string | undefined, host: string | undefined, secFetchSite?: string): boolean {
   if (!origin) {
     return true;
   }
@@ -1582,12 +1829,28 @@ function isAllowedOrigin(origin: string | undefined, host: string | undefined): 
     }
 
     const requestHost = parseHost(host);
-    return (
+    // TSH's Website runtime preview proxy preserves the browser Origin
+    // but rewrites Host to the app service upstream. For local app services,
+    // both sides are loopback. For sandbox/remote previews, Chromium still
+    // marks the browser-to-proxy request as same-origin.
+    const hasLoopbackOrigin =
+      (parsedOrigin.protocol === 'http:' || parsedOrigin.protocol === 'https:') &&
+      parsedOrigin.port !== '' &&
+      isLoopbackHost(parsedOrigin.hostname);
+    if (
+      hasLoopbackOrigin &&
       requestHost !== null &&
-      parsedOrigin.port === requestHost.port &&
-      isLoopbackHost(parsedOrigin.hostname) &&
+      requestHost.port !== '' &&
       isLoopbackHost(requestHost.hostname)
-    );
+    ) {
+      return true;
+    }
+
+    if (hasLoopbackOrigin && requestHost !== null && isSameOriginFetchSite(secFetchSite)) {
+      return true;
+    }
+
+    return false;
   } catch {
     return false;
   }
@@ -1603,7 +1866,17 @@ function parseHost(host: string): { hostname: string; port: string } | null {
 }
 
 function isLoopbackHost(hostname: string): boolean {
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]';
+  const normalized = hostname.toLowerCase().replace(/^\[(.*)\]$/, '$1');
+  return (
+    normalized === 'localhost' ||
+    normalized === '0.0.0.0' ||
+    normalized.startsWith('127.') ||
+    normalized === '::1'
+  );
+}
+
+function isSameOriginFetchSite(value: string | undefined): boolean {
+  return value?.trim().toLowerCase() === 'same-origin';
 }
 
 function resolveProjectRoute(projectId: string): VibeDesignRoute | null {
@@ -1624,4 +1897,16 @@ function createRunMeta(body: Record<string, unknown>): ChatRunCreateMeta {
     mediaExecution: body.mediaExecution,
     toolBundle: body.toolBundle,
   };
+}
+
+function withoutManagedAgentInvocationCredential(body: Record<string, unknown>): Record<string, unknown> {
+  if (!Object.hasOwn(body, 'managedAgentInvocationCredential')) {
+    return body;
+  }
+
+  const {
+    managedAgentInvocationCredential: _managedAgentInvocationCredential,
+    ...rest
+  } = body;
+  return rest;
 }

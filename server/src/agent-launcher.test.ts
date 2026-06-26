@@ -242,6 +242,150 @@ describe('startAgentRun', () => {
     }
   });
 
+  it('runs managed agents from app-data and passes managed invocation metadata', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
+    const previousDataDir = process.env.TUTTI_APP_DATA_DIR;
+    try {
+      const appDataDir = join(root, 'app-data');
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(appDataDir, 'projects');
+      await mkdir(builtInSkillsRoot, { recursive: true });
+      await mkdir(userSkillsRoot, { recursive: true });
+      process.env.TUTTI_APP_DATA_DIR = appDataDir;
+
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({
+        projectId: 'project-1',
+        agentId: 'codex',
+      });
+      const managedRunCwd = join(appDataDir, '.agent-runs', 'codex-run-1');
+      const projectWorkspaceDir = join(projectsDir, 'project-1');
+      const runtime = createRecordingRuntime([
+        { type: 'status', message: `Working in ${managedRunCwd}` },
+        { type: 'text_delta', text: `Created ${managedRunCwd}/assets/Hero.tsx` },
+        {
+          type: 'tool_call',
+          id: 'write-1',
+          name: 'write',
+          input: { file_path: `${managedRunCwd}/assets/Hero.tsx` },
+        },
+        {
+          type: 'tool_result',
+          id: 'write-1',
+          output: { output: `Wrote ${managedRunCwd}/assets/Hero.tsx` },
+          status: 'completed',
+        },
+        { type: 'stderr', text: `debug cwd ${managedRunCwd}` },
+        { type: 'done', status: 'completed', exitCode: 0 },
+      ]);
+
+      await startAgentRun({
+        run,
+        runs,
+        request: {
+          projectId: 'project-1',
+          prompt: 'Build with managed credentials',
+          agentId: 'codex',
+        },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+        managedAgentRunContext: {
+          cwd: managedRunCwd,
+          managedAgentInvocation: {
+            credential: 'credential-run-1',
+            cwd: managedRunCwd,
+          },
+        },
+      });
+
+      expect(runtime.inputs).toHaveLength(1);
+      expect(runtime.inputs[0]).toMatchObject({
+        cwd: managedRunCwd,
+      });
+      expect(runtime.inputs[0]?.env).toBeUndefined();
+      expect(runtime.inputs[0]?.managedAgentInvocation).toEqual({
+        credential: 'credential-run-1',
+        cwd: runtime.inputs[0]?.cwd,
+      });
+      expect(run).not.toHaveProperty('managedAgentInvocationCredential');
+      expect(JSON.stringify(run.events)).not.toContain('credential-run-1');
+      expect(JSON.stringify(run.events)).not.toContain(managedRunCwd);
+      expect(JSON.stringify(run.events)).toContain(projectWorkspaceDir);
+    } finally {
+      if (previousDataDir === undefined) {
+        delete process.env.TUTTI_APP_DATA_DIR;
+      } else {
+        process.env.TUTTI_APP_DATA_DIR = previousDataDir;
+      }
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('passes managed invocation cwd through without app-side remapping', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
+    try {
+      const appDataDir = join(root, 'app-data');
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(appDataDir, 'projects');
+      const unmappedRunDir = join(root, 'unmapped-agent-runs', 'codex-run-1');
+      await mkdir(builtInSkillsRoot, { recursive: true });
+      await mkdir(userSkillsRoot, { recursive: true });
+
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({
+        projectId: 'project-1',
+        agentId: 'codex',
+      });
+      const runtime = createRecordingRuntime();
+
+      await startAgentRun({
+        run,
+        runs,
+        request: {
+          projectId: 'project-1',
+          prompt: 'Build with fallback credentials',
+          agentId: 'codex',
+        },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+        managedAgentRunContext: {
+          cwd: unmappedRunDir,
+          managedAgentInvocation: {
+            credential: 'credential-run-1',
+            cwd: unmappedRunDir,
+          },
+        },
+      });
+
+      expect(runtime.inputs).toHaveLength(1);
+      expect(runtime.inputs[0]).toMatchObject({
+        cwd: unmappedRunDir,
+      });
+      expect(runtime.inputs[0]?.env).toBeUndefined();
+      expect(runtime.inputs[0]?.managedAgentInvocation).toEqual({
+        credential: 'credential-run-1',
+        cwd: unmappedRunDir,
+      });
+      expect(run).not.toHaveProperty('managedAgentInvocationCredential');
+      expect(JSON.stringify(run.events)).not.toContain('credential-run-1');
+      expect(JSON.stringify(run.events)).not.toContain(unmappedRunDir);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('passes prior conversation messages as ACP history for follow-up runs', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     try {
@@ -1342,6 +1486,82 @@ describe('startAgentRun', () => {
       expect(prompt).toContain('assets/Hero.tsx');
       expect(prompt).toContain(join(projectsDir, 'project-1', 'assets/Hero.tsx'));
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps selected design file prompt paths on the project workspace during managed runs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
+    const previousDataDir = process.env.TUTTI_APP_DATA_DIR;
+    try {
+      const appDataDir = join(root, 'app-data');
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(appDataDir, 'projects');
+      await mkdir(builtInSkillsRoot, { recursive: true });
+      await mkdir(userSkillsRoot, { recursive: true });
+      process.env.TUTTI_APP_DATA_DIR = appDataDir;
+
+      upsertProjectFileInStore(projectsDir, 'project-1', {
+        name: 'Hero.tsx',
+        path: 'assets/Hero.tsx',
+        size: 128,
+        mime: 'text/tsx',
+        kind: 'code',
+      });
+
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({
+        projectId: 'project-1',
+        agentId: 'codex',
+      });
+      const runtime = createRecordingRuntime();
+      const managedRunCwd = join(appDataDir, '.agent-runs', 'codex-run-1');
+
+      await startAgentRun({
+        run,
+        runs,
+        request: {
+          projectId: 'project-1',
+          prompt: 'Improve the selected file.',
+          agentId: 'codex',
+          context: {
+            designFilePaths: ['assets/Hero.tsx'],
+          },
+        },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+        managedAgentRunContext: {
+          cwd: managedRunCwd,
+          managedAgentInvocation: {
+            credential: 'credential-run-1',
+            cwd: managedRunCwd,
+          },
+        },
+      });
+
+      const prompt = runtime.inputs[0]?.prompt ?? '';
+      expect(runtime.inputs[0]?.cwd).toBe(managedRunCwd);
+      expect(runtime.inputs[0]?.managedAgentInvocation).toEqual({
+        credential: 'credential-run-1',
+        cwd: runtime.inputs[0]?.cwd,
+      });
+      expect(prompt).toContain('# Selected design files');
+      expect(prompt).toContain('Hero.tsx');
+      expect(prompt).toContain('assets/Hero.tsx');
+      expect(prompt).toContain(`${join(projectsDir, 'project-1')}/assets/Hero.tsx`);
+      expect(prompt).not.toContain(`${runtime.inputs[0]?.cwd}/assets/Hero.tsx`);
+    } finally {
+      if (previousDataDir === undefined) {
+        delete process.env.TUTTI_APP_DATA_DIR;
+      } else {
+        process.env.TUTTI_APP_DATA_DIR = previousDataDir;
+      }
       await rm(root, { recursive: true, force: true });
     }
   });

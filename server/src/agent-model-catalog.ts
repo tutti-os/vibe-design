@@ -3,6 +3,7 @@ import {
   createCodexProvider,
   createLocalAgentRuntime,
   type AgentDetection,
+  type DetectContext,
 } from '@tutti-os/agent-acp-kit';
 import type { ModelSummary, RuntimeAgentDef } from './agents.js';
 import { agentRegistry } from './runtimes/index.js';
@@ -13,14 +14,14 @@ export interface AgentModelCatalogEntry {
   models: ModelSummary[];
 }
 
-export type DetectAgentModelCatalog = () => Promise<AgentModelCatalogEntry[]>;
+export type DetectAgentModelCatalog = (context?: DetectContext) => Promise<AgentModelCatalogEntry[]>;
 
 const agentModelRuntime = createLocalAgentRuntime({
   providers: [createCodexProvider(), createClaudeProvider()],
 });
 
-export async function detectLocalAgentModelCatalog(): Promise<AgentModelCatalogEntry[]> {
-  const detections = await agentModelRuntime.detect();
+export async function detectLocalAgentModelCatalog(context?: DetectContext): Promise<AgentModelCatalogEntry[]> {
+  const detections = await agentModelRuntime.detect(context);
   const byProvider = new Map<string, AgentDetection | null>();
   for (const detection of detections) {
     byProvider.set(detection.provider, detection.result);

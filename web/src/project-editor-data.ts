@@ -14,6 +14,7 @@ export interface ProjectEditorAgentAvailability {
 export interface ProjectEditorInitialProject {
   id: string;
   title?: string | null;
+  prompt?: string | null;
   designSystemId?: string | null;
   tabsState: WorkspaceTabsState;
 }

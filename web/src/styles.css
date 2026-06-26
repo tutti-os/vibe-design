@@ -132,6 +132,16 @@ textarea:focus-visible {
   background: transparent;
 }
 
+/* Anchor the dashboard mention popover just beneath the caret (the active "@").
+   The composer form is the positioning context; an inline style supplies the
+   measured top/left, so default to a caret-sized box rather than full width. */
+.dashboard-mention-list {
+  top: calc(100% + 8px);
+  right: auto;
+  bottom: auto;
+  width: min(360px, 100%);
+}
+
 .dashboard-composer-square-button {
   width: 40px;
   height: 40px;

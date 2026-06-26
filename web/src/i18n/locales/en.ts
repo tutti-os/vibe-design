@@ -256,6 +256,7 @@ export const en = {
       removeImage: 'Remove image {{name}}',
       stagedImages: 'Staged images',
       title: 'New prototype',
+      untitledProjectTitle: 'Untitled',
       uploadImages: 'Upload images',
     },
     designSystem: {
@@ -290,6 +291,11 @@ export const en = {
     projectCard: {
       owner: 'Owner',
       type: 'Your design',
+      moreActions: 'More actions for {{title}}',
+      deleteProject: 'Delete',
+      deleteConfirmTitle: 'Delete project?',
+      deleteConfirmDescription: 'This will permanently delete "{{title}}". This cannot be undone.',
+      deleteConfirmAction: 'Delete',
     },
     search: {
       label: 'Search designs',

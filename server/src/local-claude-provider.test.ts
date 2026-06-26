@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -112,6 +112,61 @@ describe('createVibeClaudeProvider', () => {
       expect(detection.authState).toBe('ok');
       expect(detection.configDir).toBe(join(claudeHome, '.claude'));
       await expect(readFile(observedHomePath, 'utf8')).resolves.toBe(claudeHome);
+    } finally {
+      if (previousClaudePath === undefined) {
+        delete process.env.CLAUDE_CODE_PATH;
+      } else {
+        process.env.CLAUDE_CODE_PATH = previousClaudePath;
+      }
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
+  it('passes detect context cwd and env into Claude detection commands', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'vibe-claude-detect-context-'));
+    const commandPath = join(tempDir, 'claude');
+    const workDir = join(tempDir, 'workspace');
+    const observedVersionEnvPath = join(tempDir, 'observed-version-env.txt');
+    const observedVersionCwdPath = join(tempDir, 'observed-version-cwd.txt');
+    const observedAuthEnvPath = join(tempDir, 'observed-auth-env.txt');
+    const observedAuthCwdPath = join(tempDir, 'observed-auth-cwd.txt');
+    const previousClaudePath = process.env.CLAUDE_CODE_PATH;
+    await mkdir(workDir, { recursive: true });
+    await writeFile(commandPath, [
+      '#!/bin/sh',
+      'if [ "$1" = "--version" ]; then',
+      `  printf "%s" "$TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL" > "${observedVersionEnvPath}"`,
+      `  pwd > "${observedVersionCwdPath}"`,
+      '  printf "test-claude\\n"',
+      '  exit 0',
+      'fi',
+      'if [ "$1" = "auth" ] && [ "$2" = "status" ]; then',
+      `  printf "%s" "$TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL" > "${observedAuthEnvPath}"`,
+      `  pwd > "${observedAuthCwdPath}"`,
+      '  printf "{\\"loggedIn\\":true}\\n"',
+      '  exit 0',
+      'fi',
+      'exit 1',
+      '',
+    ].join('\n'));
+    await chmod(commandPath, 0o755);
+
+    try {
+      process.env.CLAUDE_CODE_PATH = commandPath;
+      const provider = createVibeClaudeProvider();
+      const detection = await provider.detect({
+        cwd: workDir,
+        env: {
+          TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL: 'credential-detect-1',
+        },
+      });
+
+      expect(detection?.authState).toBe('ok');
+      await expect(readFile(observedVersionEnvPath, 'utf8')).resolves.toBe('credential-detect-1');
+      await expect(readFile(observedAuthEnvPath, 'utf8')).resolves.toBe('credential-detect-1');
+      const realWorkDir = await realpath(workDir);
+      await expect(readFile(observedVersionCwdPath, 'utf8')).resolves.toBe(`${realWorkDir}\n`);
+      await expect(readFile(observedAuthCwdPath, 'utf8')).resolves.toBe(`${realWorkDir}\n`);
     } finally {
       if (previousClaudePath === undefined) {
         delete process.env.CLAUDE_CODE_PATH;
