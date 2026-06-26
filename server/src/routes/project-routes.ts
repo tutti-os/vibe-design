@@ -51,6 +51,8 @@ export interface ProjectFileWrite {
 }
 
 const PROJECT_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
+const PROJECT_TEXT_MAX_LENGTH = 200;
+const PROJECT_TITLE_MAX_LENGTH = 20;
 
 export function isSafeProjectId(id: string): boolean {
   return id.length >= 1 && id.length <= 128 && PROJECT_ID_PATTERN.test(id) && !isOnlyDots(id);
@@ -574,7 +576,7 @@ export function readProjectCreateInput(bodyValue: unknown): ProjectCreateInput |
   }
 
   return {
-    title: normalizeProjectText(readString(body.title)) ?? prompt,
+    title: normalizeProjectCreateTitle(readString(body.title), prompt),
     prompt,
     projectKind: normalizeProjectKind(readString(body.projectKind)),
     designSystemId: normalizeDesignSystemId(readString(body.designSystemId)),
@@ -648,7 +650,19 @@ function normalizeProjectText(value: string | null): string | null {
     return null;
   }
 
-  return trimmed.slice(0, 200);
+  return Array.from(trimmed).slice(0, PROJECT_TEXT_MAX_LENGTH).join('');
+}
+
+function normalizeProjectCreateTitle(value: string | null, prompt: string): string {
+  const explicitTitle = value?.trim();
+  const source = explicitTitle || summarizeProjectPromptAsTitle(prompt);
+  return Array.from(source).slice(0, PROJECT_TITLE_MAX_LENGTH).join('');
+}
+
+function summarizeProjectPromptAsTitle(prompt: string): string {
+  const compact = prompt.replace(/\s+/g, ' ').trim();
+  const sentence = compact.split(/[。.!！?？；;\n]/).find((part) => part.trim());
+  return sentence?.trim() || compact;
 }
 
 function normalizeProjectKind(value: string | null): string {
