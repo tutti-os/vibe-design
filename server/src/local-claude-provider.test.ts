@@ -36,6 +36,50 @@ function restoreClaudeEnv(snapshot: Record<string, string | undefined>): void {
 }
 
 describe('createVibeClaudeProvider', () => {
+  it('materializes skill manifests into the Claude prompt and cleans them up after the run', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'vibe-claude-skills-'));
+    try {
+      const cwd = join(tempDir, 'workspace');
+      await mkdir(cwd, { recursive: true });
+      const provider = createVibeClaudeProvider({
+        claudeHome: join(tempDir, 'claude-home'),
+        userClaudeHome: join(tempDir, 'user-home'),
+      });
+      const adapter = provider.createAdapter?.();
+      expect(adapter).toBeDefined();
+
+      const plan = await adapter!.buildLaunchPlan({
+        runId: 'run-1',
+        cwd,
+        prompt: 'Build a page',
+        skillManifest: [
+          {
+            skillId: 'tutti/tutti-cli',
+            slug: 'tutti-cli',
+            deliveryMode: 'materialized-files',
+            content: '# Tutti CLI\nUse the host CLI.',
+            files: [{ path: 'COMMANDS.md', content: 'commands' }],
+          },
+        ],
+      });
+
+      const skillRoot = join(cwd, '.local-agent', 'runs', 'run-1', 'skills', 'tutti-cli');
+      expect(plan.prompt).toContain(`${skillRoot}/SKILL.md`);
+      await expect(readFile(join(skillRoot, 'SKILL.md'), 'utf8')).resolves.toContain('# Tutti CLI');
+      await expect(readFile(join(skillRoot, 'COMMANDS.md'), 'utf8')).resolves.toBe('commands');
+
+      for await (const _event of adapter!.parseEvents((async function* () {
+        yield { type: 'done', status: 'completed', exitCode: 0 };
+      })())) {
+        // Drain the stream so adapter cleanup runs.
+      }
+
+      await expect(readFile(join(skillRoot, 'SKILL.md'), 'utf8')).rejects.toThrow();
+    } finally {
+      await rm(tempDir, { force: true, recursive: true });
+    }
+  });
+
   it('uses a Tutti app-local Claude home for runs when TUTTI_APP_DATA_DIR is set', async () => {
     const tempDir = await mkdtemp(join(tmpdir(), 'vibe-tutti-data-'));
     const previousDataDir = process.env.TUTTI_APP_DATA_DIR;

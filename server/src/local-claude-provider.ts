@@ -6,8 +6,9 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs';
+import { lstat, mkdir, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type {
   AgentDetection,
@@ -17,6 +18,7 @@ import type {
   LaunchPlan,
   LocalAgentProviderPlugin,
   RawAgentStream,
+  SkillMaterializationRecord,
 } from '@tutti-os/agent-acp-kit';
 import { resolveClaudeCommand } from './local-claude-command.js';
 import { scrubNestedClaudeSessionEnv } from './nested-session-env.js';
@@ -52,6 +54,20 @@ export function createVibeClaudeProvider(
   // Clear any leaked nested-session marker up front so both detection
   // (`claude --version` / `auth status`) and runs spawn a clean `claude`.
   scrubNestedClaudeSessionEnv();
+  const cleanupByRunId = new Map<string, string[]>();
+
+  async function cleanupRun(runId: string): Promise<void> {
+    const cleanupTargets = cleanupByRunId.get(runId) ?? [];
+    cleanupByRunId.delete(runId);
+    await Promise.all(cleanupTargets.map((target) => rm(target, { recursive: true, force: true })));
+  }
+
+  function registerCleanup(runId: string, targets: string[]): void {
+    if (targets.length === 0) {
+      return;
+    }
+    cleanupByRunId.set(runId, [...(cleanupByRunId.get(runId) ?? []), ...targets]);
+  }
 
   return {
     id: 'claude',
@@ -70,11 +86,20 @@ export function createVibeClaudeProvider(
       };
     },
     async buildLaunchPlan(params) {
-      return buildClaudeLaunchPlan(params, options);
+      return buildClaudeLaunchPlan(params, options, registerCleanup);
     },
     createAdapter() {
+      let adapterRunId: string | undefined;
       return {
-        buildLaunchPlan: async (params) => buildClaudeLaunchPlan(params, options),
+        buildLaunchPlan: async (params) => {
+          adapterRunId = params.runId;
+          try {
+            return await buildClaudeLaunchPlan(params, options, registerCleanup);
+          } catch (error) {
+            await cleanupRun(params.runId);
+            throw error;
+          }
+        },
         capabilities: () => ({
           cancel: true,
           nativeResume: true,
@@ -82,7 +107,15 @@ export function createVibeClaudeProvider(
           toolGateway: true,
           maxConcurrentRuns: 1,
         }),
-        parseEvents: parseClaudeRawStream,
+        parseEvents: async function* (stream) {
+          try {
+            yield* parseClaudeRawStream(stream);
+          } finally {
+            if (adapterRunId) {
+              await cleanupRun(adapterRunId);
+            }
+          }
+        },
       };
     },
     async *run() {
@@ -213,14 +246,27 @@ function parseAssistantEvent(record: Record<string, unknown>): AgentEvent[] {
   return events;
 }
 
-function buildClaudeLaunchPlan(
+async function buildClaudeLaunchPlan(
   params: AgentRunParams<'local-agent', 'claude'>,
   options: VibeClaudeProviderOptions,
-): LaunchPlan {
+  registerCleanup?: (runId: string, targets: string[]) => void,
+): Promise<LaunchPlan> {
   // If this server was launched from within a Claude Code session, the
   // CLAUDECODE marker leaks into our env and would be inherited by the spawned
   // `claude`, making it abort as a "nested session". Strip it before spawning.
   scrubNestedClaudeSessionEnv();
+  const materializedSkills = await materializeClaudeSkills(
+    params.cwd,
+    params.skillManifest ?? [],
+    params.runId,
+  );
+  registerCleanup?.(
+    params.runId,
+    materializedSkills
+      .filter((skill) => skill.deliveryMode === 'materialized-files')
+      .map((skill) => skill.materializedPath)
+      .filter((path): path is string => Boolean(path)),
+  );
 
   const args = [
     '-p',
@@ -262,7 +308,7 @@ function buildClaudeLaunchPlan(
     command: resolveClaudeCommand(),
     cwd: params.cwd,
     ...(Object.keys(env).length > 0 ? { env } : {}),
-    prompt: composePrompt(params),
+    prompt: composePrompt(params, materializedSkills),
     promptInput: 'stdin',
     runId: params.runId,
     transport: 'jsonl',
@@ -644,17 +690,169 @@ function readExecErrorStdout(error: unknown): string {
   return '';
 }
 
-function composePrompt(params: AgentRunParams<'local-agent', 'claude'>): string {
+async function materializeClaudeSkills(
+  cwd: string,
+  skills: SkillMaterializationRecord[],
+  runId: string,
+): Promise<SkillMaterializationRecord[]> {
+  const runRoot = resolve(cwd);
+  const skillRoot = resolve(
+    runRoot,
+    '.local-agent',
+    'runs',
+    safePathSegment(runId, 'run'),
+    'skills',
+  );
+  const seenRoots = new Set<string>();
+  const materialized: SkillMaterializationRecord[] = [];
+
+  await mkdir(runRoot, { recursive: true });
+  await rejectSymlink(runRoot);
+
+  for (const skill of skills) {
+    if (skill.deliveryMode !== 'materialized-files') {
+      materialized.push(skill);
+      continue;
+    }
+
+    const rootPath = resolve(skillRoot, safePathSegment(skill.slug, 'skill'));
+    assertInside(skillRoot, rootPath);
+    if (seenRoots.has(rootPath)) {
+      throw new Error(`Duplicate skill materialization path: ${rootPath}`);
+    }
+    seenRoots.add(rootPath);
+
+    await resetMaterializedSkillRoot(runRoot, rootPath);
+    await writeMaterializedSkillFile(rootPath, 'SKILL.md', skill.content ?? `# ${skill.slug}\n`);
+    for (const file of skill.files ?? []) {
+      await writeMaterializedSkillFile(rootPath, file.path, file.content);
+    }
+
+    materialized.push({
+      ...skill,
+      materializedPath: rootPath,
+    });
+  }
+
+  return materialized;
+}
+
+async function resetMaterializedSkillRoot(runRoot: string, rootPath: string): Promise<void> {
+  assertInside(runRoot, rootPath);
+  await ensureDirectoryNoSymlink(runRoot, dirname(rootPath));
+  await rejectSymlink(rootPath);
+  await rm(rootPath, { recursive: true, force: true });
+  await mkdir(rootPath, { recursive: true });
+}
+
+async function writeMaterializedSkillFile(rootPath: string, path: string, content: string): Promise<void> {
+  const filePath = resolve(rootPath, path);
+  assertInside(rootPath, filePath);
+  await ensureDirectoryNoSymlink(rootPath, dirname(filePath));
+  await rejectSymlink(filePath);
+  await writeFile(filePath, content, 'utf8');
+}
+
+async function ensureDirectoryNoSymlink(rootPath: string, targetDir: string): Promise<void> {
+  assertInside(rootPath, targetDir);
+  const relativePath = relative(rootPath, targetDir);
+  if (!relativePath) {
+    return;
+  }
+
+  let current = rootPath;
+  for (const part of relativePath.split(/[\\/]+/).filter(Boolean)) {
+    current = join(current, part);
+    const entry = await lstat(current).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') {
+        return null;
+      }
+      throw error;
+    });
+    if (entry?.isSymbolicLink()) {
+      throw new Error(`Refusing to write through symlink: ${current}`);
+    }
+    if (entry && !entry.isDirectory()) {
+      throw new Error(`Expected directory while materializing skill: ${current}`);
+    }
+    if (!entry) {
+      await mkdir(current);
+    }
+  }
+}
+
+async function rejectSymlink(path: string): Promise<void> {
+  const entry = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') {
+      return null;
+    }
+    throw error;
+  });
+  if (entry?.isSymbolicLink()) {
+    throw new Error(`Refusing to write through symlink: ${path}`);
+  }
+}
+
+function assertInside(rootPath: string, targetPath: string): void {
+  const relativePath = relative(resolve(rootPath), resolve(targetPath));
+  if (relativePath === '' || (!relativePath.startsWith('..') && !isAbsolute(relativePath))) {
+    return;
+  }
+  throw new Error(`Path escapes skill root: ${targetPath}`);
+}
+
+function safePathSegment(value: string | undefined, fallback: string): string {
+  const normalized = value?.trim().replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  return normalized || fallback;
+}
+
+function composePrompt(
+  params: AgentRunParams<'local-agent', 'claude'>,
+  skills: SkillMaterializationRecord[] = [],
+): string {
   const history = (params.history ?? [])
     .map((message) => `${message.role.toUpperCase()}:\n${message.content}`)
     .join('\n\n');
 
   return [
     params.systemPrompt?.trim(),
+    materializedSkillPromptSection(skills),
+    injectedSkillPromptSection(skills),
     history,
     'Current request:',
     params.prompt,
   ].filter(Boolean).join('\n\n');
+}
+
+function materializedSkillPromptSection(skills: SkillMaterializationRecord[]): string {
+  const materializedSkills = skills.filter(
+    (skill) => skill.deliveryMode === 'materialized-files' && skill.materializedPath,
+  );
+  if (materializedSkills.length === 0) {
+    return '';
+  }
+
+  return [
+    'Workspace skills are materialized under the current run directory. Read the referenced SKILL.md before following a skill.',
+    ...materializedSkills.map((skill) => `- ${skill.slug}: ${skill.materializedPath}/SKILL.md`),
+  ].join('\n');
+}
+
+function injectedSkillPromptSection(skills: SkillMaterializationRecord[]): string {
+  const injectedSkills = skills.filter(
+    (skill) => skill.deliveryMode === 'prompt-injection' || skill.deliveryMode === 'project-instructions',
+  );
+  if (injectedSkills.length === 0) {
+    return '';
+  }
+
+  return [
+    'Skills:',
+    ...injectedSkills.map((skill) => {
+      const base = `- ${skill.slug}${skill.materializedPath ? ` -> ${skill.materializedPath}` : ''}`;
+      return skill.content?.trim() ? `${base}\n${skill.content.trim()}` : base;
+    }),
+  ].join('\n');
 }
 
 function normalizeClaudeModel(model: string | undefined): string | undefined {
