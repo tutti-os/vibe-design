@@ -61,6 +61,7 @@ export const en = {
       comingSoon: 'Coming soon',
       lockedModelProvider: 'Switching models is not supported in the same conversation yet',
       mentionFilterAll: 'All',
+      mentionFilterApps: 'Apps',
       mentionFilterFiles: 'Files',
       mentionFilterSkills: 'Skill',
       mentionFilters: 'Mention filters',

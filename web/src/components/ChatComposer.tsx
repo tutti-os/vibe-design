@@ -30,6 +30,14 @@ import type {
   ContextSearchResultItem,
 } from '../services/context-picker/context-picker-types';
 import type { CanvasCommentAttachment, ChatAttachment } from '../types';
+import {
+  getTuttiExternalAtMentionIconUrl,
+  getTuttiExternalAtMentionSubtitle,
+  isTuttiExternalAtMentionItem,
+  queryTuttiExternalAtMentions,
+  renderTuttiExternalAtInsert,
+  type TuttiExternalAtMentionItem,
+} from '../lib/tuttiExternalAt';
 import { useTranslation } from '../i18n';
 import { DesignSystemPickerDialog } from './DesignSystemPickerDialog';
 import {
@@ -42,12 +50,17 @@ import {
   type ComposerModelProvider,
 } from './ComposerControls';
 import { PromptInput, type PromptInputHandle } from './PromptInput';
-import { extractMentionQuery, removeActiveMentionToken } from './composer-mention';
+import {
+  extractMentionQuery,
+  removeActiveMentionToken,
+  replaceActiveMentionToken,
+} from './composer-mention';
 
 type ActiveModelProvider = 'codex' | 'claude-code';
 type ModelProvider = ComposerModelProvider;
 type AgentId = 'codex' | 'claude';
-type MentionFilter = 'all' | ContextSearchResultItem['kind'];
+type ComposerMentionItem = ContextSearchResultItem | TuttiExternalAtMentionItem;
+type MentionFilter = 'all' | ContextSearchResultItem['kind'] | TuttiExternalAtMentionItem['kind'];
 
 const MODEL_PROVIDERS: Array<{ value: ModelProvider; label: string; comingSoon?: boolean }> = [
   { value: 'codex', label: 'Codex' },
@@ -156,7 +169,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     const [files, setFiles] = useState<File[]>([]);
     const [uploadedAttachments, setUploadedAttachments] = useState<ChatAttachment[]>([]);
     const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-    const [mentionItems, setMentionItems] = useState<ContextSearchResultItem[]>([]);
+    const [mentionItems, setMentionItems] = useState<ComposerMentionItem[]>([]);
     const [mentionFilter, setMentionFilter] = useState<MentionFilter>('all');
     const [mentionPending, setMentionPending] = useState(false);
     const [mentionError, setMentionError] = useState<string | null>(null);
@@ -253,26 +266,31 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       let canceled = false;
       setMentionPending(true);
       setMentionError(null);
-      void context
-        .search(mentionQuery)
-        .then((result) => {
-          if (canceled) return;
-          setMentionItems(
-              result.items.filter((item) => item.kind === 'skill' || item.kind === 'design-file'),
-          );
-          setMentionPending(false);
-        })
-        .catch(() => {
-          if (canceled) return;
-          setMentionItems([]);
-          setMentionPending(false);
-          setMentionError(t('chat.composer.contextSearchUnavailable'));
-        });
+      void Promise.allSettled([
+        context.search(mentionQuery),
+        queryTuttiExternalAtMentions({ keyword: mentionQuery, maxResults: 20 }),
+      ]).then(([contextResult, externalAtResult]) => {
+        if (canceled) return;
+
+        const contextItems =
+          contextResult.status === 'fulfilled'
+            ? contextResult.value.items.filter((item) => item.kind === 'skill' || item.kind === 'design-file')
+            : [];
+        const externalAtItems = externalAtResult.status === 'fulfilled' ? externalAtResult.value : [];
+
+        setMentionItems([...contextItems, ...externalAtItems]);
+        setMentionPending(false);
+        setMentionError(
+          contextResult.status === 'rejected' && externalAtItems.length === 0
+            ? t('chat.composer.contextSearchUnavailable')
+            : null,
+        );
+      });
 
       return () => {
         canceled = true;
       };
-    }, [context, mentionQuery]);
+    }, [context, mentionQuery, t]);
 
     const selectedChips = useMemo(
       () => [
@@ -354,13 +372,24 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       }
     }
 
-    async function selectMentionResult(item: ContextSearchResultItem): Promise<void> {
+    async function selectMentionResult(item: ComposerMentionItem): Promise<void> {
       if (selectingContextId !== null) return;
       setSelectingContextId(item.id);
       setMentionError(null);
       try {
-        await context.selectResult(item);
-        updateDraft(removeActiveMentionToken(draft));
+        if (isTuttiExternalAtMentionItem(item)) {
+          const insertedText = renderTuttiExternalAtInsert(item);
+          if (!insertedText) {
+            throw new Error('Empty at mention insert result');
+          }
+          updateDraft(replaceActiveMentionToken(draft, insertedText));
+          requestAnimationFrame(() => {
+            promptInputRef.current?.focusToEnd();
+          });
+        } else {
+          await context.selectResult(item);
+          updateDraft(removeActiveMentionToken(draft));
+        }
         setMentionQuery(null);
         setMentionItems([]);
         setMentionFilter('all');
@@ -799,10 +828,10 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
                           disabled={selectingContextId !== null}
                           onClick={() => void selectMentionResult(item)}
                         >
-                          <MentionResultIcon kind={item.kind} />
+                          <MentionResultIcon item={item} />
                           <span>{item.label}</span>
-                          {item.kind === 'design-file' ? (
-                            <span className="chat-composer__meta">{item.path}</span>
+                          {mentionItemSubtitle(item) ? (
+                            <span className="chat-composer__meta">{mentionItemSubtitle(item)}</span>
                           ) : null}
                         </Button>
                       ))
@@ -956,13 +985,37 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
   },
 );
 
-const MENTION_FILTERS: MentionFilter[] = ['all', 'skill', 'design-file'];
+const MENTION_FILTERS: MentionFilter[] = ['all', 'skill', 'design-file', 'workspace-app'];
 
-function MentionResultIcon({ kind }: { kind: ContextSearchResultItem['kind'] }) {
-  if (kind === 'design-file') {
+function MentionResultIcon({ item }: { item: ComposerMentionItem }) {
+  if (isTuttiExternalAtMentionItem(item)) {
+    const iconUrl = getTuttiExternalAtMentionIconUrl(item);
+    if (iconUrl) {
+      return (
+        <img
+          alt=""
+          className="chat-composer__mention-icon"
+          data-mention-icon={item.kind}
+          src={iconUrl}
+        />
+      );
+    }
+    return <Square size={14} aria-hidden data-mention-icon={item.kind} />;
+  }
+  if (item.kind === 'design-file') {
     return <FileTextIcon size={14} aria-hidden data-mention-icon="design-file" />;
   }
   return <ToolsIcon size={14} aria-hidden data-mention-icon="skill" />;
+}
+
+function mentionItemSubtitle(item: ComposerMentionItem): string | null {
+  if (isTuttiExternalAtMentionItem(item)) {
+    return getTuttiExternalAtMentionSubtitle(item);
+  }
+  if (item.kind === 'design-file') {
+    return item.path;
+  }
+  return null;
 }
 
 function agentIdFromModelProvider(provider: ModelProvider): AgentId {
@@ -1041,6 +1094,7 @@ function readSendErrorMessage(error: unknown, fallback: string): string {
 function mentionFilterLabel(filter: MentionFilter, t: ReturnType<typeof useTranslation>['t']): string {
   if (filter === 'skill') return t('chat.composer.mentionFilterSkills');
   if (filter === 'design-file') return t('chat.composer.mentionFilterFiles');
+  if (filter === 'workspace-app') return t('chat.composer.mentionFilterApps');
   return t('chat.composer.mentionFilterAll');
 }
 

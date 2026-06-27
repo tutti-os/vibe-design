@@ -32,7 +32,19 @@ import {
   type ComposerModelGroup,
   type ComposerModelProvider,
 } from './components/ComposerControls';
-import { extractMentionQuery, removeActiveMentionToken } from './components/composer-mention';
+import {
+  extractMentionQuery,
+  removeActiveMentionToken,
+  replaceActiveMentionToken,
+} from './components/composer-mention';
+import {
+  getTuttiExternalAtMentionIconUrl,
+  getTuttiExternalAtMentionSubtitle,
+  isTuttiExternalAtMentionItem,
+  queryTuttiExternalAtMentions,
+  renderTuttiExternalAtInsert,
+  type TuttiExternalAtMentionItem,
+} from './lib/tuttiExternalAt';
 import { stashInitialProjectPrompt, stashInitialProjectSkills } from './initial-project-prompt';
 import { DesignSystemPickerDialog } from './components/DesignSystemPickerDialog';
 import { PromptInput, type PromptInputHandle } from './components/PromptInput';
@@ -75,6 +87,10 @@ const DASHBOARD_MODEL_OPTIONS: DashboardModelOption[] = [
     modelLabel: 'Default (recommended)',
   },
 ];
+
+type DashboardMentionItem = ContextSearchResultItem | TuttiExternalAtMentionItem;
+type DashboardMentionFilter = 'all' | 'skill' | TuttiExternalAtMentionItem['kind'];
+const DASHBOARD_MENTION_FILTERS: DashboardMentionFilter[] = ['all', 'skill', 'workspace-app'];
 
 export function DashboardPage({
   openProject = openProjectInCurrentWindow,
@@ -328,7 +344,8 @@ function ProjectCreator({
   const [isCreating, setIsCreating] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [mentionQuery, setMentionQuery] = React.useState<string | null>(null);
-  const [mentionItems, setMentionItems] = React.useState<ContextSearchResultItem[]>([]);
+  const [mentionItems, setMentionItems] = React.useState<DashboardMentionItem[]>([]);
+  const [mentionFilter, setMentionFilter] = React.useState<DashboardMentionFilter>('all');
   const [mentionPending, setMentionPending] = React.useState(false);
   const [mentionError, setMentionError] = React.useState<string | null>(null);
   const [mentionAnchor, setMentionAnchor] = React.useState<{ top: number; left: number } | null>(null);
@@ -339,7 +356,7 @@ function ProjectCreator({
   const modelCatalogRequestedRef = React.useRef(false);
   const createProjectInFlightRef = React.useRef(false);
 
-  // The dashboard has no project yet, so only global skills are mentionable.
+  // The dashboard has no project yet, so project files are unavailable here.
   const selectedSkillChips = React.useMemo(
     () =>
       contextSnapshot.selectedSkills.map((skill) => ({
@@ -349,10 +366,18 @@ function ProjectCreator({
       })),
     [contextSnapshot.selectedSkills],
   );
+  const filteredMentionItems = React.useMemo(
+    () =>
+      mentionFilter === 'all'
+        ? mentionItems
+        : mentionItems.filter((item) => item.kind === mentionFilter),
+    [mentionFilter, mentionItems],
+  );
 
   React.useEffect(() => {
     if (mentionQuery === null) {
       setMentionItems([]);
+      setMentionFilter('all');
       setMentionPending(false);
       setMentionError(null);
       return;
@@ -361,19 +386,26 @@ function ProjectCreator({
     let canceled = false;
     setMentionPending(true);
     setMentionError(null);
-    void context
-      .search(mentionQuery)
-      .then((result) => {
-        if (canceled) return;
-        setMentionItems(result.items.filter((item) => item.kind === 'skill'));
-        setMentionPending(false);
-      })
-      .catch(() => {
-        if (canceled) return;
-        setMentionItems([]);
-        setMentionPending(false);
-        setMentionError(t('chat.composer.contextSearchUnavailable'));
-      });
+    void Promise.allSettled([
+      context.search(mentionQuery),
+      queryTuttiExternalAtMentions({ keyword: mentionQuery, maxResults: 20 }),
+    ]).then(([contextResult, externalAtResult]) => {
+      if (canceled) return;
+
+      const skillItems =
+        contextResult.status === 'fulfilled'
+          ? contextResult.value.items.filter((item) => item.kind === 'skill')
+          : [];
+      const externalAtItems = externalAtResult.status === 'fulfilled' ? externalAtResult.value : [];
+
+      setMentionItems([...skillItems, ...externalAtItems]);
+      setMentionPending(false);
+      setMentionError(
+        contextResult.status === 'rejected' && externalAtItems.length === 0
+          ? t('chat.composer.contextSearchUnavailable')
+          : null,
+      );
+    });
 
     return () => {
       canceled = true;
@@ -420,24 +452,36 @@ function ProjectCreator({
     }
 
     event.preventDefault();
-    if (mentionQuery !== null && mentionItems.length > 0) {
-      void selectMention(mentionItems[0]);
+    if (mentionQuery !== null && filteredMentionItems.length > 0) {
+      void selectMention(filteredMentionItems[0]);
     } else {
       formRef.current?.requestSubmit();
     }
     return true;
   }
 
-  async function selectMention(item: ContextSearchResultItem): Promise<void> {
+  async function selectMention(item: DashboardMentionItem): Promise<void> {
     if (selectingContextId !== null) return;
     setSelectingContextId(item.id);
     setMentionError(null);
     try {
-      await context.selectResult(item);
-      updatePrompt(removeActiveMentionToken(projectPrompt));
+      if (isTuttiExternalAtMentionItem(item)) {
+        const insertedText = renderTuttiExternalAtInsert(item);
+        if (!insertedText) {
+          throw new Error('Empty at mention insert result');
+        }
+        updatePrompt(replaceActiveMentionToken(projectPrompt, insertedText));
+        requestAnimationFrame(() => {
+          promptInputRef.current?.focusToEnd();
+        });
+      } else {
+        await context.selectResult(item);
+        updatePrompt(removeActiveMentionToken(projectPrompt));
+      }
       setMentionQuery(null);
       setMentionAnchor(null);
       setMentionItems([]);
+      setMentionFilter('all');
     } catch {
       setMentionError(t('chat.composer.contextSelectionFailed'));
     } finally {
@@ -653,20 +697,45 @@ function ProjectCreator({
             {mentionPending ? (
               <div className="chat-composer__mention-empty">{t('chat.composer.searchingContext')}</div>
             ) : mentionItems.length > 0 ? (
-              mentionItems.map((item) => (
-                <Button
-                  className="chat-composer__mention-button"
-                  key={item.id}
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  disabled={selectingContextId !== null}
-                  onClick={() => void selectMention(item)}
-                >
-                  <ToolsIcon size={14} aria-hidden data-mention-icon="skill" />
-                  <span>{item.label}</span>
-                </Button>
-              ))
+              <>
+                <div className="chat-composer__mention-tabs" role="tablist" aria-label={t('chat.composer.mentionFilters')}>
+                  {DASHBOARD_MENTION_FILTERS.map((filter) => (
+                    <Button
+                      key={filter}
+                      type="button"
+                      className="chat-composer__mention-tab"
+                      role="tab"
+                      aria-selected={mentionFilter === filter}
+                      variant={mentionFilter === filter ? 'secondary' : 'ghost'}
+                      size="sm"
+                      onClick={() => setMentionFilter(filter)}
+                    >
+                      {dashboardMentionFilterLabel(filter, t)}
+                    </Button>
+                  ))}
+                </div>
+                {filteredMentionItems.length > 0 ? (
+                  filteredMentionItems.map((item) => (
+                    <Button
+                      className="chat-composer__mention-button"
+                      key={item.id}
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={selectingContextId !== null}
+                      onClick={() => void selectMention(item)}
+                    >
+                      <DashboardMentionResultIcon item={item} />
+                      <span>{item.label}</span>
+                      {dashboardMentionItemSubtitle(item) ? (
+                        <span className="chat-composer__meta">{dashboardMentionItemSubtitle(item)}</span>
+                      ) : null}
+                    </Button>
+                  ))
+                ) : (
+                  <div className="chat-composer__mention-empty">{t('chat.composer.noContextResults')}</div>
+                )}
+              </>
             ) : (
               <div className="chat-composer__mention-empty">{t('chat.composer.noContextResults')}</div>
             )}
@@ -692,6 +761,40 @@ async function uploadDashboardImages(projectId: string, images: File[]): Promise
       throw new Error('Could not upload images.');
     }
   }
+}
+
+function dashboardMentionFilterLabel(
+  filter: DashboardMentionFilter,
+  t: TranslateFn,
+): string {
+  if (filter === 'skill') return t('chat.composer.mentionFilterSkills');
+  if (filter === 'workspace-app') return t('chat.composer.mentionFilterApps');
+  return t('chat.composer.mentionFilterAll');
+}
+
+function DashboardMentionResultIcon({ item }: { item: DashboardMentionItem }) {
+  if (isTuttiExternalAtMentionItem(item)) {
+    const iconUrl = getTuttiExternalAtMentionIconUrl(item);
+    if (iconUrl) {
+      return (
+        <img
+          alt=""
+          className="chat-composer__mention-icon"
+          data-mention-icon={item.kind}
+          src={iconUrl}
+        />
+      );
+    }
+    return <ToolsIcon size={14} aria-hidden data-mention-icon={item.kind} />;
+  }
+  return <ToolsIcon size={14} aria-hidden data-mention-icon="skill" />;
+}
+
+function dashboardMentionItemSubtitle(item: DashboardMentionItem): string | null {
+  if (isTuttiExternalAtMentionItem(item)) {
+    return getTuttiExternalAtMentionSubtitle(item);
+  }
+  return null;
 }
 
 async function fetchDashboardModelCatalog(): Promise<ChatComposerAgentModelCatalogEntry[]> {

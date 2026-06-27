@@ -63,6 +63,7 @@ export const zhCN = {
       comingSoon: 'Coming soon',
       lockedModelProvider: '暂不支持在同一会话里切换模型',
       mentionFilterAll: '全部',
+      mentionFilterApps: '应用',
       mentionFilterFiles: '文件',
       mentionFilterSkills: 'Skill',
       mentionFilters: '提及筛选',

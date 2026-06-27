@@ -66,7 +66,7 @@ export function createVibeClaudeProvider(
     if (targets.length === 0) {
       return;
     }
-    cleanupByRunId.set(runId, [...(cleanupByRunId.get(runId) ?? []), ...targets]);
+    cleanupByRunId.set(runId, [...new Set([...(cleanupByRunId.get(runId) ?? []), ...targets])]);
   }
 
   return {
