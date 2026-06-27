@@ -119,11 +119,14 @@ async function searchReferences(api: Api, body: Record<string, unknown>): Promis
 describe('references list endpoint', () => {
   it('lists projects as groups at the root level with exact reference counts', async () => {
     const api = await startApi();
+    const olderProjectId = await createProject(api, 'Build an archive page');
+    await createFile(api, olderProjectId, 'archive.html', '<!doctype html><title>old</title>');
     const projectId = await createProject(api, 'Build a landing page');
     await createFile(api, projectId, 'index.html', '<!doctype html><title>hi</title>');
     await createFile(api, projectId, 'styles.css', 'body{color:red}');
 
     const root = await listReferences(api, {});
+    expect(root.items.map((item) => item.id)).toEqual([projectId, olderProjectId]);
     const group = root.items.find((item) => item.type === 'group' && item.id === projectId);
     expect(group).toBeDefined();
     expect(group?.referenceCount).toBe(2);
@@ -180,6 +183,18 @@ describe('references list endpoint', () => {
     if (group) {
       expect(group.referenceCount).toBe(2);
     }
+  });
+
+  it('filters root project groups by project id and display name', async () => {
+    const api = await startApi();
+    const projectId = await createProject(api, 'Build a searchable project');
+    await createFile(api, projectId, 'index.html', '<!doctype html>');
+
+    const byId = await listReferences(api, { filterText: projectId.slice(0, 8) });
+    expect(byId.items.map((item) => item.id)).toEqual([projectId]);
+
+    const byDisplayName = await listReferences(api, { filterText: 'searchable' });
+    expect(byDisplayName.items.map((item) => item.id)).toEqual([projectId]);
   });
 
   it('paginates with an opaque cursor', async () => {
@@ -252,17 +267,17 @@ describe('references search endpoint', () => {
     }
   });
 
-  it('matches the query against file names only, not the project title', async () => {
+  it('matches the query against file names, project ids, and project display names', async () => {
     const api = await startApi();
     const projectId = await createProject(api, 'Checkout flow redesign');
     await createFile(api, projectId, 'page.html', '<!doctype html>');
     await createFile(api, projectId, 'checkout.html', '<!doctype html>');
 
-    const result = await searchReferences(api, { query: 'checkout' });
-    const names = result.items.map((item) => item.reference?.displayName);
-    // The file named "checkout.html" matches; "page.html" does not, even though
-    // its project title contains "checkout".
-    expect(names).toEqual(['checkout.html']);
+    const byDisplayName = await searchReferences(api, { query: 'checkout' });
+    expect(byDisplayName.items.map((item) => item.reference?.displayName)).toEqual(['checkout.html', 'page.html']);
+
+    const byId = await searchReferences(api, { query: projectId.slice(0, 8) });
+    expect(byId.items.map((item) => item.reference?.displayName)).toEqual(['checkout.html', 'page.html']);
   });
 
   it('returns an empty result for a blank query with no filters', async () => {

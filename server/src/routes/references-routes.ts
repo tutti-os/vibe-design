@@ -110,7 +110,9 @@ export function registerReferencesRoutes(app: Express, ctx: ReferencesRouteDeps)
 function listRootGroups(projectsDir: string, options: ListOptions): unknown {
   const projects = listProjectSummariesFromStore(projectsDir, PROJECT_SCAN_LIMIT);
   const matched = options.filterText
-    ? projects.filter((project) => project.title.toLowerCase().includes(options.filterText))
+    ? projects.filter((project) =>
+        [project.id, project.title].some((value) => value.toLowerCase().includes(options.filterText)),
+      )
     : projects;
 
   const page = paginate(matched, options.offset, options.limit);
@@ -181,8 +183,11 @@ function searchProjectFileReferences(projectsDir: string, options: SearchOptions
         matches.push({ project, file, score: null });
         continue;
       }
-      // The query matches against the file name only, never the project title.
-      const score = scoreText(file.name.toLowerCase(), options.query);
+      const score = Math.max(
+        scoreText(file.name.toLowerCase(), options.query),
+        scoreText(project.id.toLowerCase(), options.query),
+        scoreText(project.title.toLowerCase(), options.query),
+      );
       if (score <= 0) continue;
       matches.push({ project, file, score });
     }
