@@ -290,6 +290,27 @@ describe('PromptInput', () => {
     }
   });
 
+  it('preserves trailing line breaks when syncing DOM input events', async () => {
+    const changes: string[] = [];
+    const { container, root } = renderComponent(
+      <PromptInput
+        ariaLabel="Prompt"
+        value={'First line\n'}
+        onChange={(value) => changes.push(value)}
+      />,
+    );
+
+    try {
+      await act(async () => {
+        fireEvent.input(editor(container));
+      });
+
+      expect(changes).toEqual([]);
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('exposes focus and insertText for composer integrations', async () => {
     const ref = React.createRef<PromptInputHandle>();
     const changes: string[] = [];

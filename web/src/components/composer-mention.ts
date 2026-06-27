@@ -18,5 +18,5 @@ export function removeActiveMentionToken(value: string): string {
 }
 
 export function replaceActiveMentionToken(value: string, replacement: string): string {
-  return value.replace(ACTIVE_MENTION_TOKEN_PATTERN, replacement).trimEnd();
+  return value.replace(ACTIVE_MENTION_TOKEN_PATTERN, () => replacement).trimEnd();
 }

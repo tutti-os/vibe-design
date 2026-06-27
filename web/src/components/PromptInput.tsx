@@ -298,7 +298,7 @@ function promptValueToContent(value: string): JSONContent {
 }
 
 function serializePromptValue(value: string): string {
-  return serializeRichTextDocumentToContent(promptValueToContent(value));
+  return serializePromptContent(promptValueToContent(value));
 }
 
 function serializePromptContent(content: JSONContent): string {
