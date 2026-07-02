@@ -200,6 +200,10 @@ describe('ChatComposer', () => {
 
       await openModelMenu(container);
 
+      const menuContent = document.body.querySelector('.composer-model-menu-content');
+      expect(menuContent).toBeInstanceOf(HTMLElement);
+      expect((menuContent as HTMLElement).style.width).toBe('min(320px, calc(100vw - 24px))');
+
       const claudeOption = menuItemByName('Claude Code');
       const claudeOptionIcon = claudeOption.querySelector('[data-provider-icon="claude-code"]');
       expect(claudeOptionIcon).toBeInstanceOf(HTMLImageElement);

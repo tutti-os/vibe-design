@@ -353,6 +353,7 @@ describe('chat-ui.css', () => {
     const triggerProviderRule = ruleBody('.composer-model-menu-trigger-provider');
     const triggerModelRule = ruleBody('.composer-model-menu-trigger-model');
     const triggerIconRule = ruleBody('.composer-model-menu-chevron');
+    const triggerOpenIconRule = ruleBody(".composer-model-menu-trigger[data-state='open'] .composer-model-menu-chevron");
     const contentRule = ruleBody('.composer-model-menu-content');
     const providerLabelRule = ruleBody('.composer-model-provider-label');
     const providerModelsRule = ruleBody('.composer-model-provider-models');
@@ -375,8 +376,11 @@ describe('chat-ui.css', () => {
     expect(triggerModelRule).toContain('text-overflow: ellipsis');
     expect(triggerIconRule).toContain('color: var(--text-placeholder)');
     expect(triggerIconRule).toContain('opacity: 1');
-    expect(contentRule).toContain('min-width: 280px');
-    expect(contentRule).toContain('max-width: min(380px, calc(100vw - 24px))');
+    expect(triggerIconRule).toContain('transition: transform 0.16s ease');
+    expect(triggerOpenIconRule).toContain('transform: rotate(180deg)');
+    expect(contentRule).toContain('width: 320px');
+    expect(contentRule).toContain('min-width: 0');
+    expect(contentRule).toContain('max-width: calc(100vw - 24px)');
     expect(providerLabelRule).toContain('font-weight: var(--project-font-weight-semibold)');
     expect(providerModelsRule).toContain('display: grid');
     expect(modelItemRule).toContain('padding-left: 24px');

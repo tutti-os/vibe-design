@@ -212,6 +212,7 @@ export function ComposerModelPicker({
         className={menuClassName}
         align="end"
         side="top"
+        style={{ width: 'min(320px, calc(100vw - 24px))' }}
       >
         {groups.map((group) => {
           if (group.models.length === 0) {

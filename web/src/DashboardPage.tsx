@@ -1164,12 +1164,26 @@ function ProjectBrowser({
     [projects, search],
   );
 
+  if (projects.length === 0) {
+    return (
+      <section
+        className="mt-10 grid min-h-[360px] min-w-0 place-items-center overflow-y-auto"
+        data-testid="dashboard-project-browser"
+      >
+        <EmptyProjectPlaceholder />
+      </section>
+    );
+  }
+
   return (
     <section
       className="mt-10 min-h-0 min-w-0 overflow-y-auto"
       data-testid="dashboard-project-browser"
     >
-      <div data-testid="dashboard-search-row" className="flex justify-end">
+      <div data-testid="dashboard-search-row" className="flex items-center justify-between gap-4">
+        <h2 className="text-lg font-semibold text-[var(--text-primary)]">
+          {t('dashboard.projects.title')}
+        </h2>
         <label className="relative block w-full sm:w-[224px]">
           <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]">
             <SearchIcon aria-hidden="true" size={15} />
@@ -1193,7 +1207,6 @@ function ProjectBrowser({
         {visibleProjects.map((project) => (
           <ProjectCard key={project.id} project={project} onDelete={onDeleteProject} />
         ))}
-        {projects.length === 0 ? <EmptyProjectCard /> : null}
       </div>
     </section>
   );
@@ -1402,23 +1415,18 @@ function ProjectThumbnail({ project }: { project: DashboardProject }) {
   );
 }
 
-function EmptyProjectCard() {
+function EmptyProjectPlaceholder() {
   const { t } = useTranslation();
 
   return (
-    <Card className="gap-0 overflow-hidden rounded-[var(--project-radius-lg)] border-[var(--border-1)] bg-[var(--background-fronted)] py-0 shadow-none">
-      <div className="flex h-40 items-center justify-center bg-[var(--background-soft)] sm:h-36 xl:h-40">
-        <ProjectEmptyPlaceholderIcon />
+    <div className="px-4 text-center" data-testid="dashboard-empty-project-placeholder">
+      <div className="text-[15px] font-semibold text-[var(--text-primary)]">
+        {t('dashboard.emptyProject.title')}
       </div>
-      <CardContent className="px-3 pb-3 pt-2">
-        <div className="text-sm font-semibold text-[var(--text-primary)]">
-          {t('dashboard.emptyProject.title')}
-        </div>
-        <p className="mt-2 text-xs font-normal text-[var(--text-secondary)]">
-          {t('dashboard.emptyProject.description')}
-        </p>
-      </CardContent>
-    </Card>
+      <p className="mt-2 text-xs font-normal text-[var(--text-secondary)]">
+        {t('dashboard.emptyProject.description')}
+      </p>
+    </div>
   );
 }
 
