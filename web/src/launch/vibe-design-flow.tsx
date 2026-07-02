@@ -1,4 +1,5 @@
 import { InstantiationContext, InstantiationService, ServiceCollection } from '@tutti-os/infra/di';
+import { TooltipProvider } from '@tutti-os/ui-system/components';
 import React, { type ReactNode } from 'react';
 import type { DashboardProject } from '../DashboardPage';
 import { createVibeDesignI18nRuntime, defaultVibeDesignLocale, I18nProvider, type VibeDesignLocale } from '../i18n';
@@ -133,16 +134,18 @@ export class VibeDesignFlow {
     }
 
     return (
-      <I18nProvider initialLocale={this.options.locale}>
-        <InstantiationContext instantiationService={this._instantiationService}>
-          <VibeDesignApp
-            route={this.options.route ?? DEFAULT_ROUTE}
-            openProject={this.options.openProject}
-            recentProjects={this.options.recentProjects}
-            projectEditor={this.options.projectEditor}
-          />
-        </InstantiationContext>
-      </I18nProvider>
+      <TooltipProvider delayDuration={120}>
+        <I18nProvider initialLocale={this.options.locale}>
+          <InstantiationContext instantiationService={this._instantiationService}>
+            <VibeDesignApp
+              route={this.options.route ?? DEFAULT_ROUTE}
+              openProject={this.options.openProject}
+              recentProjects={this.options.recentProjects}
+              projectEditor={this.options.projectEditor}
+            />
+          </InstantiationContext>
+        </I18nProvider>
+      </TooltipProvider>
     );
   }
 }
