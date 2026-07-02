@@ -291,6 +291,9 @@ export const zhCN = {
       description: '创建一个原型后会显示在这里。',
       title: '暂无设计',
     },
+    projects: {
+      title: '最近项目',
+    },
     projectCard: {
       owner: '所有者',
       type: '你的设计',

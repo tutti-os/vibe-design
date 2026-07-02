@@ -2073,11 +2073,17 @@ button.user-attachment-file {
   flex: 0 0 auto;
   color: var(--text-placeholder);
   opacity: 1;
+  transition: transform 0.16s ease;
+}
+
+.composer-model-menu-trigger[data-state='open'] .composer-model-menu-chevron {
+  transform: rotate(180deg);
 }
 
 .composer-model-menu-content {
-  min-width: 280px;
-  max-width: min(380px, calc(100vw - 24px));
+  width: 320px;
+  min-width: 0;
+  max-width: calc(100vw - 24px);
 }
 
 .composer-model-menu-content [data-slot='dropdown-menu-item'],

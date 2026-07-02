@@ -351,7 +351,6 @@ describe('VibeDesignApp', () => {
       ].map((button) => button.dataset.dashboardArchiveTab);
 
       expect(archiveTabs).toEqual([]);
-      expect(container.textContent).not.toContain('Recent');
       expect(container.textContent).not.toContain('Your designs');
       expect(container.textContent).not.toContain('Examples');
       expect(container.textContent).not.toContain('Design styles');
@@ -1868,6 +1867,7 @@ describe('VibeDesignApp', () => {
     try {
       expect(container.textContent).toContain('New prototype');
       expect(container.textContent).toContain('What will you prototype today?');
+      expect(container.textContent).not.toContain('Recent Project');
       expect(container.textContent).not.toContain('Wireframe');
       expect(container.textContent).not.toContain('High fidelity');
       expect(container.textContent).toContain('Design style');
@@ -1878,7 +1878,6 @@ describe('VibeDesignApp', () => {
       expect(getByLabelText(container, 'Choose images').className).toContain('icon-btn');
       expect(getByLabelText(container, 'Model').className).toContain('composer-model-menu-trigger');
       expect(getByLabelText(container, 'Create prototype').className).toContain('composer-send');
-      expect(container.querySelector('input[aria-label="Search designs"]')).not.toBeNull();
     } finally {
       cleanup(root, container);
     }
@@ -1926,32 +1925,75 @@ describe('VibeDesignApp', () => {
       const projectBrowser = container.querySelector('[data-testid="dashboard-project-browser"]');
       const searchRow = container.querySelector<HTMLElement>('[data-testid="dashboard-search-row"]');
       const projectGrid = container.querySelector<HTMLElement>('[data-testid="dashboard-project-grid"]');
+      const emptyProjectPlaceholder = container.querySelector<HTMLElement>(
+        '[data-testid="dashboard-empty-project-placeholder"]',
+      );
       const brandIcon = container.querySelector('img[data-testid="brand-icon"][src="/icon.png"]');
       const projectsTab = [...container.querySelectorAll<HTMLButtonElement>('button')].find(
         (button) => button.textContent?.trim() === 'Projects',
       );
 
       expect(projectPrompt).not.toBeNull();
-      expect(search).not.toBeNull();
+      expect(search).toBeNull();
       expect(createButton).not.toBeNull();
       expect(projectsTab).toBeUndefined();
       expect(brandIcon).not.toBeNull();
       expect(container.querySelector('h1')?.textContent).toBe('Prototype Design');
       expect(container.textContent).not.toContain('LU');
-      expect(container.querySelector('[data-testid="project-empty-placeholder-icon"]')).not.toBeNull();
+      expect(container.querySelector('[data-testid="project-empty-placeholder-icon"]')).toBeNull();
+      expect(emptyProjectPlaceholder).not.toBeNull();
+      expect(emptyProjectPlaceholder?.textContent).toContain('No designs yet');
+      expect(emptyProjectPlaceholder?.textContent).toContain('Create a prototype to see it here.');
       expect(buttonByText(container, 'Design style None')).not.toBeNull();
       expect(container.textContent).not.toContain('Anyone in your organization');
       expect(main?.className).toContain('min-h-screen');
       expect(sidebar).toBeNull();
       expect(projectBrowser?.className).toContain('overflow-y-auto');
-      expect(searchRow?.className).toContain('justify-end');
-      expect(searchRow?.className).not.toContain('justify-between');
-      expect(projectGrid?.className).toContain('grid-cols-[repeat(auto-fill,minmax(min(100%,240px),1fr))]');
-      expect(projectGrid?.className).not.toContain('max-w-');
-      expect(projectGrid?.className).not.toContain('lg:grid-cols-4');
+      expect(projectBrowser?.className).toContain('place-items-center');
+      expect(projectBrowser?.textContent).not.toContain('Recent Project');
+      expect(searchRow).toBeNull();
+      expect(projectGrid).toBeNull();
       expect(container.querySelector('[data-dashboard-project-type]')).toBeNull();
     } finally {
       cleanup(root, container);
+    }
+  });
+
+  it('centers only the placeholder text when the dashboard has no projects', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof globalThis.fetch>(async (input) => {
+      const url = String(input);
+      if (url === '/api/projects') {
+        return Response.json({ projects: [] });
+      }
+      if (url === '/api/agents/models') {
+        return Response.json({ agents: [] });
+      }
+      return Response.json({});
+    }));
+
+    const flow = createVibeDesignFlow();
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      await waitFor(() => {
+        expect(container.querySelector('[data-testid="dashboard-empty-project-placeholder"]')).not.toBeNull();
+      });
+
+      const projectBrowser = container.querySelector<HTMLElement>('[data-testid="dashboard-project-browser"]');
+      const emptyProjectPlaceholder = container.querySelector<HTMLElement>(
+        '[data-testid="dashboard-empty-project-placeholder"]',
+      );
+
+      expect(projectBrowser?.textContent).not.toContain('Recent Project');
+      expect(container.querySelector('[data-testid="dashboard-search-row"]')).toBeNull();
+      expect(container.querySelector('[data-testid="dashboard-project-grid"]')).toBeNull();
+      expect(container.querySelector('[data-testid="project-empty-placeholder-icon"]')).toBeNull();
+      expect(projectBrowser?.className).toContain('place-items-center');
+      expect(emptyProjectPlaceholder?.textContent).toContain('No designs yet');
+      expect(emptyProjectPlaceholder?.textContent).toContain('Create a prototype to see it here.');
+    } finally {
+      cleanup(root, container);
+      vi.unstubAllGlobals();
     }
   });
 

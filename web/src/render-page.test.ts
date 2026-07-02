@@ -17,7 +17,10 @@ describe('renderPage', () => {
     expect(html).not.toContain('High fidelity');
     expect(html).toContain('Design style');
     expect(html).toContain('None');
-    expect(html).toContain('Search designs');
+    expect(html).not.toContain('Search designs');
+    expect(html).not.toContain('Recent Project');
+    expect(html).toContain('No designs yet');
+    expect(html).toContain('Create a prototype to see it here.');
     expect(html).not.toContain('Community');
     expect(html).not.toContain('Chat 事件流');
   });

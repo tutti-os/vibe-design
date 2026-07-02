@@ -289,6 +289,9 @@ export const en = {
       description: 'Create a prototype to see it here.',
       title: 'No designs yet',
     },
+    projects: {
+      title: 'Recent Project',
+    },
     projectCard: {
       owner: 'Owner',
       type: 'Your design',
