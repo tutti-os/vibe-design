@@ -1754,6 +1754,55 @@ describe('VibeDesignApp', () => {
     }
   });
 
+  it('opens the created project when dashboard reference file upload fails', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const openedProjects: string[] = [];
+    const createProject = vi.fn<IProjectService['createProject']>(async (input) => ({
+      id: 'project-upload-failed',
+      title: input.prompt,
+      prompt: input.prompt,
+      projectKind: input.projectKind,
+      createdAt: 1,
+      updatedAt: 1,
+    }));
+    const projectService: IProjectService = {
+      _serviceBrand: undefined,
+      createProject,
+      updateProjectTabsState: vi.fn(),
+      updateProjectTitle: vi.fn(),
+      updateProjectDesignSystem: vi.fn(),
+      deleteProject: vi.fn(),
+    };
+    const flow = createVibeDesignFlow({
+      projectService,
+      openProject: (projectId) => openedProjects.push(projectId),
+    });
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      const markdown = new File(['# Brief'], 'brief.md', { type: 'text/markdown' });
+
+      await selectFiles(getByLabelText(container, 'Upload reference files'), [markdown]);
+      await changeText(getByLabelText(container, 'Prototype prompt'), '参考 brief 做登录页');
+      await act(async () => {
+        getByLabelText(container, 'Create prototype').click();
+      });
+
+      expect(createProject).toHaveBeenCalledOnce();
+      expect(fetch).toHaveBeenCalledWith('/api/projects/project-upload-failed/files', {
+        method: 'POST',
+        body: expect.any(FormData),
+      });
+      expect(openedProjects).toEqual(['project-upload-failed']);
+    } finally {
+      cleanup(root, container);
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('lets the dashboard composer switch model for project creation', async () => {
     const createdInputs: CreateProjectInput[] = [];
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {

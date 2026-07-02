@@ -530,7 +530,11 @@ function ProjectCreator({
           ? { agentId: selectedModel.agentId, model: selectedModel.modelId }
           : {}),
       });
-      await uploadDashboardFiles(project.id, stagedFiles);
+      try {
+        await uploadDashboardFiles(project.id, stagedFiles);
+      } catch (uploadError) {
+        setError(uploadError instanceof Error ? uploadError.message : t('dashboard.creator.errorFallback'));
+      }
       stashInitialProjectPrompt(project.id, nextPrompt);
       stashInitialProjectSkills(project.id, selectedSkillIds);
       setMentionQuery(null);
