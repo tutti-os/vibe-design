@@ -16,6 +16,8 @@ import {
   ChevronDownIcon,
   CloseIcon,
   DeleteIcon,
+  FileTextIcon,
+  ImageFileIcon,
   MoreHorizontalIcon,
   SearchIcon,
   ToolsIcon,
@@ -338,7 +340,7 @@ function ProjectCreator({
   const context = useService(IContextPickerService);
   const contextSnapshot = useServiceSnapshot<ContextPickerSnapshot>(context);
   const [projectPrompt, setProjectPrompt] = React.useState('');
-  const [stagedImages, setStagedImages] = React.useState<File[]>([]);
+  const [stagedFiles, setStagedFiles] = React.useState<File[]>([]);
   const [selectedModel, setSelectedModel] = React.useState<DashboardModelOption>(DASHBOARD_MODEL_OPTIONS[0]);
   const [agentModelCatalog, setAgentModelCatalog] = React.useState<ChatComposerAgentModelCatalogEntry[]>([]);
   const [isCreating, setIsCreating] = React.useState(false);
@@ -528,12 +530,12 @@ function ProjectCreator({
           ? { agentId: selectedModel.agentId, model: selectedModel.modelId }
           : {}),
       });
-      await uploadDashboardImages(project.id, stagedImages);
+      await uploadDashboardFiles(project.id, stagedFiles);
       stashInitialProjectPrompt(project.id, nextPrompt);
       stashInitialProjectSkills(project.id, selectedSkillIds);
       setMentionQuery(null);
       setMentionAnchor(null);
-      setStagedImages([]);
+      setStagedFiles([]);
       // Clear the dashboard's skill selections so they don't leak into the next project.
       for (const skillId of selectedSkillIds) {
         context.removeSelection('skill', skillId);
@@ -550,18 +552,18 @@ function ProjectCreator({
     }
   }
 
-  function stageImages(fileList: FileList | null): void {
-    const images = Array.from(fileList ?? []).filter((file) => file.type.startsWith('image/'));
-    if (images.length === 0) return;
-    setStagedImages((currentImages) => [...currentImages, ...images]);
+  function stageReferenceFiles(fileList: FileList | null): void {
+    const files = Array.from(fileList ?? []).filter(isSupportedDashboardReferenceFile);
+    if (files.length === 0) return;
+    setStagedFiles((currentFiles) => [...currentFiles, ...files]);
     setError(null);
     if (imageInputRef.current) {
       imageInputRef.current.value = '';
     }
   }
 
-  function removeStagedImage(index: number): void {
-    setStagedImages((currentImages) => currentImages.filter((_, imageIndex) => imageIndex !== index));
+  function removeStagedFile(index: number): void {
+    setStagedFiles((currentFiles) => currentFiles.filter((_, fileIndex) => fileIndex !== index));
   }
 
   async function loadModelCatalog(): Promise<void> {
@@ -623,16 +625,16 @@ function ProjectCreator({
               onChange={updatePrompt}
               onEditorKeyDown={submitPromptFromEditor}
             />
-            {stagedImages.length > 0 ? (
+            {stagedFiles.length > 0 ? (
               <div
-                aria-label={t('dashboard.creator.stagedImages')}
+                aria-label={t('dashboard.creator.stagedFiles')}
                 className="mt-3 flex flex-wrap gap-2"
               >
-                {stagedImages.map((image, index) => (
-                  <DashboardStagedImage
-                    key={`${image.name}-${image.lastModified}-${index}`}
-                    file={image}
-                    onRemove={() => removeStagedImage(index)}
+                {stagedFiles.map((file, index) => (
+                  <DashboardStagedFile
+                    key={`${file.name}-${file.lastModified}-${index}`}
+                    file={file}
+                    onRemove={() => removeStagedFile(index)}
                   />
                 ))}
               </div>
@@ -641,16 +643,16 @@ function ProjectCreator({
             <div className="composer-row mt-5 flex-wrap" style={{ paddingTop: '10px', paddingBottom: '10px' }}>
               <input
                 ref={imageInputRef}
-                aria-label={t('dashboard.creator.uploadImages')}
-                accept="image/*"
+                aria-label={t('dashboard.creator.uploadFiles')}
+                accept="image/*,.md,.markdown,.txt,text/markdown,text/plain"
                 className="sr-only"
                 multiple
                 type="file"
-                onChange={(event) => stageImages(event.currentTarget.files)}
+                onChange={(event) => stageReferenceFiles(event.currentTarget.files)}
               />
               <ComposerIconButton
-                ariaLabel={t('dashboard.creator.chooseImages')}
-                title={t('dashboard.creator.chooseImages')}
+                ariaLabel={t('dashboard.creator.chooseFiles')}
+                title={t('dashboard.creator.chooseFiles')}
                 onClick={() => imageInputRef.current?.click()}
               >
                 <UploadIcon aria-hidden="true" size={16} />
@@ -746,21 +748,28 @@ function ProjectCreator({
   );
 }
 
-async function uploadDashboardImages(projectId: string, images: File[]): Promise<void> {
-  if (images.length === 0) return;
+async function uploadDashboardFiles(projectId: string, files: File[]): Promise<void> {
+  if (files.length === 0) return;
 
-  for (const image of images) {
+  for (const file of files) {
     const formData = new FormData();
-    formData.append('file', image);
+    formData.append('file', file);
     const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/files`, {
       method: 'POST',
       body: formData,
     });
 
     if (!response.ok) {
-      throw new Error('Could not upload images.');
+      throw new Error('Could not upload reference files.');
     }
   }
+}
+
+function isSupportedDashboardReferenceFile(file: File): boolean {
+  if (file.type.startsWith('image/')) return true;
+  if (file.type === 'text/markdown' || file.type === 'text/plain') return true;
+  const lowerName = file.name.toLowerCase();
+  return lowerName.endsWith('.md') || lowerName.endsWith('.markdown') || lowerName.endsWith('.txt');
 }
 
 function dashboardMentionFilterLabel(
@@ -908,7 +917,7 @@ interface DashboardModelOption {
   description?: string;
 }
 
-function DashboardStagedImage({
+function DashboardStagedFile({
   file,
   onRemove,
 }: {
@@ -916,28 +925,37 @@ function DashboardStagedImage({
   onRemove: () => void;
 }) {
   const { t } = useTranslation();
+  const isImage = file.type.startsWith('image/');
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
 
   React.useEffect(() => {
+    if (!isImage) {
+      setPreviewUrl(null);
+      return;
+    }
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
-  }, [file]);
+  }, [file, isImage]);
 
   return (
     <span className="dashboard-staged-image">
-      {previewUrl ? (
+      {isImage && previewUrl ? (
         <img
           alt={file.name}
           className="size-8 rounded-[var(--project-radius-sm)] object-cover"
           src={previewUrl}
         />
-      ) : null}
+      ) : isImage ? (
+        <ImageFileIcon aria-hidden="true" size={16} />
+      ) : (
+        <FileTextIcon aria-hidden="true" size={16} />
+      )}
       <span className="max-w-[120px] truncate text-xs text-[var(--text-primary)]">{file.name}</span>
       <button
         type="button"
         className="dashboard-staged-image__remove"
-        aria-label={t('dashboard.creator.removeImage', { name: file.name })}
+        aria-label={t('dashboard.creator.removeFile', { name: file.name })}
         onClick={onRemove}
       >
         <CloseIcon aria-hidden="true" size={11} />

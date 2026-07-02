@@ -1656,31 +1656,39 @@ describe('VibeDesignApp', () => {
     }
   });
 
-  it('stages dashboard image uploads inside the prompt composer', async () => {
+  it('stages dashboard reference file uploads inside the prompt composer', async () => {
     const createObjectUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:dashboard-reference');
     const revokeObjectUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
     const flow = createVibeDesignFlow();
     const { container, root } = renderComponent(flow.render());
 
     try {
-      const imageInput = getByLabelText(container, 'Upload images');
+      const fileInput = getByLabelText(container, 'Upload reference files');
       const image = new File(['image'], 'reference.png', { type: 'image/png' });
+      const markdown = new File(['# Brief'], 'brief.md', { type: 'text/markdown' });
 
-      expect(imageInput).toBeInstanceOf(HTMLInputElement);
-      expect((imageInput as HTMLInputElement).accept).toBe('image/*');
+      expect(fileInput).toBeInstanceOf(HTMLInputElement);
+      expect((fileInput as HTMLInputElement).accept).toBe('image/*,.md,.markdown,.txt,text/markdown,text/plain');
 
-      await selectFiles(imageInput, [image]);
+      await selectFiles(fileInput, [image, markdown]);
 
-      const stagedImages = getByLabelText(container, 'Staged images');
-      expect(stagedImages.textContent).toContain('reference.png');
-      expect(stagedImages.querySelector('img[alt="reference.png"]')?.getAttribute('src')).toBe('blob:dashboard-reference');
+      const stagedFiles = getByLabelText(container, 'Staged reference files');
+      expect(stagedFiles.textContent).toContain('reference.png');
+      expect(stagedFiles.textContent).toContain('brief.md');
+      expect(stagedFiles.querySelector('img[alt="reference.png"]')?.getAttribute('src')).toBe('blob:dashboard-reference');
       expect(createObjectUrl).toHaveBeenCalledWith(image);
 
       await act(async () => {
-        getByLabelText(container, 'Remove image reference.png').click();
+        getByLabelText(container, 'Remove file reference.png').click();
       });
 
-      expect(container.querySelector('[aria-label="Staged images"]')).toBeNull();
+      expect(getByLabelText(container, 'Staged reference files').textContent).toContain('brief.md');
+
+      await act(async () => {
+        getByLabelText(container, 'Remove file brief.md').click();
+      });
+
+      expect(container.querySelector('[aria-label="Staged reference files"]')).toBeNull();
     } finally {
       cleanup(root, container);
       createObjectUrl.mockRestore();
@@ -1688,7 +1696,7 @@ describe('VibeDesignApp', () => {
     }
   });
 
-  it('uploads staged dashboard images after creating the project', async () => {
+  it('uploads staged dashboard reference files after creating the project', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       new Response('{}', { status: 201, headers: { 'content-type': 'application/json' } }),
     );
@@ -1721,8 +1729,9 @@ describe('VibeDesignApp', () => {
 
     try {
       const image = new File(['image'], 'reference.png', { type: 'image/png' });
+      const markdown = new File(['# Brief'], 'brief.md', { type: 'text/markdown' });
 
-      await selectFiles(getByLabelText(container, 'Upload images'), [image]);
+      await selectFiles(getByLabelText(container, 'Upload reference files'), [image, markdown]);
       await changeText(getByLabelText(container, 'Prototype prompt'), '参考图片做登录页');
       await act(async () => {
         getByLabelText(container, 'Create prototype').click();
@@ -1732,8 +1741,10 @@ describe('VibeDesignApp', () => {
         method: 'POST',
         body: expect.any(FormData),
       });
-      const uploadCall = fetch.mock.calls.find(([input]) => input === '/api/projects/project-images/files');
-      expect((uploadCall?.[1] as RequestInit | undefined)?.body).toBeInstanceOf(FormData);
+      const uploadCalls = fetch.mock.calls.filter(([input]) => input === '/api/projects/project-images/files');
+      expect(uploadCalls).toHaveLength(2);
+      expect((uploadCalls[0]?.[1] as RequestInit | undefined)?.body).toBeInstanceOf(FormData);
+      expect((uploadCalls[1]?.[1] as RequestInit | undefined)?.body).toBeInstanceOf(FormData);
       expect(openedProjects).toEqual(['project-images']);
     } finally {
       cleanup(root, container);
@@ -1875,7 +1886,7 @@ describe('VibeDesignApp', () => {
       expect(buttonByText(container, 'Design style None').className).toContain('chat-composer__design-system-trigger');
       expect(buttonByText(container, 'Design style None').className).not.toContain('project-secondary-button');
       expect(buttonByText(container, 'Design style None').className).not.toContain('project-primary-button');
-      expect(getByLabelText(container, 'Choose images').className).toContain('icon-btn');
+      expect(getByLabelText(container, 'Choose reference files').className).toContain('icon-btn');
       expect(getByLabelText(container, 'Model').className).toContain('composer-model-menu-trigger');
       expect(getByLabelText(container, 'Create prototype').className).toContain('composer-send');
       expect(container.querySelector('input[aria-label="Search designs"]')).not.toBeNull();
