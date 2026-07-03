@@ -1,6 +1,12 @@
 import { createRichTextMentionMarkdown } from '@tutti-os/ui-rich-text/core';
+import type {
+  RichTextMentionIdentity,
+  RichTextMentionResolved,
+  RichTextTriggerProvider,
+} from '@tutti-os/ui-rich-text/types';
 
 export type TuttiExternalAtProviderId =
+  | 'agent-target'
   | 'agent-generated-file'
   | 'agent-session'
   | 'file'
@@ -53,7 +59,7 @@ export type TuttiExternalAtQueryResult = {
 
 export type TuttiExternalAtMentionItem = TuttiExternalAtQueryResult & {
   id: string;
-  kind: 'workspace-app';
+  kind: TuttiExternalAtComposerProviderId;
   source: 'tutti-external-at';
 };
 
@@ -67,11 +73,69 @@ type TuttiExternalAtBridge = {
   };
 };
 
-const agentComposerAtProviderIds = ['workspace-app'] as const satisfies readonly TuttiExternalAtMentionItem['kind'][];
+export const TUTTI_EXTERNAL_AT_COMPOSER_PROVIDER_IDS = [
+  'workspace-app',
+  'agent-target',
+] as const satisfies readonly TuttiExternalAtProviderId[];
+
+export type TuttiExternalAtComposerProviderId = (typeof TUTTI_EXTERNAL_AT_COMPOSER_PROVIDER_IDS)[number];
 
 export async function queryTuttiExternalAtMentions(input: {
   keyword: string;
   maxResults?: number;
+  providers?: readonly TuttiExternalAtComposerProviderId[];
+}): Promise<TuttiExternalAtMentionItem[]> {
+  const providers = input.providers ?? TUTTI_EXTERNAL_AT_COMPOSER_PROVIDER_IDS;
+  const results = await Promise.all(
+    providers.map((providerId) =>
+      queryTuttiExternalAtProvider({
+        keyword: input.keyword,
+        maxResults: input.maxResults,
+        providerId,
+      }),
+    ),
+  );
+  return results.flat();
+}
+
+export function createTuttiExternalAtTriggerProviders(): RichTextTriggerProvider<TuttiExternalAtMentionItem>[] {
+  return TUTTI_EXTERNAL_AT_COMPOSER_PROVIDER_IDS.map((providerId) =>
+    createTuttiExternalAtTriggerProvider(providerId),
+  );
+}
+
+function createTuttiExternalAtTriggerProvider(
+  providerId: TuttiExternalAtComposerProviderId,
+): RichTextTriggerProvider<TuttiExternalAtMentionItem> {
+  return {
+    id: providerId,
+    trigger: '@',
+    boundary: 'punctuation',
+    query(input) {
+      return queryTuttiExternalAtProvider({
+        keyword: input.keyword,
+        maxResults: input.maxResults,
+        providerId,
+      });
+    },
+    getItemKey: (item) => item.itemId,
+    getItemLabel: (item) => item.label,
+    getItemSubtitle: (item) => getTuttiExternalAtMentionSubtitle(item),
+    getItemIconUrl: (item) => getTuttiExternalAtMentionIconUrl(item),
+    toInsertResult: (item) => item.insert,
+    resolveMention(identity) {
+      if (identity.providerId !== providerId) {
+        return null;
+      }
+      return resolveTuttiExternalAtMention(identity);
+    },
+  };
+}
+
+async function queryTuttiExternalAtProvider(input: {
+  keyword: string;
+  maxResults?: number;
+  providerId: TuttiExternalAtComposerProviderId;
 }): Promise<TuttiExternalAtMentionItem[]> {
   if (typeof window === 'undefined') {
     return [];
@@ -87,10 +151,10 @@ export async function queryTuttiExternalAtMentions(input: {
       bridge.query({
         keyword: input.keyword,
         maxResults: input.maxResults,
-        providers: agentComposerAtProviderIds,
+        providers: [input.providerId],
       }),
     );
-    return items.flatMap((item) => normalizeTuttiExternalAtMentionItem(item));
+    return items.flatMap((item) => normalizeTuttiExternalAtMentionItem(item, input.providerId));
   } catch {
     return [];
   }
@@ -120,6 +184,30 @@ export function renderTuttiExternalAtInsert(item: TuttiExternalAtMentionItem): s
   return insert.text;
 }
 
+async function resolveTuttiExternalAtMention(
+  identity: RichTextMentionIdentity,
+): Promise<RichTextMentionResolved | null> {
+  const providerId = identity.providerId as TuttiExternalAtComposerProviderId;
+  if (!TUTTI_EXTERNAL_AT_COMPOSER_PROVIDER_IDS.includes(providerId)) {
+    return null;
+  }
+
+  const candidates = await queryTuttiExternalAtMentions({
+    keyword: identity.label || identity.entityId,
+    maxResults: 50,
+    providers: [providerId],
+  });
+  const match = candidates.find((item) => isSameMentionIdentity(item, identity));
+  if (!match || match.insert.kind !== 'mention') {
+    return null;
+  }
+
+  return {
+    label: match.insert.mention.label || match.label,
+    presentation: match.insert.mention.presentation,
+  };
+}
+
 export function getTuttiExternalAtMentionIconUrl(item: TuttiExternalAtMentionItem): string | null {
   const insert = item.insert;
   const presentation = insert.kind === 'mention' ? insert.mention.presentation : undefined;
@@ -140,8 +228,9 @@ export function getTuttiExternalAtMentionSubtitle(item: TuttiExternalAtMentionIt
 
 function normalizeTuttiExternalAtMentionItem(
   item: TuttiExternalAtQueryResult,
+  expectedProviderId: TuttiExternalAtComposerProviderId,
 ): TuttiExternalAtMentionItem[] {
-  if (!agentComposerAtProviderIds.includes(item.providerId as TuttiExternalAtMentionItem['kind'])) {
+  if (item.providerId !== expectedProviderId) {
     return [];
   }
   if (!item.itemId || !item.label) {
@@ -151,10 +240,25 @@ function normalizeTuttiExternalAtMentionItem(
     {
       ...item,
       id: `tutti-external-at:${item.providerId}:${item.itemId}`,
-      kind: item.providerId as TuttiExternalAtMentionItem['kind'],
+      kind: item.providerId,
       source: 'tutti-external-at',
     },
   ];
+}
+
+function isSameMentionIdentity(
+  item: TuttiExternalAtMentionItem,
+  identity: RichTextMentionIdentity,
+): boolean {
+  if (item.providerId !== identity.providerId) {
+    return false;
+  }
+
+  if (item.itemId === identity.entityId) {
+    return true;
+  }
+
+  return item.insert.kind === 'mention' && item.insert.mention.entityId === identity.entityId;
 }
 
 function createMarkdownLink(label: string, href: string): string {

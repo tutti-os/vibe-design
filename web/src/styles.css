@@ -3,6 +3,7 @@
 @import "@fontsource/dm-serif-text/400-italic.css";
 @import "tailwindcss";
 @import "@tutti-os/ui-system/styles.css";
+@import "@tutti-os/ui-rich-text/at-panel/index.css";
 @import "./components/project-primary-button.css";
 @import "./components/project-secondary-button.css";
 @import "./components/prompt-input.css";

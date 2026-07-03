@@ -17,13 +17,6 @@
   margin: 0;
 }
 
-.prompt-input[data-empty='true'] .tiptap::before {
-  content: attr(data-placeholder);
-  position: absolute;
-  color: var(--text-tertiary, var(--text-secondary));
-  pointer-events: none;
-}
-
 .prompt-input .tiptap.ProseMirror-focused {
   outline: none;
 }
@@ -58,4 +51,34 @@
 
 .prompt-input__workspace-reference {
   background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+}
+
+.tutti-rich-text-at-menu:not(:has(.rich-text-at-mention-palette)) button {
+  border-radius: var(--project-radius-md);
+}
+
+.tutti-rich-text-at-menu:has(.rich-text-at-mention-palette) {
+  width: min(380px, calc(100vw - 24px));
+  max-height: min(360px, calc(100vh - 24px));
+  overflow: hidden;
+  background: var(--background-fronted);
+  color: var(--text-primary);
+  --rich-text-at-mention-bg: var(--background-fronted);
+  --rich-text-at-mention-text-primary: var(--text-primary);
+  --rich-text-at-mention-text-secondary: var(--text-secondary);
+  --rich-text-at-mention-text-tertiary: var(--text-tertiary);
+  --rich-text-at-mention-line-1: var(--border-1);
+  --rich-text-at-mention-line-2: var(--border-1);
+  --rich-text-at-mention-hover: var(--transparency-block);
+  --rich-text-at-mention-active: var(--transparency-active, var(--transparency-block));
+  --rich-text-at-mention-accent: var(--project-primary);
+}
+
+.tutti-rich-text-at-menu:has(.rich-text-at-mention-palette) [data-slot='underline-tabs-tab'] {
+  border-radius: 0;
+}
+
+.tutti-rich-text-at-menu:has(.rich-text-at-mention-palette) .rich-text-at-mention-palette__row-button,
+.tutti-rich-text-at-menu:has(.rich-text-at-mention-palette) .rich-text-at-mention-palette__expand-button {
+  border-radius: var(--project-radius-md);
 }
