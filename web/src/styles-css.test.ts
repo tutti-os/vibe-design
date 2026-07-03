@@ -10,6 +10,10 @@ describe('styles.css', () => {
     expect(stylesCss).toContain('--vd-font-sans: ui-sans-serif, system-ui, sans-serif');
   });
 
+  it('loads rich text mention palette styles through the served stylesheet', () => {
+    expect(stylesCss).toContain('@import "@tutti-os/ui-rich-text/at-panel/index.css";');
+  });
+
   it('keeps input borders visible when focused', () => {
     expect(stylesCss).toContain("input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='hidden']):focus");
     expect(stylesCss).toContain('textarea:focus-visible');

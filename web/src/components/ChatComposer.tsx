@@ -22,7 +22,6 @@ import {
   CloseIcon,
   FileTextIcon,
   ImageFileIcon,
-  ToolsIcon,
   UploadIcon,
 } from '@tutti-os/ui-system/icons';
 import type {
@@ -30,14 +29,6 @@ import type {
   ContextSearchResultItem,
 } from '../services/context-picker/context-picker-types';
 import type { CanvasCommentAttachment, ChatAttachment } from '../types';
-import {
-  getTuttiExternalAtMentionIconUrl,
-  getTuttiExternalAtMentionSubtitle,
-  isTuttiExternalAtMentionItem,
-  queryTuttiExternalAtMentions,
-  renderTuttiExternalAtInsert,
-  type TuttiExternalAtMentionItem,
-} from '../lib/tuttiExternalAt';
 import { useTranslation } from '../i18n';
 import { DesignSystemPickerDialog } from './DesignSystemPickerDialog';
 import {
@@ -50,17 +41,10 @@ import {
   type ComposerModelProvider,
 } from './ComposerControls';
 import { PromptInput, type PromptInputHandle } from './PromptInput';
-import {
-  extractMentionQuery,
-  removeActiveMentionToken,
-  replaceActiveMentionToken,
-} from './composer-mention';
 
 type ActiveModelProvider = 'codex' | 'claude-code';
 type ModelProvider = ComposerModelProvider;
 type AgentId = 'codex' | 'claude';
-type ComposerMentionItem = ContextSearchResultItem | TuttiExternalAtMentionItem;
-type MentionFilter = 'all' | ContextSearchResultItem['kind'] | TuttiExternalAtMentionItem['kind'];
 
 const MODEL_PROVIDERS: Array<{ value: ModelProvider; label: string; comingSoon?: boolean }> = [
   { value: 'codex', label: 'Codex' },
@@ -168,12 +152,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     const [uncontrolledDraft, setUncontrolledDraft] = useState('');
     const [files, setFiles] = useState<File[]>([]);
     const [uploadedAttachments, setUploadedAttachments] = useState<ChatAttachment[]>([]);
-    const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-    const [mentionItems, setMentionItems] = useState<ComposerMentionItem[]>([]);
-    const [mentionFilter, setMentionFilter] = useState<MentionFilter>('all');
-    const [mentionPending, setMentionPending] = useState(false);
-    const [mentionError, setMentionError] = useState<string | null>(null);
-    const [selectingContextId, setSelectingContextId] = useState<string | null>(null);
     const [modelProvider, setModelProvider] = useState<ModelProvider>('codex');
     const [selectedModelsByProvider, setSelectedModelsByProvider] = useState<Partial<Record<ActiveModelProvider, string>>>({});
     const [sendPending, setSendPending] = useState(false);
@@ -254,44 +232,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       onAgentChange?.(agentId, label);
     }, [modelProvider, onAgentChange]);
 
-    useEffect(() => {
-      if (mentionQuery === null) {
-        setMentionItems([]);
-        setMentionFilter('all');
-        setMentionPending(false);
-        setMentionError(null);
-        return;
-      }
-
-      let canceled = false;
-      setMentionPending(true);
-      setMentionError(null);
-      void Promise.allSettled([
-        context.search(mentionQuery),
-        queryTuttiExternalAtMentions({ keyword: mentionQuery, maxResults: 20 }),
-      ]).then(([contextResult, externalAtResult]) => {
-        if (canceled) return;
-
-        const contextItems =
-          contextResult.status === 'fulfilled'
-            ? contextResult.value.items.filter((item) => item.kind === 'skill' || item.kind === 'design-file')
-            : [];
-        const externalAtItems = externalAtResult.status === 'fulfilled' ? externalAtResult.value : [];
-
-        setMentionItems([...contextItems, ...externalAtItems]);
-        setMentionPending(false);
-        setMentionError(
-          contextResult.status === 'rejected' && externalAtItems.length === 0
-            ? t('chat.composer.contextSearchUnavailable')
-            : null,
-        );
-      });
-
-      return () => {
-        canceled = true;
-      };
-    }, [context, mentionQuery, t]);
-
     const selectedChips = useMemo(
       () => [
         ...context.snapshot.selectedSkills.map((skill) => ({
@@ -309,20 +249,11 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       ],
       [context.snapshot.selectedDesignFiles, context.snapshot.selectedSkills],
     );
-    const filteredMentionItems = useMemo(
-      () =>
-        mentionFilter === 'all'
-          ? mentionItems
-          : mentionItems.filter((item) => item.kind === mentionFilter),
-      [mentionFilter, mentionItems],
-    );
-
     function updateDraft(value: string): void {
       if (controlledDraft === undefined) {
         setUncontrolledDraft(value);
       }
       onDraftChange?.(value);
-      setMentionQuery(extractMentionQuery(value));
       setSendError(null);
     }
 
@@ -349,9 +280,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
         for (const chip of sentContextChips) {
           context.removeSelection?.(chip.kind, chip.value);
         }
-        setMentionQuery(null);
-        setMentionError(null);
-        setMentionPending(false);
       } catch (error) {
         setSendError(readSendErrorMessage(error, t('chat.composer.messageSendFailed')));
       } finally {
@@ -372,36 +300,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       }
     }
 
-    async function selectMentionResult(item: ComposerMentionItem): Promise<void> {
-      if (selectingContextId !== null) return;
-      setSelectingContextId(item.id);
-      setMentionError(null);
-      try {
-        if (isTuttiExternalAtMentionItem(item)) {
-          const insertedText = renderTuttiExternalAtInsert(item);
-          if (!insertedText) {
-            throw new Error('Empty at mention insert result');
-          }
-          updateDraft(replaceActiveMentionToken(draft, insertedText));
-          requestAnimationFrame(() => {
-            promptInputRef.current?.focusToEnd();
-          });
-        } else {
-          await context.selectResult(item);
-          updateDraft(removeActiveMentionToken(draft));
-        }
-        setMentionQuery(null);
-        setMentionItems([]);
-        setMentionFilter('all');
-        setMentionError(null);
-        setMentionPending(false);
-      } catch {
-        setMentionError(t('chat.composer.contextSelectionFailed'));
-      } finally {
-        setSelectingContextId(null);
-      }
-    }
-
     function insertMentionTrigger(): void {
       promptInputRef.current?.insertText('@');
     }
@@ -414,36 +312,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
 
       event.preventDefault();
       promptInputRef.current?.focus();
-    }
-
-    function cycleMentionFilter(reverse: boolean): void {
-      setMentionFilter((currentFilter) => nextMentionFilter(currentFilter, reverse ? -1 : 1));
-    }
-
-    function handleMentionEditorKeyDown(event: KeyboardEvent): boolean {
-      if (event.key !== 'Tab' || mentionQuery === null || mentionItems.length === 0) {
-        return false;
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-      cycleMentionFilter(event.shiftKey);
-      return true;
-    }
-
-    function handleMentionKeyDown(event: React.KeyboardEvent<HTMLElement>): void {
-      if (event.key !== 'Tab' || mentionQuery === null || mentionItems.length === 0) {
-        return;
-      }
-
-      if (event.defaultPrevented) {
-        event.stopPropagation();
-        return;
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-      cycleMentionFilter(event.shiftKey);
     }
 
     function updateModelProvider(value: string): void {
@@ -774,83 +642,14 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
                 placeholder={t('chat.composer.placeholder')}
                 value={draft}
                 onChange={updateDraft}
-                onEditorKeyDown={handleMentionEditorKeyDown}
                 onEditorPaste={stagePastedImages}
-                onKeyDown={handleMentionKeyDown}
                 shouldSubmitOnEnter={(event) =>
                   !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey
                 }
-                onSubmitShortcut={(event) => {
-                  if (!event.metaKey && !event.ctrlKey && filteredMentionItems.length > 0) {
-                    void selectMentionResult(filteredMentionItems[0]);
-                    return;
-                  }
-
-                  void submit();
-                }}
+                onSubmitShortcut={() => void submit()}
               />
             </div>
-
-            {mentionQuery !== null && (!mentionError || mentionItems.length > 0) ? (
-              <div
-                className="chat-composer__mention-list"
-                aria-label={t('chat.composer.mentionResults')}
-                onKeyDown={handleMentionKeyDown}
-              >
-                {mentionPending ? (
-                  <div className="chat-composer__mention-empty">{t('chat.composer.searchingContext')}</div>
-                ) : mentionItems.length > 0 ? (
-                  <>
-                    <div className="chat-composer__mention-tabs" role="tablist" aria-label={t('chat.composer.mentionFilters')}>
-                      {MENTION_FILTERS.map((filter) => (
-                        <Button
-                          key={filter}
-                          type="button"
-                          className="chat-composer__mention-tab"
-                          role="tab"
-                          aria-selected={mentionFilter === filter}
-                          variant={mentionFilter === filter ? 'secondary' : 'ghost'}
-                          size="sm"
-                          onClick={() => setMentionFilter(filter)}
-                        >
-                          {mentionFilterLabel(filter, t)}
-                        </Button>
-                      ))}
-                    </div>
-                    {filteredMentionItems.length > 0 ? (
-                      filteredMentionItems.map((item) => (
-                        <Button
-                          className="chat-composer__mention-button"
-                          key={item.id}
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          disabled={selectingContextId !== null}
-                          onClick={() => void selectMentionResult(item)}
-                        >
-                          <MentionResultIcon item={item} />
-                          <span>{item.label}</span>
-                          {mentionItemSubtitle(item) ? (
-                            <span className="chat-composer__meta">{mentionItemSubtitle(item)}</span>
-                          ) : null}
-                        </Button>
-                      ))
-                    ) : (
-                      <div className="chat-composer__mention-empty">{t('chat.composer.noContextResults')}</div>
-                    )}
-                  </>
-                ) : (
-                  <div className="chat-composer__mention-empty">{t('chat.composer.noContextResults')}</div>
-                )}
-              </div>
-            ) : null}
           </div>
-
-          {mentionError ? (
-            <div className="chat-composer__meta" aria-live="polite">
-              {mentionError}
-            </div>
-          ) : null}
 
           <div className="composer-row">
             <ComposerIconButton
@@ -985,39 +784,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
   },
 );
 
-const MENTION_FILTERS: MentionFilter[] = ['all', 'skill', 'design-file', 'workspace-app'];
-
-function MentionResultIcon({ item }: { item: ComposerMentionItem }) {
-  if (isTuttiExternalAtMentionItem(item)) {
-    const iconUrl = getTuttiExternalAtMentionIconUrl(item);
-    if (iconUrl) {
-      return (
-        <img
-          alt=""
-          className="chat-composer__mention-icon"
-          data-mention-icon={item.kind}
-          src={iconUrl}
-        />
-      );
-    }
-    return <Square size={14} aria-hidden data-mention-icon={item.kind} />;
-  }
-  if (item.kind === 'design-file') {
-    return <FileTextIcon size={14} aria-hidden data-mention-icon="design-file" />;
-  }
-  return <ToolsIcon size={14} aria-hidden data-mention-icon="skill" />;
-}
-
-function mentionItemSubtitle(item: ComposerMentionItem): string | null {
-  if (isTuttiExternalAtMentionItem(item)) {
-    return getTuttiExternalAtMentionSubtitle(item);
-  }
-  if (item.kind === 'design-file') {
-    return item.path;
-  }
-  return null;
-}
-
 function agentIdFromModelProvider(provider: ModelProvider): AgentId {
   return provider === 'claude-code' ? 'claude' : 'codex';
 }
@@ -1089,19 +855,6 @@ function readSendErrorMessage(error: unknown, fallback: string): string {
     return error.message;
   }
   return fallback;
-}
-
-function mentionFilterLabel(filter: MentionFilter, t: ReturnType<typeof useTranslation>['t']): string {
-  if (filter === 'skill') return t('chat.composer.mentionFilterSkills');
-  if (filter === 'design-file') return t('chat.composer.mentionFilterFiles');
-  if (filter === 'workspace-app') return t('chat.composer.mentionFilterApps');
-  return t('chat.composer.mentionFilterAll');
-}
-
-function nextMentionFilter(currentFilter: MentionFilter, offset: 1 | -1): MentionFilter {
-  const currentIndex = MENTION_FILTERS.indexOf(currentFilter);
-  const nextIndex = (currentIndex + offset + MENTION_FILTERS.length) % MENTION_FILTERS.length;
-  return MENTION_FILTERS[nextIndex];
 }
 
 function selectedDesignFileValue(file: ContextPickerSnapshot['selectedDesignFiles'][number]): string {

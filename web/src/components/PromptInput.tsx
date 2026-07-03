@@ -1,17 +1,16 @@
-import { Node, type JSONContent } from '@tiptap/core';
-import { EditorContent, useEditor } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
-import {
-  parseRichTextContentToDocument,
-  serializeRichTextDocumentToContent,
-} from '@tutti-os/ui-rich-text/core';
+import { RichTextTriggerEditor, type RichTextTriggerEditorProps } from '@tutti-os/ui-rich-text/editor';
+import '@tutti-os/ui-rich-text/at-panel/index.css';
 import React, {
   forwardRef,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
+  useMemo,
   useRef,
+  useState,
 } from 'react';
+import { type TranslateFn, useTranslation } from '../i18n';
+import { createTuttiExternalAtTriggerProviders } from '../lib/tuttiExternalAt';
 
 export interface PromptInputHandle {
   focus(): void;
@@ -35,6 +34,8 @@ export interface PromptInputProps {
   onSubmitShortcut?(event: React.KeyboardEvent<HTMLDivElement>): void;
 }
 
+type MentionPaletteOptions = NonNullable<RichTextTriggerEditorProps['palette']>;
+
 export const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(
   function PromptInput({
     ariaLabel,
@@ -51,58 +52,21 @@ export const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(
     shouldSubmitOnEnter,
     value,
   }, ref) {
-    const latestValueRef = useRef(value);
+    const { t } = useTranslation();
+    const containerRef = useRef<HTMLDivElement | null>(null);
     const hiddenInputRef = useRef<HTMLInputElement | null>(null);
+    const latestValueRef = useRef(value);
     const onChangeRef = useRef(onChange);
     const onEditorKeyDownRef = useRef(onEditorKeyDown);
     const onEditorPasteRef = useRef(onEditorPaste);
-    const editor = useEditor({
-      immediatelyRender: false,
-      extensions: [
-        StarterKit.configure({
-          blockquote: false,
-          bulletList: false,
-          code: false,
-          codeBlock: false,
-          dropcursor: false,
-          gapcursor: false,
-          hardBreak: {},
-          heading: false,
-          horizontalRule: false,
-          listItem: false,
-          orderedList: false,
-        }),
-        PromptMentionReference,
-        PromptWorkspaceReference,
-      ],
-      content: promptValueToContent(value),
-      editable: !disabled,
-      editorProps: {
-        attributes: {
-          'aria-label': ariaLabel,
-          class: ['prompt-input__editor', editorClassName].filter(Boolean).join(' '),
-          'data-placeholder': placeholder,
-          role: 'textbox',
-        },
-        handleDOMEvents: {
-          paste(_view, event) {
-            if (!('clipboardData' in event)) {
-              return false;
-            }
+    const [focusSignal, setFocusSignal] = useState<object | null>(null);
+    const mentionPalette = useMemo(() => createMentionPalette(t), [t]);
+    const triggerProviders = useMemo(() => createTuttiExternalAtTriggerProviders(), []);
+    const editorValue = encodeTrailingLineBreaks(value);
 
-            const handled = onEditorPasteRef.current?.(event as ClipboardEvent);
-            return handled === true || event.defaultPrevented;
-          },
-        },
-        handleKeyDown(_view, event) {
-          const handled = onEditorKeyDownRef.current?.(event);
-          return handled === true || event.defaultPrevented;
-        },
-      },
-      onUpdate({ editor: nextEditor }) {
-        commitText(serializePromptContent(nextEditor.getJSON()));
-      },
-    });
+    useEffect(() => {
+      latestValueRef.current = value;
+    }, [value]);
 
     useEffect(() => {
       onChangeRef.current = onChange;
@@ -116,41 +80,59 @@ export const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(
       onEditorPasteRef.current = onEditorPaste;
     }, [onEditorPaste]);
 
-    useEffect(() => {
-      latestValueRef.current = value;
-    }, [value]);
-
-    useEffect(() => {
-      editor?.setEditable(!disabled);
-    }, [disabled, editor]);
-
     useLayoutEffect(() => {
-      if (!editor || serializePromptContent(editor.getJSON()) === serializePromptValue(value)) {
+      applyEditorAttributes();
+
+      const container = containerRef.current;
+      if (!container || typeof MutationObserver === 'undefined') {
         return;
       }
 
-      editor.commands.setContent(promptValueToContent(value), { emitUpdate: false });
-    }, [editor, value]);
+      const observer = new MutationObserver(() => applyEditorAttributes());
+      observer.observe(container, { childList: true, subtree: true });
+      return () => observer.disconnect();
+    }, [ariaLabel, placeholder]);
 
     useImperativeHandle(
       ref,
       () => ({
         focus() {
-          editor?.view.dom.focus();
-          editor?.commands.focus();
+          focusEditor();
         },
         focusToEnd() {
-          editor?.view.dom.focus();
-          editor?.commands.focus('end');
+          focusEditor();
         },
         insertText(text: string) {
           if (!text) return;
-          editor?.view.dom.focus();
-          editor?.chain().focus().insertContent(text).run();
+          focusEditor();
+          if (tryInsertTextAtSelection(text)) {
+            return;
+          }
+          commitText(`${latestValueRef.current}${text}`);
         },
       }),
-      [editor],
+      [],
     );
+
+    function getEditorElement(): HTMLElement | null {
+      return containerRef.current?.querySelector<HTMLElement>('[contenteditable]') ?? null;
+    }
+
+    function applyEditorAttributes(): void {
+      const editor = getEditorElement();
+      if (!editor) return;
+      editor.setAttribute('aria-label', ariaLabel);
+      editor.setAttribute('role', 'textbox');
+      editor.setAttribute('data-placeholder', placeholder);
+    }
+
+    function focusEditor(): void {
+      setFocusSignal({});
+      const editor = getEditorElement();
+      if (!editor) return;
+      editor.focus();
+      moveCaretToEnd(editor);
+    }
 
     function commitText(nextValue: string): void {
       if (nextValue === latestValueRef.current) {
@@ -164,27 +146,39 @@ export const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(
       onChangeRef.current(nextValue);
     }
 
-    function handleInput(event: React.FormEvent<HTMLDivElement>): void {
-      const nextText = editor
-        ? serializePromptContent(editor.getJSON())
-        : event.currentTarget.textContent ?? '';
-      if (nextText !== latestValueRef.current) {
-        commitText(nextText);
+    function handleChange(nextValue: string): void {
+      commitText(decodeTrailingLineBreaks(nextValue));
+    }
+
+    function handlePaste(event: React.ClipboardEvent<HTMLDivElement>): void {
+      const handled = onEditorPasteRef.current?.(event.nativeEvent);
+      if (handled === true || event.defaultPrevented) {
+        event.preventDefault();
       }
     }
 
     function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
-      const wasDefaultPrevented = event.defaultPrevented;
       onKeyDown?.(event);
-      if (!wasDefaultPrevented && event.defaultPrevented) {
-        return;
-      }
-
       if (event.key !== 'Enter') {
         return;
       }
 
       if (isCompositionEnter(event)) {
+        return;
+      }
+
+      if (event.defaultPrevented) {
+        return;
+      }
+
+      const activeMentionQuery = hasActiveMentionQuery();
+      if (activeMentionQuery) {
+        return;
+      }
+
+      const handled = onEditorKeyDownRef.current?.(event.nativeEvent);
+      if (handled === true || event.nativeEvent.defaultPrevented) {
+        event.preventDefault();
         return;
       }
 
@@ -194,157 +188,123 @@ export const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(
         return;
       }
 
-      if (event.shiftKey || event.ctrlKey) {
+      if (event.shiftKey || event.ctrlKey || event.metaKey) {
         event.preventDefault();
-        return;
+        if (!tryInsertTextAtSelection('\n')) {
+          commitText(`${latestValueRef.current}\n`);
+        }
+      }
+    }
+
+    function hasActiveMentionQuery(): boolean {
+      const editor = getEditorElement();
+      const selection = typeof window === 'undefined' ? null : window.getSelection();
+      const anchorNode = selection?.anchorNode;
+      if (!editor || !selection || selection.rangeCount === 0 || !anchorNode || !editor.contains(anchorNode)) {
+        return /[@＠][^\s@＠]*$/.test(latestValueRef.current);
       }
 
-      if (event.metaKey) {
-        event.preventDefault();
-        editor?.chain().focus().setHardBreak().run();
-      }
+      const range = selection.getRangeAt(0).cloneRange();
+      range.selectNodeContents(editor);
+      range.setEnd(anchorNode, selection.anchorOffset);
+      return /[@＠][^\s@＠]*$/.test(range.toString());
     }
 
     return (
       <div
+        ref={containerRef}
         className={['prompt-input', className].filter(Boolean).join(' ')}
         data-empty={value.length === 0 ? 'true' : 'false'}
+        onKeyDownCapture={handleKeyDown}
+        onPasteCapture={handlePaste}
       >
         {name ? <input ref={hiddenInputRef} type="hidden" name={name} value={value} readOnly /> : null}
-        <EditorContent
-          editor={editor}
-          onInput={handleInput}
-          onKeyDown={handleKeyDown}
+        <RichTextTriggerEditor
+          value={editorValue}
+          onChange={handleChange}
+          triggerProviders={triggerProviders}
+          placeholder={placeholder}
+          disabled={disabled}
+          textareaClassName={['prompt-input__editor', editorClassName].filter(Boolean).join(' ')}
+          placeholderClassName={['prompt-input__placeholder', editorClassName].filter(Boolean).join(' ')}
+          focusSignal={focusSignal}
+          maxResults={20}
+          menuAnchor="cursor"
+          menuPlacement="auto-start"
+          palette={mentionPalette}
+          textOverrides={{
+            loadingLabel: t('chat.composer.searchingContext'),
+            noMatchesLabel: t('chat.composer.noContextResults'),
+          }}
         />
       </div>
     );
   },
 );
 
-const PromptMentionReference = Node.create({
-  name: 'mentionReference',
-  group: 'inline',
-  inline: true,
-  atom: true,
-  selectable: true,
-
-  addAttributes() {
-    return {
-      entityId: { default: '' },
-      label: { default: '' },
-      presentation: { default: null },
-      providerId: { default: '' },
-      scope: { default: null },
-      trigger: { default: '@' },
-    };
-  },
-
-  parseHTML() {
-    return [{ tag: 'span[data-rich-text-mention-reference]' }];
-  },
-
-  renderHTML({ HTMLAttributes }) {
-    const label = normalizePromptReferenceLabel(HTMLAttributes.label);
-    return [
-      'span',
+function createMentionPalette(t: TranslateFn): MentionPaletteOptions {
+  return {
+    categories: [
       {
-        'data-rich-text-mention-reference': 'true',
-        class: 'prompt-input__reference prompt-input__mention-reference',
+        id: 'apps',
+        label: t('chat.composer.mentionFilterApps'),
+        providerIds: ['workspace-app'],
       },
-      label ? `@${label}` : '@',
-    ];
-  },
-});
-
-const PromptWorkspaceReference = Node.create({
-  name: 'workspaceReference',
-  group: 'inline',
-  inline: true,
-  atom: true,
-  selectable: true,
-
-  addAttributes() {
-    return {
-      kind: { default: 'file' },
-      label: { default: '' },
-      path: { default: '' },
-    };
-  },
-
-  parseHTML() {
-    return [{ tag: 'span[data-rich-text-workspace-reference]' }];
-  },
-
-  renderHTML({ HTMLAttributes }) {
-    const label = normalizePromptReferenceLabel(HTMLAttributes.label) || normalizePromptReferenceLabel(HTMLAttributes.path);
-    return [
-      'span',
       {
-        'data-rich-text-workspace-reference': 'true',
-        class: 'prompt-input__reference prompt-input__workspace-reference',
+        id: 'agents',
+        label: t('chat.composer.mentionFilterAgents'),
+        providerIds: ['agent-target'],
       },
-      label || 'file',
-    ];
-  },
-});
-
-function promptValueToContent(value: string): JSONContent {
-  const content = parseRichTextContentToDocument(value);
-  const trailingLineBreaks = countTrailingLineBreaks(value);
-  if (trailingLineBreaks > 0) {
-    appendTrailingHardBreaks(content, trailingLineBreaks);
-  }
-  return content;
+    ],
+    defaultCategoryId: 'agents',
+    labels: {
+      tabHint: t('chat.composer.mentionResults'),
+      cycleFilter: t('chat.composer.mentionSwitchTabs'),
+      moveSelection: t('chat.composer.mentionMoveSelection'),
+      empty: t('chat.composer.noContextResults'),
+      listbox: t('chat.composer.mentionResults'),
+    },
+    maxHeightPx: 320,
+  };
 }
 
-function serializePromptValue(value: string): string {
-  return serializePromptContent(promptValueToContent(value));
+const TRAILING_LINE_BREAK_MARKER = '\u200B';
+
+function encodeTrailingLineBreaks(value: string): string {
+  return /\n$/.test(value) ? `${value}${TRAILING_LINE_BREAK_MARKER}` : value;
 }
 
-function serializePromptContent(content: JSONContent): string {
-  const serialized = serializeRichTextDocumentToContent(content);
-  const trailingHardBreaks = countTrailingHardBreaks(content);
-  return trailingHardBreaks > 0 ? `${serialized}${'\n'.repeat(trailingHardBreaks)}` : serialized;
-}
-
-function normalizePromptReferenceLabel(value: unknown): string {
-  return typeof value === 'string' ? value.trim().replace(/^@+/, '').trim() : '';
-}
-
-function countTrailingLineBreaks(value: string): number {
-  return value.replace(/\r\n?/g, '\n').match(/\n+$/)?.[0].length ?? 0;
-}
-
-function appendTrailingHardBreaks(content: JSONContent, count: number): void {
-  const blocks = content.content ?? (content.content = [{ type: 'paragraph' }]);
-  let lastBlock = blocks.at(-1);
-  if (!lastBlock) {
-    lastBlock = { type: 'paragraph' };
-    blocks.push(lastBlock);
-  }
-  const inlineContent = lastBlock.content ?? (lastBlock.content = []);
-  for (let index = 0; index < count; index += 1) {
-    inlineContent.push({ type: 'hardBreak' });
-  }
-}
-
-function countTrailingHardBreaks(content: JSONContent): number {
-  const lastBlock = content.content?.at(-1);
-  if (!lastBlock?.content?.length) {
-    return 0;
-  }
-
-  let count = 0;
-  for (let index = lastBlock.content.length - 1; index >= 0; index -= 1) {
-    if (lastBlock.content[index]?.type !== 'hardBreak') {
-      break;
-    }
-    count += 1;
-  }
-  return count;
+function decodeTrailingLineBreaks(value: string): string {
+  return value.endsWith(`\n${TRAILING_LINE_BREAK_MARKER}`)
+    ? value.slice(0, -TRAILING_LINE_BREAK_MARKER.length)
+    : value;
 }
 
 function isCompositionEnter(event: React.KeyboardEvent<HTMLDivElement>): boolean {
-  const nativeEvent = event.nativeEvent;
-  return nativeEvent.isComposing || event.keyCode === 229;
+  if (event.nativeEvent.isComposing) {
+    return true;
+  }
+
+  const nativeEvent = event.nativeEvent as KeyboardEvent & { keyCode?: number; which?: number };
+  return nativeEvent.keyCode === 229 || nativeEvent.which === 229;
+}
+
+function moveCaretToEnd(element: HTMLElement): void {
+  if (typeof window === 'undefined') return;
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function tryInsertTextAtSelection(text: string): boolean {
+  const command = document.execCommand;
+  if (typeof command !== 'function') {
+    return false;
+  }
+
+  return command.call(document, 'insertText', false, text);
 }

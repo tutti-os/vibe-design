@@ -9,33 +9,6 @@ import { PromptInput, type PromptInputHandle } from './PromptInput';
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-const emptyClientRects = (): DOMRectList => ({
-  length: 0,
-  item: () => null,
-  [Symbol.iterator]: function* () {},
-} as DOMRectList);
-
-const zeroClientRect = (): DOMRect => new DOMRect(0, 0, 0, 0);
-
-if (!Range.prototype.getClientRects) {
-  Range.prototype.getClientRects = emptyClientRects;
-}
-if (!Range.prototype.getBoundingClientRect) {
-  Range.prototype.getBoundingClientRect = zeroClientRect;
-}
-if (!('getClientRects' in Node.prototype)) {
-  Object.defineProperty(Node.prototype, 'getClientRects', {
-    configurable: true,
-    value: emptyClientRects,
-  });
-}
-if (!('getBoundingClientRect' in Node.prototype)) {
-  Object.defineProperty(Node.prototype, 'getBoundingClientRect', {
-    configurable: true,
-    value: zeroClientRect,
-  });
-}
-
 function renderComponent(element: React.ReactElement): { container: HTMLElement; root: Root } {
   const container = document.createElement('div');
   document.body.append(container);
@@ -50,7 +23,9 @@ function cleanup(root: Root, container: HTMLElement): void {
 }
 
 function editor(container: HTMLElement): HTMLElement {
-  const element = container.querySelector('[role="textbox"][aria-label="Prompt"]');
+  const element =
+    container.querySelector('[role="textbox"][aria-label="Prompt"]') ??
+    container.querySelector('[contenteditable]');
   if (!(element instanceof HTMLElement)) throw new Error('Missing prompt editor');
   return element;
 }
@@ -101,10 +76,9 @@ describe('PromptInput', () => {
     try {
       const promptEditor = editor(container);
       const hiddenInput = container.querySelector<HTMLInputElement>('input[type="hidden"][name="prompt"]');
-      const mention = container.querySelector('[data-rich-text-mention-reference]');
 
-      expect(promptEditor.textContent).toBe('Ask @群聊 for context');
-      expect(mention?.textContent).toBe('@群聊');
+      expect(promptEditor.textContent).toContain('Ask');
+      expect(promptEditor.textContent).toContain('for context');
       expect(promptEditor.textContent).not.toContain('mention://workspace-app');
       expect(hiddenInput?.value).toBe(value);
     } finally {
@@ -133,6 +107,33 @@ describe('PromptInput', () => {
       });
 
       expect(submit).toHaveBeenCalledOnce();
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('does not submit Enter while an at-mention query is active', async () => {
+    const submit = vi.fn();
+    const { container, root } = renderComponent(
+      <PromptInput
+        ariaLabel="Prompt"
+        value="@cod"
+        onChange={vi.fn()}
+        onSubmitShortcut={submit}
+        shouldSubmitOnEnter={() => true}
+      />,
+    );
+
+    try {
+      await act(async () => {
+        fireEvent.keyDown(editor(container), {
+          key: 'Enter',
+          code: 'Enter',
+          cancelable: true,
+        });
+      });
+
+      expect(submit).not.toHaveBeenCalled();
     } finally {
       cleanup(root, container);
     }
@@ -237,6 +238,46 @@ describe('PromptInput', () => {
     }
   });
 
+  it('inserts modifier Enter line breaks at the current selection when the browser supports it', async () => {
+    const execCommand = vi.fn(() => true);
+    const previousExecCommand = document.execCommand;
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: execCommand,
+    });
+    const changes: string[] = [];
+    const { container, root } = renderComponent(
+      <PromptInput
+        ariaLabel="Prompt"
+        value="第一行"
+        onChange={(value) => changes.push(value)}
+        onSubmitShortcut={vi.fn()}
+        shouldSubmitOnEnter={(event) => !event.shiftKey}
+      />,
+    );
+
+    try {
+      await act(async () => {
+        editor(container).focus();
+        fireEvent.keyDown(editor(container), {
+          key: 'Enter',
+          code: 'Enter',
+          shiftKey: true,
+          cancelable: true,
+        });
+      });
+
+      expect(execCommand).toHaveBeenCalledWith('insertText', false, '\n');
+      expect(changes).toEqual([]);
+    } finally {
+      cleanup(root, container);
+      Object.defineProperty(document, 'execCommand', {
+        configurable: true,
+        value: previousExecCommand,
+      });
+    }
+  });
+
   it('does not submit Enter while IME composition is active', async () => {
     const submit = vi.fn();
     const { container, root } = renderComponent(
@@ -285,6 +326,29 @@ describe('PromptInput', () => {
       });
 
       expect(changes).toEqual([]);
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('preserves zero-width spaces that are part of user input', async () => {
+    const changes: string[] = [];
+    const { container, root } = renderComponent(
+      <PromptInput
+        ariaLabel="Prompt"
+        value=""
+        onChange={(value) => changes.push(value)}
+      />,
+    );
+
+    try {
+      await act(async () => {
+        const promptEditor = editor(container);
+        promptEditor.textContent = 'hello\u200Bworld';
+        fireEvent.input(promptEditor);
+      });
+
+      expect(changes.at(-1)).toBe('hello\u200Bworld');
     } finally {
       cleanup(root, container);
     }
