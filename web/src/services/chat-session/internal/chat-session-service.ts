@@ -10,6 +10,7 @@ import type { IDesignFileService } from '../../design-files/design-file-service.
 import type { IProjectContextService } from '../../project-context/project-context-service.interface';
 import type { IRunService } from '../../run/run-service.interface';
 import type { RunStreamHandlers } from '../../run/run-types';
+import { reportUserActive } from '../../tutti-activity';
 import type { IChatSessionService } from '../chat-session-service.interface';
 import type { ChatSessionSnapshot, QueuedTurnPreview, SendTurnInput } from '../chat-session-types';
 
@@ -183,6 +184,7 @@ export class ChatSessionService implements IChatSessionService {
       }
 
       this.dependencies.timeline.startAssistantRun({ runId, conversationId: turn.conversationId });
+      reportUserActive();
       this.dependencies.run.streamRun(runId, this.createStreamHandlers(runId));
     } finally {
       this.startingRun = false;
