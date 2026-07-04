@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentEvent, CanvasCommentAttachment, ChatAttachment, ProjectFile, RunContextSelection } from '../../../types';
 import type { IChatTimelineService } from '../../chat-timeline/chat-timeline-service.interface';
 import { ChatTimelineService } from '../../chat-timeline/internal/chat-timeline-service';
@@ -9,6 +9,10 @@ import type { CreateRunInput, RunStreamHandlers } from '../../run/run-types';
 import { ChatSessionService, createBrowserQueuedTurnStore } from './chat-session-service';
 
 describe('ChatSessionService', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('expands /search before createRun and starts streaming', async () => {
     const { service, run, context } = createService();
 
@@ -18,6 +22,17 @@ describe('ChatSessionService', () => {
     expect(firstCreateRunInput(run).context).toEqual({ skillIds: ['skill-1'] });
     expect(context.buildRunContext).toHaveBeenCalledWith();
     expect(run.streamRun).toHaveBeenCalledWith('run-1', expect.any(Object));
+  });
+
+  it('reports user activity after creating an agent run', async () => {
+    const reportActive = vi.fn(async () => undefined);
+    vi.stubGlobal('window', { tuttiExternal: { activity: { reportActive } } });
+    const { service } = createService();
+
+    await service.sendTurn({ draft: 'Create a prototype', files: [] });
+    await Promise.resolve();
+
+    expect(reportActive).toHaveBeenCalledTimes(1);
   });
 
   it('resumes streaming when initialized with an active run', () => {
