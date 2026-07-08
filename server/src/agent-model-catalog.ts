@@ -1,11 +1,10 @@
 import {
-  createClaudeProvider,
-  createCodexProvider,
   createLocalAgentRuntime,
   type AgentDetection,
   type DetectContext,
 } from '@tutti-os/agent-acp-kit';
 import type { ModelSummary, RuntimeAgentDef } from './agents.js';
+import { createVibeLocalAgentProviderPlugins } from './local-agent-providers.js';
 import { agentRegistry } from './runtimes/index.js';
 
 export interface AgentModelCatalogEntry {
@@ -17,7 +16,7 @@ export interface AgentModelCatalogEntry {
 export type DetectAgentModelCatalog = (context?: DetectContext) => Promise<AgentModelCatalogEntry[]>;
 
 const agentModelRuntime = createLocalAgentRuntime({
-  providers: [createCodexProvider(), createClaudeProvider()],
+  providers: createVibeLocalAgentProviderPlugins(),
 });
 
 export async function detectLocalAgentModelCatalog(context?: DetectContext): Promise<AgentModelCatalogEntry[]> {

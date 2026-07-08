@@ -734,8 +734,8 @@ function readAgentModelCatalog(data: unknown): ChatComposerAgentModelCatalogEntr
   });
 }
 
-function isAgentId(value: unknown): value is 'codex' | 'claude' {
-  return value === 'codex' || value === 'claude';
+function isAgentId(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 function readAgentAvailability(data: unknown): ChatComposerAgentAvailability[] {

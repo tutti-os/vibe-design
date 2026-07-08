@@ -42,19 +42,19 @@ import {
 } from './ComposerControls';
 import { PromptInput, type PromptInputHandle } from './PromptInput';
 
-type ActiveModelProvider = 'codex' | 'claude-code';
-type ModelProvider = ComposerModelProvider;
-type AgentId = 'codex' | 'claude';
+type AgentId = string;
 
-const MODEL_PROVIDERS: Array<{ value: ModelProvider; label: string; comingSoon?: boolean }> = [
-  { value: 'codex', label: 'Codex' },
-  { value: 'claude-code', label: 'Claude Code' },
+type ModelProviderEntry = {
+  value: ComposerModelProvider;
+  label: string;
+  comingSoon?: boolean;
+};
+
+const COMING_SOON_MODEL_PROVIDERS: ModelProviderEntry[] = [
   { value: 'tutti', label: 'Tutti', comingSoon: true },
   { value: 'hermes', label: 'Hermes', comingSoon: true },
   { value: 'openclaw', label: 'OpenClaw', comingSoon: true },
 ];
-
-const ACTIVE_MODEL_PROVIDERS = new Set<ModelProvider>(['codex', 'claude-code']);
 
 export interface ChatComposerProps {
   streaming: boolean;
@@ -106,7 +106,7 @@ export interface ChatComposerModelOption {
 }
 
 export interface ChatComposerAgentModelCatalogEntry {
-  agentId: AgentId;
+  agentId: string;
   label: string;
   models: ChatComposerModelOption[];
 }
@@ -152,8 +152,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     const [uncontrolledDraft, setUncontrolledDraft] = useState('');
     const [files, setFiles] = useState<File[]>([]);
     const [uploadedAttachments, setUploadedAttachments] = useState<ChatAttachment[]>([]);
-    const [modelProvider, setModelProvider] = useState<ModelProvider>('codex');
-    const [selectedModelsByProvider, setSelectedModelsByProvider] = useState<Partial<Record<ActiveModelProvider, string>>>({});
+    const [modelProvider, setModelProvider] = useState<string>('codex');
+    const [selectedModelsByProvider, setSelectedModelsByProvider] = useState<Partial<Record<string, string>>>({});
     const [sendPending, setSendPending] = useState(false);
     const [stopPending, setStopPending] = useState(false);
     const [sendError, setSendError] = useState<string | null>(null);
@@ -167,13 +167,28 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const draft = controlledDraft ?? uncontrolledDraft;
     const hasCommentAttachments = commentAttachments.length > 0;
+    const activeModelProviders = useMemo(
+      () => agentAvailability.map((agent) => ({
+        value: modelProviderFromAgentId(agent.id),
+        label: agent.label,
+      })),
+      [agentAvailability],
+    );
+    const modelProviders = useMemo(
+      () => [...activeModelProviders, ...COMING_SOON_MODEL_PROVIDERS],
+      [activeModelProviders],
+    );
+    const activeModelProviderIds = useMemo(
+      () => new Set(activeModelProviders.map((provider) => provider.value)),
+      [activeModelProviders],
+    );
     const lockedModelProvider = lockedAgentId ? modelProviderFromAgentId(lockedAgentId) : null;
     const providerLocked = lockedModelProvider !== null;
     const selectedProviderUnavailableReason = unavailableReasonForProvider(modelProvider, agentAvailability);
     const selectedModelOptions = modelOptionsForProvider(modelProvider, agentModelCatalog);
     const selectedModel = selectedModelForProvider(modelProvider, selectedModelsByProvider, agentModelCatalog);
     const selectedProviderLabel =
-      MODEL_PROVIDERS.find((provider) => provider.value === modelProvider)?.label ?? 'Codex';
+      modelProviders.find((provider) => provider.value === modelProvider)?.label ?? modelProvider;
     const selectedModelLabel =
       selectedModelOptions.find((model) => model.id === selectedModel)?.label ?? null;
     const hasSelectedContext =
@@ -227,10 +242,23 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     }, [lockedModel, lockedModelProvider]);
 
     useEffect(() => {
+      if (providerLocked) return;
+      if (activeModelProviders.length === 0) return;
+      const currentIsKnown = activeModelProviderIds.has(modelProvider);
+      const currentUnavailable = unavailableReasonForProvider(modelProvider, agentAvailability);
+      if (currentIsKnown && !currentUnavailable) return;
+      const preferred = activeModelProviders.find((provider) => !unavailableReasonForProvider(provider.value, agentAvailability))
+        ?? activeModelProviders[0];
+      if (preferred && preferred.value !== modelProvider) {
+        setModelProvider(preferred.value);
+      }
+    }, [activeModelProviderIds, activeModelProviders, agentAvailability, modelProvider, providerLocked]);
+
+    useEffect(() => {
       const agentId = agentIdFromModelProvider(modelProvider);
-      const label = MODEL_PROVIDERS.find((provider) => provider.value === modelProvider)?.label ?? 'Codex';
+      const label = modelProviders.find((provider) => provider.value === modelProvider)?.label ?? modelProvider;
       onAgentChange?.(agentId, label);
-    }, [modelProvider, onAgentChange]);
+    }, [modelProvider, modelProviders, onAgentChange]);
 
     const selectedChips = useMemo(
       () => [
@@ -316,14 +344,14 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
 
     function updateModelProvider(value: string): void {
       if (providerLocked) return;
-      if (isActiveModelProvider(value)) {
+      if (activeModelProviderIds.has(value)) {
         if (unavailableReasonForProvider(value, agentAvailability)) return;
         setAgentInstallMessage(null);
         setModelProvider(value);
       }
     }
 
-    function selectProviderModel(provider: ActiveModelProvider, modelId: string): void {
+    function selectProviderModel(provider: string, modelId: string): void {
       if (providerLocked && provider !== lockedModelProvider) return;
       if (unavailableReasonForProvider(provider, agentAvailability)) return;
       const providerModels = modelOptionsForProvider(provider, agentModelCatalog);
@@ -336,7 +364,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       }));
     }
 
-    function renderModelProviderMenuEntry(provider: (typeof MODEL_PROVIDERS)[number]): React.ReactNode {
+    function renderModelProviderMenuEntry(provider: ModelProviderEntry): React.ReactNode {
       const isLockedOption = providerLocked && provider.value !== lockedModelProvider;
       const availability = availabilityForProvider(provider.value, agentAvailability);
       const unavailableReason = unavailableReasonForAvailability(availability);
@@ -351,7 +379,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
         Boolean(onInstallAgent) &&
         canInstallUnavailableAgent(availability);
 
-      if (!isActiveModelProvider(provider.value)) {
+      if (!activeModelProviderIds.has(provider.value)) {
         return renderDisabledModelProviderEntry(provider, disabledReason ?? t('chat.composer.comingSoon'));
       }
 
@@ -442,7 +470,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     }
 
     function renderDisabledModelProviderEntry(
-      provider: (typeof MODEL_PROVIDERS)[number],
+      provider: ModelProviderEntry,
       disabledReason: string | null,
     ): React.ReactNode {
       const item = (
@@ -681,8 +709,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
             <TooltipProvider delayDuration={120}>
               <ComposerModelPicker
                 ariaLabel={t('chat.composer.modelProvider')}
-                groups={MODEL_PROVIDERS.flatMap((p): ComposerModelGroup[] => {
-                  if (!isActiveModelProvider(p.value)) return [];
+                groups={modelProviders.flatMap((p): ComposerModelGroup[] => {
+                  if (!activeModelProviderIds.has(p.value)) return [];
                   if (p.comingSoon) return [];
                   if (unavailableReasonForProvider(p.value, agentAvailability)) return [];
                   if (providerLocked && p.value !== lockedModelProvider) return [];
@@ -703,14 +731,14 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
                 menuClassName="composer-model-menu-content"
                 onSelect={(provider, modelId) => {
                   if (modelId) {
-                    selectProviderModel(provider as ActiveModelProvider, modelId);
+                    selectProviderModel(provider, modelId);
                   } else {
                     updateModelProvider(provider);
                   }
                 }}
-                additionalItems={MODEL_PROVIDERS
+                additionalItems={modelProviders
                   .filter((p) =>
-                    !isActiveModelProvider(p.value) ||
+                    !activeModelProviderIds.has(p.value) ||
                     p.comingSoon ||
                     Boolean(unavailableReasonForProvider(p.value, agentAvailability)) ||
                     (providerLocked && p.value !== lockedModelProvider)
@@ -784,33 +812,27 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
   },
 );
 
-function agentIdFromModelProvider(provider: ModelProvider): AgentId {
-  return provider === 'claude-code' ? 'claude' : 'codex';
+function agentIdFromModelProvider(provider: string): AgentId {
+  return provider === 'claude-code' ? 'claude' : provider;
 }
 
-function modelProviderFromAgentId(agentId: AgentId): ActiveModelProvider {
-  return agentId === 'claude' ? 'claude-code' : 'codex';
-}
-
-function isActiveModelProvider(value: string): value is ActiveModelProvider {
-  return ACTIVE_MODEL_PROVIDERS.has(value as ModelProvider);
+function modelProviderFromAgentId(agentId: AgentId): string {
+  return agentId === 'claude' ? 'claude-code' : agentId;
 }
 
 function modelOptionsForProvider(
-  provider: ModelProvider,
+  provider: string,
   catalog: ChatComposerAgentModelCatalogEntry[],
 ): ChatComposerModelOption[] {
-  if (!isActiveModelProvider(provider)) return [];
   const agentId = agentIdFromModelProvider(provider);
   return catalog.find((entry) => entry.agentId === agentId)?.models ?? [];
 }
 
 function selectedModelForProvider(
-  provider: ModelProvider,
-  selectedModelsByProvider: Partial<Record<ActiveModelProvider, string>>,
+  provider: string,
+  selectedModelsByProvider: Partial<Record<string, string>>,
   catalog: ChatComposerAgentModelCatalogEntry[],
 ): string | null {
-  if (!isActiveModelProvider(provider)) return null;
   const options = modelOptionsForProvider(provider, catalog);
   if (options.length === 0) return null;
 
@@ -823,14 +845,14 @@ function selectedModelForProvider(
 }
 
 function unavailableReasonForProvider(
-  provider: ModelProvider,
+  provider: string,
   agentAvailability: ChatComposerAgentAvailability[],
 ): string | null {
   return unavailableReasonForAvailability(availabilityForProvider(provider, agentAvailability));
 }
 
 function availabilityForProvider(
-  provider: ModelProvider,
+  provider: string,
   agentAvailability: ChatComposerAgentAvailability[],
 ): ChatComposerAgentAvailability | null {
   const agentId = agentIdFromModelProvider(provider);

@@ -37,53 +37,46 @@ export function findUnavailableAgent(
   return agent && !agent.available ? agent : null;
 }
 
-/** The provider we want to use by default, and the provider we fall back to when it breaks. */
+/** Default provider when callers omit an explicit agent id. */
 export const PRIMARY_AGENT_ID = 'codex';
-export const FALLBACK_AGENT_ID = 'claude';
 
 export interface AgentFallback {
-  /** Provider the caller asked for (or the default) that turned out to be unusable. */
   fromAgentId: string;
-  /** Provider we switched to instead. */
   toAgentId: string;
-  /** When/why the switch happened relative to the agent run. */
   stage: 'pre-session' | 'in-session' | 'conversation-locked';
-  /** Human-readable reason the original provider was abandoned. */
   reason: string;
 }
 
-function findAvailable(agents: AgentAvailability[], agentId: string): AgentAvailability | null {
-  return agents.find((candidate) => candidate.id === agentId && candidate.available) ?? null;
+function findFallbackAgent(
+  agents: AgentAvailability[],
+  requestedProvider: string,
+): AgentAvailability | null {
+  return agents.find((candidate) => candidate.id !== requestedProvider && candidate.available) ?? null;
 }
 
 /**
- * Decide whether a requested provider should be swapped for the fallback provider *before* a
- * session is started, based on detected availability. Only the primary provider (codex) falls
- * back, and only when the fallback (claude) is actually available. Returns null when no swap
- * applies (the normal flow — including surfacing an AGENT_UNAVAILABLE error — then continues).
+ * When the requested provider is unavailable before a session starts, switch to the first
+ * other available provider instead of failing the call.
  */
 export function resolvePreSessionFallback(
   agents: AgentAvailability[],
   requestedProvider: string,
 ): AgentFallback | null {
-  if (requestedProvider !== PRIMARY_AGENT_ID) {
+  const requested = agents.find((candidate) => candidate.id === requestedProvider) ?? null;
+  if (!requested || requested.available) {
     return null;
   }
 
-  const primary = agents.find((candidate) => candidate.id === PRIMARY_AGENT_ID) ?? null;
-  if (!primary || primary.available) {
-    return null;
-  }
-
-  if (!findAvailable(agents, FALLBACK_AGENT_ID)) {
+  const fallback = findFallbackAgent(agents, requestedProvider);
+  if (!fallback) {
     return null;
   }
 
   return {
-    fromAgentId: PRIMARY_AGENT_ID,
-    toAgentId: FALLBACK_AGENT_ID,
+    fromAgentId: requestedProvider,
+    toAgentId: fallback.id,
     stage: 'pre-session',
-    reason: primary.unavailableReason ?? `${primary.label} is unavailable.`,
+    reason: requested.unavailableReason ?? `${requested.label} is unavailable.`,
   };
 }
 
@@ -128,32 +121,27 @@ export function isAgentBrokenFailure(errorCode: string | null, message: string |
 }
 
 /**
- * Decide whether to retry on the fallback provider *after* a run has already failed. Applies only
- * when the primary provider (codex) was the one that failed, the failure looks like the provider
- * is broken, and the fallback (claude) is available.
+ * After a run fails in a provider-broken way, retry on the first other available provider.
  */
 export function resolveRunFailureFallback(
   agents: AgentAvailability[],
   agentId: string,
   failure: { errorCode: string | null; error: string | null },
 ): AgentFallback | null {
-  if (agentId !== PRIMARY_AGENT_ID) {
-    return null;
-  }
-
   if (!isAgentBrokenFailure(failure.errorCode, failure.error)) {
     return null;
   }
 
-  if (!findAvailable(agents, FALLBACK_AGENT_ID)) {
+  const fallback = findFallbackAgent(agents, agentId);
+  if (!fallback) {
     return null;
   }
 
   return {
-    fromAgentId: PRIMARY_AGENT_ID,
-    toAgentId: FALLBACK_AGENT_ID,
+    fromAgentId: agentId,
+    toAgentId: fallback.id,
     stage: 'in-session',
-    reason: failure.error ?? `${PRIMARY_AGENT_ID} run failed.`,
+    reason: failure.error ?? `${agentId} run failed.`,
   };
 }
 
