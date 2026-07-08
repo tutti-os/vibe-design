@@ -167,13 +167,21 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const draft = controlledDraft ?? uncontrolledDraft;
     const hasCommentAttachments = commentAttachments.length > 0;
-    const activeModelProviders = useMemo(
-      () => agentAvailability.map((agent) => ({
-        value: modelProviderFromAgentId(agent.id),
-        label: agent.label,
-      })),
-      [agentAvailability],
-    );
+    const activeModelProviders = useMemo(() => {
+      const byAgentId = new Map<string, { value: string; label: string }>();
+      for (const agent of agentAvailability) {
+        byAgentId.set(agent.id, { value: modelProviderFromAgentId(agent.id), label: agent.label });
+      }
+      for (const entry of agentModelCatalog) {
+        if (!byAgentId.has(entry.agentId)) {
+          byAgentId.set(entry.agentId, {
+            value: modelProviderFromAgentId(entry.agentId),
+            label: entry.label,
+          });
+        }
+      }
+      return Array.from(byAgentId.values());
+    }, [agentAvailability, agentModelCatalog]);
     const modelProviders = useMemo(
       () => [...activeModelProviders, ...COMING_SOON_MODEL_PROVIDERS],
       [activeModelProviders],

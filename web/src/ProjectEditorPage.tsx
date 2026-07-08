@@ -481,6 +481,23 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
 
   React.useEffect(() => {
     let canceled = false;
+    void fetchAgentAvailability()
+      .then((availability) => {
+        if (!canceled && availability.length > 0) {
+          setAgentAvailability(availability);
+        }
+      })
+      .catch(() => {
+        // Keep SSR-provided availability when refresh fails.
+      });
+
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    let canceled = false;
     void fetchAgentModelCatalog()
       .then((catalog) => {
         if (!canceled) {
@@ -705,6 +722,17 @@ async function fetchAgentModelCatalog(): Promise<ChatComposerAgentModelCatalogEn
   }
 
   return readAgentModelCatalog(data);
+}
+
+async function fetchAgentAvailability(): Promise<ChatComposerAgentAvailability[]> {
+  const response = await fetch('/api/agents/availability');
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    return [];
+  }
+
+  return readAgentAvailability(data);
 }
 
 function readAgentModelCatalog(data: unknown): ChatComposerAgentModelCatalogEntry[] {
