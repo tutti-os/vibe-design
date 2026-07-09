@@ -1,10 +1,7 @@
 import {
   displayNameForAgentProvider,
-  listVisibleManagedAgentProviders,
   toDaemonAgentProviderId,
   toKitAgentProviderId,
-  tuttiManagedAgentProviders,
-  type TuttiManagedAgentProvider,
 } from "./agent-provider-id.js";
 
 export type TuttiAgentProviderAuthState = "ok" | "missing" | "expired" | "unknown";
@@ -17,7 +14,7 @@ export interface TuttiAgentProviderCatalogModel {
 
 export interface TuttiAgentProviderCatalogEntry {
   provider: string;
-  daemonProvider: TuttiManagedAgentProvider | string;
+  daemonProvider: string;
   displayName: string;
   available: boolean;
   authState: TuttiAgentProviderAuthState;
@@ -161,16 +158,15 @@ export async function queryTuttiDesktopPreferences(
     );
     const record = unwrapDaemonPayload(payload);
     if (Object.keys(record).length > 0) {
+      const defaultAgentProvider = readString(record.defaultAgentProvider);
       return {
-        defaultAgentProvider: readString(record.defaultAgentProvider),
-        enableCursorAgent:
-          typeof record.enableCursorAgent === "boolean"
-            ? record.enableCursorAgent
-            : undefined,
-        enableOpenCodeAgent:
-          typeof record.enableOpenCodeAgent === "boolean"
-            ? record.enableOpenCodeAgent
-            : undefined,
+        ...(defaultAgentProvider ? { defaultAgentProvider } : {}),
+        ...(typeof record.enableCursorAgent === "boolean"
+          ? { enableCursorAgent: record.enableCursorAgent }
+          : {}),
+        ...(typeof record.enableOpenCodeAgent === "boolean"
+          ? { enableOpenCodeAgent: record.enableOpenCodeAgent }
+          : {}),
       };
     }
   }
@@ -188,24 +184,22 @@ export async function queryTuttiDesktopPreferences(
   );
   const record = unwrapDaemonPayload(payload);
   const preferences = toRecord(record.preferences) ?? record;
+  const defaultAgentProvider = readString(preferences.defaultAgentProvider);
   return {
-    defaultAgentProvider: readString(preferences.defaultAgentProvider),
-    enableCursorAgent:
-      typeof preferences.enableCursorAgent === "boolean"
-        ? preferences.enableCursorAgent
-        : undefined,
-    enableOpenCodeAgent:
-      typeof preferences.enableOpenCodeAgent === "boolean"
-        ? preferences.enableOpenCodeAgent
-        : undefined,
+    ...(defaultAgentProvider ? { defaultAgentProvider } : {}),
+    ...(typeof preferences.enableCursorAgent === "boolean"
+      ? { enableCursorAgent: preferences.enableCursorAgent }
+      : {}),
+    ...(typeof preferences.enableOpenCodeAgent === "boolean"
+      ? { enableOpenCodeAgent: preferences.enableOpenCodeAgent }
+      : {}),
   };
 }
 
 export async function queryTuttiAgentProviderStatuses(
-  providerIds: readonly string[],
+  providerIds: readonly string[] = [],
   options: TuttiDaemonClientOptions = {},
 ): Promise<{ capturedAt: string | null; defaultProvider: string | null; providers: TuttiAgentProviderDaemonStatus[] } | null> {
-  if (providerIds.length === 0) return null;
   const env = readEnv(options);
   const workspacePath = workspaceAppDaemonPath(env, "/agent-providers/status");
   if (workspacePath) {
@@ -288,29 +282,30 @@ export async function queryTuttiAgentProviderStatuses(
     if (!provider) return [];
     const cliStatus = readString(status.status)?.toLowerCase();
     const available = cliStatus === "available" || cliStatus === "ready";
+    const reasonCode = readString(status.detail);
     return [{
       provider,
       availability: {
         status: available ? "ready" : cliStatus ?? "unknown",
-        reasonCode: readString(status.detail) ?? undefined,
+        ...(reasonCode ? { reasonCode } : {}),
       },
       cli: {
-        binaryPath: readString(status.detail),
         installed: available,
+        ...(reasonCode ? { binaryPath: reasonCode } : {}),
       },
     }];
   });
   return {
     capturedAt: null,
     defaultProvider: readString(record.defaultProvider) ?? null,
-    providers: providers.filter((status) =>
-      providerIds.includes(status.provider),
-    ),
+    providers: providerIds.length
+      ? providers.filter((status) => providerIds.includes(status.provider))
+      : providers,
   };
 }
 
 export async function queryTuttiAgentProviderComposerOptions(
-  provider: TuttiManagedAgentProvider | string,
+  provider: string,
   options: TuttiDaemonClientOptions & { cwd?: string } = {},
 ): Promise<unknown | null> {
   const env = readEnv(options);
@@ -444,6 +439,7 @@ export function parseDaemonStatusModels(
     const id = readString(record.id) ?? readString(record.model) ?? readString(record.slug) ?? readString(record.value);
     if (!id || seen.has(id)) continue;
     seen.add(id);
+    const description = readString(record.description);
     models.push({
       id,
       label:
@@ -452,7 +448,7 @@ export function parseDaemonStatusModels(
         ?? readString(record.display_name)
         ?? readString(record.name)
         ?? id,
-      ...(readString(record.description) ? { description: readString(record.description) } : {}),
+      ...(description ? { description } : {}),
     });
   }
   return models.length ? models : undefined;
@@ -484,13 +480,6 @@ export function parseDaemonDefaultModelId(status: TuttiAgentProviderDaemonStatus
     ?? readString(catalog?.defaultModel);
 }
 
-export function listCatalogProviderIds(preferences: TuttiDesktopPreferencesSnapshot | null): TuttiManagedAgentProvider[] {
-  return listVisibleManagedAgentProviders({
-    enableCursorAgent: preferences?.enableCursorAgent,
-    enableOpenCodeAgent: preferences?.enableOpenCodeAgent,
-  });
-}
-
 export function normalizeDefaultProviderId(
   defaultProvider: string | null | undefined,
   preferences: TuttiDesktopPreferencesSnapshot | null,
@@ -498,10 +487,6 @@ export function normalizeDefaultProviderId(
   const candidate = readString(defaultProvider) ?? readString(preferences?.defaultAgentProvider);
   if (!candidate) return null;
   return toKitAgentProviderId(candidate);
-}
-
-export function isManagedDaemonProvider(provider: string): provider is TuttiManagedAgentProvider {
-  return (tuttiManagedAgentProviders as readonly string[]).includes(provider);
 }
 
 export function kitProviderMatchesDaemonProvider(kitProvider: string, daemonProvider: string): boolean {

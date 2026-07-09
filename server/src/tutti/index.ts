@@ -1,11 +1,7 @@
 export {
   displayNameForAgentProvider,
-  hiddenManagedAgentProviders,
-  listVisibleManagedAgentProviders,
   toDaemonAgentProviderId,
   toKitAgentProviderId,
-  tuttiManagedAgentProviders,
-  type TuttiManagedAgentProvider,
 } from './agent-provider-id.js';
 export {
   findCatalogProvider,

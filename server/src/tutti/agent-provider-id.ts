@@ -1,15 +1,3 @@
-export const tuttiManagedAgentProviders = [
-  "claude-code",
-  "codex",
-  "cursor",
-  "tutti-agent",
-  "opencode",
-  "hermes",
-  "openclaw",
-] as const;
-
-export type TuttiManagedAgentProvider = (typeof tuttiManagedAgentProviders)[number];
-
 export function toDaemonAgentProviderId(kitProviderId: string): string {
   const normalized = kitProviderId.trim().toLowerCase();
   if (normalized === "claude") return "claude-code";
@@ -40,24 +28,4 @@ export function displayNameForAgentProvider(provider: string, fallback?: string 
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
-}
-
-export function hiddenManagedAgentProviders(input: {
-  enableCursorAgent?: boolean;
-  enableOpenCodeAgent?: boolean;
-}): ReadonlySet<TuttiManagedAgentProvider> {
-  const hidden = new Set<TuttiManagedAgentProvider>();
-  // Workspace apps cannot read desktop preferences with app-server tokens; only hide
-  // when preferences were loaded and explicitly disabled.
-  if (input.enableCursorAgent === false) hidden.add("cursor");
-  if (input.enableOpenCodeAgent === false) hidden.add("opencode");
-  return hidden;
-}
-
-export function listVisibleManagedAgentProviders(input: {
-  enableCursorAgent?: boolean;
-  enableOpenCodeAgent?: boolean;
-}): TuttiManagedAgentProvider[] {
-  const hidden = hiddenManagedAgentProviders(input);
-  return tuttiManagedAgentProviders.filter((provider) => !hidden.has(provider));
 }

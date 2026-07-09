@@ -3,8 +3,6 @@ import { localAgentRuntime } from './local-agent-runtime.js';
 import { resolveTuttiAgentProviderCatalog } from './tutti/index.js';
 import {
   displayNameForAgentProvider,
-  toKitAgentProviderId,
-  tuttiManagedAgentProviders,
 } from './tutti/agent-provider-id.js';
 
 export interface AgentAvailability {
@@ -155,11 +153,10 @@ export function resolveRunFailureFallback(
 
 export function unavailableAgentsForDetectionFailure(error: unknown): AgentAvailability[] {
   const reason = error instanceof Error ? error.message : 'Agent detection failed.';
-  return tuttiManagedAgentProviders.map((provider) => {
-    const id = toKitAgentProviderId(provider);
+  return localAgentRuntime.listProviders().map((provider) => {
     return {
-      id,
-      label: displayNameForAgentProvider(provider),
+      id: provider.id,
+      label: displayNameForAgentProvider(provider.id),
       available: false,
       unavailableReason: reason,
     };
