@@ -50,12 +50,6 @@ type ModelProviderEntry = {
   comingSoon?: boolean;
 };
 
-const COMING_SOON_MODEL_PROVIDERS: ModelProviderEntry[] = [
-  { value: 'tutti', label: 'Tutti', comingSoon: true },
-  { value: 'hermes', label: 'Hermes', comingSoon: true },
-  { value: 'openclaw', label: 'OpenClaw', comingSoon: true },
-];
-
 export interface ChatComposerProps {
   streaming: boolean;
   draft?: string;
@@ -183,7 +177,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       return Array.from(byAgentId.values());
     }, [agentAvailability, agentModelCatalog]);
     const modelProviders = useMemo(
-      () => [...activeModelProviders, ...COMING_SOON_MODEL_PROVIDERS],
+      () => [...activeModelProviders],
       [activeModelProviders],
     );
     const activeModelProviderIds = useMemo(

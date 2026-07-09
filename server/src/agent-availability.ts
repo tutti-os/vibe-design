@@ -1,14 +1,17 @@
-import { dirname } from 'node:path';
-import type { AgentDetection, DetectContext } from '@tutti-os/agent-acp-kit';
-import type { RuntimeAgentDef } from './agents.js';
+import type { DetectContext } from '@tutti-os/agent-acp-kit';
 import { localAgentRuntime } from './local-agent-runtime.js';
-import { agentRegistry } from './runtimes/index.js';
+import { resolveTuttiAgentProviderCatalog } from './tutti/index.js';
+import {
+  displayNameForAgentProvider,
+  toKitAgentProviderId,
+  tuttiManagedAgentProviders,
+} from './tutti/agent-provider-id.js';
 
 export interface AgentAvailability {
   id: string;
   label: string;
   available: boolean;
-  authState?: AgentDetection['authState'];
+  authState?: 'ok' | 'missing' | 'expired' | 'unknown';
   supported?: boolean;
   unavailableReason?: string;
   version?: string;
@@ -17,16 +20,21 @@ export interface AgentAvailability {
 export type DetectAgentAvailability = (context?: DetectContext) => Promise<AgentAvailability[]>;
 
 export async function detectLocalAgentAvailability(context?: DetectContext): Promise<AgentAvailability[]> {
-  const detections = await localAgentRuntime.detect(context);
-  const byProvider = new Map<string, (typeof detections)[number]>();
-  for (const detection of detections) {
-    byProvider.set(detection.provider, detection);
-  }
-
-  return agentRegistry.listAgentDefs().map((agent) => {
-    const detection = byProvider.get(agent.id);
-    return availabilityFromDetection(agent, detection?.result ?? null);
+  const catalog = await resolveTuttiAgentProviderCatalog({
+    runtime: localAgentRuntime,
+    detectContext: context,
+    workspaceCwd: process.env.TUTTI_WORKSPACE_ROOT?.trim() || undefined,
   });
+
+  return catalog.providers.map((entry) => ({
+    id: entry.provider,
+    label: entry.displayName,
+    available: entry.available,
+    authState: entry.authState,
+    supported: entry.available,
+    ...(entry.reason ? { unavailableReason: entry.reason } : {}),
+    version: entry.version,
+  }));
 }
 
 export function findUnavailableAgent(
@@ -147,65 +155,13 @@ export function resolveRunFailureFallback(
 
 export function unavailableAgentsForDetectionFailure(error: unknown): AgentAvailability[] {
   const reason = error instanceof Error ? error.message : 'Agent detection failed.';
-  return agentRegistry.listAgentDefs().map((agent) => ({
-    id: agent.id,
-    label: agent.label,
-    available: false,
-    unavailableReason: reason,
-  }));
-}
-
-function availabilityFromDetection(
-  agent: RuntimeAgentDef,
-  detection: AgentDetection | null,
-): AgentAvailability {
-  if (!detection) {
+  return tuttiManagedAgentProviders.map((provider) => {
+    const id = toKitAgentProviderId(provider);
     return {
-      id: agent.id,
-      label: agent.label,
+      id,
+      label: displayNameForAgentProvider(provider),
       available: false,
-      unavailableReason: `${agent.label} detection is unavailable.`,
+      unavailableReason: reason,
     };
-  }
-
-  const unavailableReason = unavailableReasonForDetection(agent, detection);
-  return {
-    id: agent.id,
-    label: agent.label,
-    available: unavailableReason === null,
-    authState: detection.authState,
-    supported: detection.supported ?? true,
-    ...(unavailableReason ? { unavailableReason } : {}),
-    version: detection.version,
-  };
-}
-
-function unavailableReasonForDetection(
-  agent: RuntimeAgentDef,
-  detection: AgentDetection,
-): string | null {
-  if (detection.supported === false) {
-    return detection.unsupportedReason || `${agent.label} is not installed or is not available on PATH.`;
-  }
-
-  if (detection.authState === 'missing') {
-    if (agent.id === 'claude') {
-      return claudeMissingAuthReason(agent, detection);
-    }
-    return `${agent.label} is not authenticated. Run ${agent.id === 'claude' ? 'claude auth login' : `${agent.id} login`} first.`;
-  }
-
-  if (detection.authState === 'expired') {
-    return `${agent.label} authentication has expired.`;
-  }
-
-  return null;
-}
-
-function claudeMissingAuthReason(agent: RuntimeAgentDef, detection: AgentDetection): string {
-  const claudeHome = detection.configDir ? dirname(detection.configDir) : null;
-  const loginCommand = claudeHome
-    ? `HOME="${claudeHome}" claude auth login`
-    : 'claude auth login';
-  return `${agent.label} is not authenticated for this app workspace. Run ${loginCommand} first.`;
+  });
 }

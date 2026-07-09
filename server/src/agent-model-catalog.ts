@@ -1,11 +1,10 @@
 import {
   createLocalAgentRuntime,
-  type AgentDetection,
   type DetectContext,
 } from '@tutti-os/agent-acp-kit';
-import type { ModelSummary, RuntimeAgentDef } from './agents.js';
+import type { ModelSummary } from './agents.js';
 import { createVibeLocalAgentProviderPlugins } from './local-agent-providers.js';
-import { agentRegistry } from './runtimes/index.js';
+import { resolveTuttiAgentProviderCatalog } from './tutti/index.js';
 
 export interface AgentModelCatalogEntry {
   id: string;
@@ -20,33 +19,29 @@ const agentModelRuntime = createLocalAgentRuntime({
 });
 
 export async function detectLocalAgentModelCatalog(context?: DetectContext): Promise<AgentModelCatalogEntry[]> {
-  const detections = await agentModelRuntime.detect(context);
-  const byProvider = new Map<string, AgentDetection | null>();
-  for (const detection of detections) {
-    byProvider.set(detection.provider, detection.result);
-  }
+  const catalog = await resolveTuttiAgentProviderCatalog({
+    runtime: agentModelRuntime,
+    detectContext: context,
+    workspaceCwd: process.env.TUTTI_WORKSPACE_ROOT?.trim() || undefined,
+  });
 
-  return agentRegistry.listAgentDefs().map((agent) => modelCatalogEntryFromDetection(agent, byProvider.get(agent.id)));
+  return catalog.providers
+    .filter((entry) => entry.available)
+    .map((entry) => ({
+      id: entry.provider,
+      label: entry.displayName,
+      models: sanitizeModelOptions(
+        entry.models.map((model) => ({
+          id: model.id,
+          label: model.label,
+          ...(model.description ? { description: model.description } : {}),
+        })),
+      ),
+    }));
 }
 
 export function fallbackAgentModelCatalog(): AgentModelCatalogEntry[] {
-  return agentRegistry.listAgentDefs().map((agent) => ({
-    id: agent.id,
-    label: agent.label,
-    models: sanitizeModelOptions(agent.models),
-  }));
-}
-
-export function modelCatalogEntryFromDetection(
-  agent: RuntimeAgentDef,
-  detection: AgentDetection | null | undefined,
-): AgentModelCatalogEntry {
-  const detectedModels = sanitizeModelOptions(detection?.models);
-  return {
-    id: agent.id,
-    label: agent.label,
-    models: detectedModels.length > 0 ? detectedModels : sanitizeModelOptions(agent.models),
-  };
+  return [];
 }
 
 function sanitizeModelOptions(models: readonly ModelSummary[] | undefined): ModelSummary[] {
