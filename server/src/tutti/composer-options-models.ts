@@ -53,7 +53,7 @@ function settingOptionsFromRawOptions(
 
 function settingOptionsFromComposerConfig(config: Record<string, unknown>): TuttiAgentProviderCatalogModel[] {
   const options = settingOptionsFromRawOptions(config.options, {
-    labelKeys: ["label", "name", "displayName"],
+    labelKeys: ["label", "name", "displayName", "display_name"],
     valueKeys: ["value", "id"],
   });
   const currentValue = readString(config.currentValue ?? config.current_value ?? config.defaultValue);
@@ -73,11 +73,11 @@ function settingOptionsFromConfigOption(
       .map((item) => toRecord(item))
       .find((option) => {
         const id = readString(option?.id);
-        return id ? idSet.has(id) : false;
+        return (id ? idSet.has(id) : false) || readString(option?.category) === "model";
       }) ?? null;
   if (!configOption) return [];
   const options = settingOptionsFromRawOptions(configOption.options, {
-    labelKeys: ["name", "label", "displayName"],
+    labelKeys: ["name", "label", "displayName", "display_name"],
     valueKeys: ["value", "id"],
   });
   const currentValue = readString(configOption.currentValue ?? configOption.current_value);
@@ -100,8 +100,14 @@ export function modelsFromTuttiComposerOptions(value: unknown): {
   const modelsFromConfig = settingOptionsFromComposerConfig(modelConfig);
   const modelsFromLiveConfig = settingOptionsFromConfigOption(rawConfigOptions, ["model"]);
   const models = modelsFromLiveConfig.length > 0 ? modelsFromLiveConfig : modelsFromConfig;
+  const liveModelConfig = rawConfigOptions
+    .map((item) => toRecord(item))
+    .find((option) => readString(option?.id) === "model" || readString(option?.category) === "model");
   const defaultModelId =
-    readString(modelConfig.currentValue)
+    readString(liveModelConfig?.currentValue)
+    ?? readString(liveModelConfig?.current_value)
+    ?? readString(liveModelConfig?.defaultValue)
+    ?? readString(modelConfig.currentValue)
     ?? readString(modelConfig.current_value)
     ?? readString(modelConfig.defaultValue)
     ?? models[0]?.id;

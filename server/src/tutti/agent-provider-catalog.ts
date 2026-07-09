@@ -1,4 +1,4 @@
-import type { DetectContext, LocalAgentRuntime } from "@tutti-os/agent-acp-kit-base";
+import type { DetectContext, LocalAgentRuntime } from "@tutti-os/agent-acp-kit";
 import { modelsFromTuttiComposerOptions } from "./composer-options-models.js";
 import {
   displayNameForAgentProvider,
@@ -38,7 +38,7 @@ export {
 } from "./agent-provider-id.js";
 
 export interface ResolveTuttiAgentProviderCatalogInput {
-  runtime: LocalAgentRuntime;
+  runtime: Pick<LocalAgentRuntime, "detect">;
   detectContext?: DetectContext;
   daemon?: TuttiDaemonClientOptions;
   workspaceCwd?: string;
@@ -52,8 +52,8 @@ export async function resolveTuttiAgentProviderCatalog(
 ): Promise<TuttiAgentProviderCatalogResult> {
   const daemonOptions = input.daemon ?? {};
   const includeComposerModels = input.includeComposerModels !== false;
-  const preferences = await queryTuttiDesktopPreferences(daemonOptions);
-  const [daemonSnapshot, kitDetections] = await Promise.all([
+  const [preferences, daemonSnapshot, kitDetections] = await Promise.all([
+    queryTuttiDesktopPreferences(daemonOptions),
     queryTuttiAgentProviderStatuses([], daemonOptions),
     input.runtime.detect(input.detectContext),
   ]);
@@ -64,12 +64,17 @@ export async function resolveTuttiAgentProviderCatalog(
 
   let providers: TuttiAgentProviderCatalogEntry[];
   if (daemonSnapshot?.providers?.length) {
-    providers = daemonSnapshot.providers.map((status) =>
-      mergeDaemonAndKitStatus(
-        status,
-        kitByProvider.get(toKitAgentProviderId(status.provider)),
-      ),
+    const daemonProviderKeys = new Set(
+      daemonSnapshot.providers.map((status) => toKitAgentProviderId(status.provider)),
     );
+    providers = [
+      ...daemonSnapshot.providers.map((status) =>
+        mergeDaemonAndKitStatus(status, kitByProvider.get(toKitAgentProviderId(status.provider))),
+      ),
+      ...buildKitFallbackCatalog(
+        kitDetections.filter((detection) => !daemonProviderKeys.has(toKitAgentProviderId(detection.provider))),
+      ),
+    ];
   } else {
     providers = buildKitFallbackCatalog(kitDetections);
   }
@@ -100,7 +105,8 @@ function mergeDaemonAndKitStatus(
 ): TuttiAgentProviderCatalogEntry {
   const kitProvider = toKitAgentProviderId(daemonStatus.provider);
   const kitResult = kitDetection?.result ?? null;
-  const available = daemonStatus.availability?.status === "ready";
+  const availability = daemonStatus.availability?.status?.toLowerCase();
+  const available = availability === "ready" || availability === "available";
   const reason = available ? undefined : unavailableReasonFromTuttiAgentProvider(daemonStatus);
   const daemonModels = parseDaemonStatusModels(daemonStatus);
   const kitModels = (kitResult?.models ?? []).map((model) => ({
@@ -130,7 +136,7 @@ function mergeDaemonAndKitStatus(
       daemonStatus.cli?.version
       ?? kitResult?.version
       ?? (available ? "" : "not-installed"),
-    configDir: kitResult?.configDir,
+    ...(kitResult?.configDir ? { configDir: kitResult.configDir } : {}),
     models: daemonModels?.length ? daemonModels : kitModels,
     ...(defaultModelId ? { defaultModelId } : {}),
     ...(reason ? { reason } : {}),
@@ -157,10 +163,15 @@ function buildKitFallbackCatalog(
       authState: detection.result?.authState ?? "unknown",
       executablePath: detection.result?.executablePath ?? "",
       version: detection.result?.version ?? "not-installed",
-      configDir: detection.result?.configDir,
+      ...(detection.result?.configDir
+        ? { configDir: detection.result.configDir }
+        : {}),
       models: (detection.result?.models ?? []).map((model) => ({
         id: model.id,
         label: model.label,
+        ...("description" in model && typeof model.description === "string"
+          ? { description: model.description }
+          : {}),
       })),
       ...(reason ? { reason } : {}),
     };

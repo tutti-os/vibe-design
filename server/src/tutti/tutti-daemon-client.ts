@@ -87,7 +87,11 @@ function readEnv(options: TuttiDaemonClientOptions) {
     apiBaseUrl: options.apiBaseUrl?.trim() || process.env.TUTTI_API_BASE_URL?.trim() || "",
     appId: options.appId?.trim() || process.env.TUTTI_APP_ID?.trim() || "",
     appServerToken: options.appServerToken?.trim() || process.env.TUTTI_APP_SERVER_TOKEN?.trim() || "",
-    tuttiCliPath: options.tuttiCliPath?.trim() || process.env.TUTTI_CLI?.trim() || "",
+    tuttiCliPath:
+      options.tuttiCliPath?.trim()
+      || process.env.VIBE_TUTTI_CLI?.trim()
+      || process.env.TUTTI_CLI?.trim()
+      || "",
     workspaceId: options.workspaceId?.trim() || process.env.TUTTI_WORKSPACE_ID?.trim() || "",
     requestTimeoutMs: options.requestTimeoutMs ?? 15_000,
   };
@@ -268,7 +272,7 @@ export async function queryTuttiAgentProviderStatuses(
     }
   }
 
-  if (!env.tuttiCliPath) return null;
+  if (!env.tuttiCliPath && !options.runTuttiCli) return null;
   const payload = await runTuttiCliJson(
     ["agent", "providers"],
     options,
@@ -355,7 +359,7 @@ export async function queryTuttiAgentProviderComposerOptions(
     return unwrapDaemonPayload(payload);
   }
 
-  if (!env.tuttiCliPath) return null;
+  if (!env.tuttiCliPath && !options.runTuttiCli) return null;
   const args = ["agent", "composer-options", "--provider", provider];
   if (options.cwd) args.push("--cwd", options.cwd);
   if (env.workspaceId) args.push("--workspace-id", env.workspaceId);

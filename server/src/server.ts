@@ -868,7 +868,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   app.get('/api/agents/availability', async (req: Request, res: Response): Promise<void> => {
     const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
     res.json({
-      agentAvailability: await cachedAgentAvailability.detect(detectContext),
+      agentAvailability: await cachedAgentAvailability.detect(detectContext, { refresh: true }),
     });
   });
 

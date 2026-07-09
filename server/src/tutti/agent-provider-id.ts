@@ -9,7 +9,7 @@ export function toKitAgentProviderId(daemonProviderId: string): string {
   const normalized = daemonProviderId.trim().toLowerCase();
   if (normalized === "claude-code") return "claude";
   if (normalized === "tutti-agent") return "nexight";
-  return normalized.replace(/[^a-z0-9_.-]/g, "");
+  return normalized.replace(/[^a-z0-9_.:-]/g, "");
 }
 
 export function displayNameForAgentProvider(provider: string, fallback?: string | null): string {

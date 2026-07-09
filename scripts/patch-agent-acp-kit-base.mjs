@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,6 +32,18 @@ const kitRoot = resolveKitRoot();
 const acpClientPath = path.join(kitRoot, "dist/transports/acp/acp-client.js");
 const acpPermissionsPath = path.join(kitRoot, "dist/transports/acp/acp-permissions.js");
 const acpSessionPath = path.join(kitRoot, "dist/transports/acp/acp-session.js");
+const targetPaths = [acpClientPath, acpPermissionsPath, acpSessionPath];
+
+if (process.argv.includes("--restore")) {
+  for (const targetPath of targetPaths) {
+    const backupPath = `${targetPath}.vibe-design-original`;
+    if (!existsSync(backupPath)) continue;
+    writeFileSync(targetPath, readFileSync(backupPath));
+    rmSync(backupPath);
+  }
+  console.log("[patch-agent-acp-kit-base] restored original dependency files");
+  process.exit(0);
+}
 
 let source = readFileSync(acpClientPath, "utf8");
 let sessionSource = readFileSync(acpSessionPath, "utf8");
@@ -42,29 +54,21 @@ let permissionsChanged = false;
 
 function patchFile(label, legacy, patched, alreadyMarker, target = "client") {
   const buckets = {
-    client: source,
-    session: sessionSource,
-    permissions: permissionsSource,
+    client: { read: () => source, write: (next) => { source = next; changed = true; } },
+    session: { read: () => sessionSource, write: (next) => { sessionSource = next; sessionChanged = true; } },
+    permissions: { read: () => permissionsSource, write: (next) => { permissionsSource = next; permissionsChanged = true; } },
   };
   const bucket = buckets[target];
-  if (alreadyMarker && bucket.includes(alreadyMarker)) {
+  if (!bucket) throw new Error(`[patch-agent-acp-kit-base] unsupported target ${target}`);
+  const current = bucket.read();
+  if (alreadyMarker && current.includes(alreadyMarker)) {
     console.log(`[patch-agent-acp-kit-base] skip ${label} (already applied)`);
     return;
   }
-  if (!bucket.includes(legacy)) {
+  if (!current.includes(legacy)) {
     throw new Error(`[patch-agent-acp-kit-base] ${label} target not found`);
   }
-  const next = bucket.replace(legacy, patched);
-  if (target === "permissions") {
-    permissionsSource = next;
-    permissionsChanged = true;
-  } else if (target === "session") {
-    sessionSource = next;
-    sessionChanged = true;
-  } else {
-    source = next;
-    changed = true;
-  }
+  bucket.write(current.replace(legacy, patched));
   console.log(`[patch-agent-acp-kit-base] ${label}`);
 }
 
@@ -111,16 +115,7 @@ patchFile(
             const params = (message.params ?? {});
             if (message.id !== undefined) {
                 const options = Array.isArray(params.options) ? params.options : [];
-                const selectedOptionId = choosePermissionOutcome(options)
-                    ?? options.find((option) => option?.kind === "allow_once")?.optionId
-                    ?? options.find((option) => option?.kind === "allow_always")?.optionId
-                    ?? options.find((option) => typeof option?.optionId === "string")?.optionId
-                    ?? (typeof options[0]?.optionId === "string" ? options[0].optionId : undefined);
-                console.error("[agent-acp-patch-debug] " + JSON.stringify({
-                    stage: "session/request_permission",
-                    selectedOptionId: selectedOptionId ?? null,
-                    optionCount: options.length,
-                }));
+                const selectedOptionId = choosePermissionOutcome(options);
                 sendJsonRpc(processHandle.child.stdin, {
                     jsonrpc: "2.0",
                     id: message.id,
@@ -188,7 +183,6 @@ patchFile(
   `    let lifecycleSettled = false;
     const runLifecycle = async () => {
         try {
-            console.error("[agent-acp-patch-debug] " + JSON.stringify({ stage: "initialize" }));
             await sendRequest("initialize", {
                 clientInfo: { name: "agent-acp-kit", version: "0.0.0" },
                 protocolVersion: 1,
@@ -198,7 +192,6 @@ patchFile(
                     _meta: { terminal_output: true },
                 },
             });
-            console.error("[agent-acp-patch-debug] " + JSON.stringify({ stage: "session/new", cwd: params.cwd }));
             const newSessionResult = await sendRequest("session/new", buildAcpSessionNewParams(params.cwd, params.mcpServers || params.resume
                 ? {
                     ...(params.mcpServers ? { mcpServers: params.mcpServers } : {}),
@@ -208,19 +201,13 @@ patchFile(
             captureSessionMetadata(newSessionResult);
             if (params.model && sessionId) {
                 try {
-                    console.error("[agent-acp-patch-debug] " + JSON.stringify({ stage: "session/set_config_option", model: params.model }));
                     await sendRequest("session/set_config_option", {
                         sessionId,
                         configId: "model",
                         value: params.model,
                     });
                 }
-                catch (modelConfigError) {
-                    console.error("[agent-acp-patch-debug] " + JSON.stringify({
-                        stage: "session/set_config_option",
-                        model: params.model,
-                        error: modelConfigError instanceof Error ? modelConfigError.message : String(modelConfigError),
-                    }));
+                catch {
                     await sendRequest("session/set_model", {
                         sessionId,
                         modelId: params.model,
@@ -230,15 +217,10 @@ patchFile(
             const promptContent = typeof params.prompt === "string"
                 ? [{ type: "text", text: params.prompt }]
                 : params.prompt;
-            console.error("[agent-acp-patch-debug] " + JSON.stringify({
-                stage: "session/prompt",
-                promptChars: typeof params.prompt === "string" ? params.prompt.length : JSON.stringify(promptContent).length,
-            }));
             await sendRequest("session/prompt", {
                 ...(sessionId ? { sessionId } : {}),
                 prompt: promptContent,
             });
-            console.error("[agent-acp-patch-debug] " + JSON.stringify({ stage: "session/prompt_done" }));
             queue.push({
                 type: "done",
                 status: "completed",
@@ -249,10 +231,6 @@ patchFile(
             processHandle.child.kill();
         }
         catch (error) {
-            console.error("[agent-acp-patch-debug] " + JSON.stringify({
-                stage: "acp_lifecycle",
-                error: error instanceof Error ? error.message : String(error),
-            }));
             fatalError = true;
             queue.push({
                 type: "error",
@@ -321,19 +299,27 @@ patchFile(
 );
 
 if (changed) {
+  writeBackup(acpClientPath);
   writeFileSync(acpClientPath, source);
 } else {
   console.log("[patch-agent-acp-kit-base] acp-client already patched");
 }
 
 if (sessionChanged) {
+  writeBackup(acpSessionPath);
   writeFileSync(acpSessionPath, sessionSource);
 } else {
   console.log("[patch-agent-acp-kit-base] acp-session already patched");
 }
 
 if (permissionsChanged) {
+  writeBackup(acpPermissionsPath);
   writeFileSync(acpPermissionsPath, permissionsSource);
 } else {
   console.log("[patch-agent-acp-kit-base] acp-permissions already patched");
+}
+
+function writeBackup(targetPath) {
+  const backupPath = `${targetPath}.vibe-design-original`;
+  if (!existsSync(backupPath)) writeFileSync(backupPath, readFileSync(targetPath));
 }

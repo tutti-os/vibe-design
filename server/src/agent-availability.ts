@@ -27,9 +27,9 @@ export async function detectLocalAgentAvailability(context?: DetectContext): Pro
   return catalog.providers.map((entry) => ({
     id: entry.provider,
     label: entry.displayName,
-    available: entry.available,
+    available: entry.available && entry.authState !== 'missing' && entry.authState !== 'expired',
     authState: entry.authState,
-    supported: entry.available,
+    supported: !/not supported/i.test(entry.reason ?? ''),
     ...(entry.reason ? { unavailableReason: entry.reason } : {}),
     version: entry.version,
   }));
@@ -57,7 +57,14 @@ function findFallbackAgent(
   agents: AgentAvailability[],
   requestedProvider: string,
 ): AgentAvailability | null {
-  return agents.find((candidate) => candidate.id !== requestedProvider && candidate.available) ?? null;
+  const fallbackProvider = requestedProvider === 'codex'
+    ? 'claude'
+    : requestedProvider === 'claude'
+      ? 'codex'
+      : null;
+  return fallbackProvider
+    ? agents.find((candidate) => candidate.id === fallbackProvider && candidate.available) ?? null
+    : null;
 }
 
 /**

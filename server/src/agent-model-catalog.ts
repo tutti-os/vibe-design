@@ -3,6 +3,7 @@ import {
   type DetectContext,
 } from '@tutti-os/agent-acp-kit';
 import type { ModelSummary } from './agents.js';
+import { AGENT_DEFS } from './runtimes/index.js';
 import { createVibeLocalAgentProviderPlugins } from './local-agent-providers.js';
 import { resolveTuttiAgentProviderCatalog } from './tutti/index.js';
 
@@ -26,7 +27,6 @@ export async function detectLocalAgentModelCatalog(context?: DetectContext): Pro
   });
 
   return catalog.providers
-    .filter((entry) => entry.available)
     .map((entry) => ({
       id: entry.provider,
       label: entry.displayName,
@@ -41,7 +41,11 @@ export async function detectLocalAgentModelCatalog(context?: DetectContext): Pro
 }
 
 export function fallbackAgentModelCatalog(): AgentModelCatalogEntry[] {
-  return [];
+  return AGENT_DEFS.map((agent) => ({
+    id: agent.id,
+    label: agent.label,
+    models: sanitizeModelOptions(agent.models),
+  }));
 }
 
 function sanitizeModelOptions(models: readonly ModelSummary[] | undefined): ModelSummary[] {

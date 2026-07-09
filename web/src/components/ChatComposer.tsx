@@ -29,6 +29,11 @@ import type {
   ContextSearchResultItem,
 } from '../services/context-picker/context-picker-types';
 import type { CanvasCommentAttachment, ChatAttachment } from '../types';
+import type {
+  AgentAvailability as ChatComposerAgentAvailability,
+  AgentModelCatalogEntry as ChatComposerAgentModelCatalogEntry,
+  AgentModelOption as ChatComposerModelOption,
+} from '../services/agent-catalog/agent-catalog-types';
 import { useTranslation } from '../i18n';
 import { DesignSystemPickerDialog } from './DesignSystemPickerDialog';
 import {
@@ -49,6 +54,14 @@ type ModelProviderEntry = {
   label: string;
   comingSoon?: boolean;
 };
+
+const DEFAULT_MODEL_PROVIDERS: ModelProviderEntry[] = [
+  { value: 'codex', label: 'Codex' },
+  { value: 'claude-code', label: 'Claude Code' },
+  { value: 'tutti', label: 'Tutti', comingSoon: true },
+  { value: 'hermes', label: 'Hermes', comingSoon: true },
+  { value: 'openclaw', label: 'OpenClaw', comingSoon: true },
+];
 
 export interface ChatComposerProps {
   streaming: boolean;
@@ -84,26 +97,11 @@ export interface ChatComposerProps {
   onStop(): void | Promise<void>;
 }
 
-export interface ChatComposerAgentAvailability {
-  id: string;
-  label: string;
-  available: boolean;
-  authState?: 'ok' | 'missing' | 'expired' | 'unknown';
-  supported?: boolean;
-  unavailableReason?: string;
-}
-
-export interface ChatComposerModelOption {
-  id: string;
-  label: string;
-  description?: string;
-}
-
-export interface ChatComposerAgentModelCatalogEntry {
-  agentId: string;
-  label: string;
-  models: ChatComposerModelOption[];
-}
+export type {
+  ChatComposerAgentAvailability,
+  ChatComposerAgentModelCatalogEntry,
+  ChatComposerModelOption,
+};
 
 export interface ChatComposerDesignSystem {
   id: string;
@@ -161,7 +159,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const draft = controlledDraft ?? uncontrolledDraft;
     const hasCommentAttachments = commentAttachments.length > 0;
-    const activeModelProviders = useMemo(() => {
+    const activeModelProviders = useMemo<ModelProviderEntry[]>(() => {
       const byAgentId = new Map<string, { value: string; label: string }>();
       for (const agent of agentAvailability) {
         byAgentId.set(agent.id, { value: modelProviderFromAgentId(agent.id), label: agent.label });
@@ -176,12 +174,13 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       }
       return Array.from(byAgentId.values());
     }, [agentAvailability, agentModelCatalog]);
-    const modelProviders = useMemo(
-      () => [...activeModelProviders],
-      [activeModelProviders],
-    );
+    const modelProviders = useMemo(() => {
+      const providers = new Map(DEFAULT_MODEL_PROVIDERS.map((provider) => [provider.value, provider]));
+      for (const provider of activeModelProviders) providers.set(provider.value, provider);
+      return Array.from(providers.values());
+    }, [activeModelProviders]);
     const activeModelProviderIds = useMemo(
-      () => new Set(activeModelProviders.map((provider) => provider.value)),
+      () => new Set(['codex', 'claude-code', ...activeModelProviders.map((provider) => provider.value)]),
       [activeModelProviders],
     );
     const lockedModelProvider = lockedAgentId ? modelProviderFromAgentId(lockedAgentId) : null;
@@ -867,7 +866,7 @@ function unavailableReasonForAvailability(agent: ChatComposerAgentAvailability |
 
 function canInstallUnavailableAgent(agent: ChatComposerAgentAvailability | null): boolean {
   if (!agent || agent.available) return false;
-  if (agent.supported === false) return true;
+  if (agent.supported === false) return false;
   if (agent.supported === true) return false;
 
   return agent.authState === undefined &&

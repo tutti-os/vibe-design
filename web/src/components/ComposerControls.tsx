@@ -128,6 +128,7 @@ export function ComposerModelProviderIcon({
   const iconUrl = modelProviderIconUrl(provider);
   return (
     <img
+      key={iconUrl}
       src={iconUrl}
       alt=""
       aria-hidden

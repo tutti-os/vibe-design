@@ -209,6 +209,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     };
 
     const requestedModel = readString(request.model);
+    const normalizedModel = requestedModel ? localAgentModelIdForAcp(requestedModel, agentId) : null;
     const agentRunInput: AcpAgentRunInput = {
       runId: run.id,
       provider: agentId,
@@ -216,7 +217,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       prompt,
       systemPrompt: runtimeSystemPrompt,
       ...(history.length > 0 ? { history } : {}),
-      ...(requestedModel ? { model: localAgentModelIdForAcp(requestedModel, agentId) } : {}),
+      ...(normalizedModel ? { model: normalizedModel } : {}),
       ...(readString(request.reasoning) ? { reasoning: readString(request.reasoning) ?? undefined } : {}),
       ...(managedAgentInvocation ? { managedAgentInvocation } : {}),
       ...(tuttiSkillBundle.skillManifest.length > 0 ? { skillManifest: tuttiSkillBundle.skillManifest } : {}),

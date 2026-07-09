@@ -34,6 +34,11 @@ import { IPreviewCommentService } from './services/preview-comments/preview-comm
 import type { PreviewCommentSnapshot } from './services/preview-comments/preview-comment-types';
 import type { ChatAttachment, ProjectFile } from './types';
 import { useTranslation } from './i18n';
+import {
+  fetchAgentAvailability,
+  fetchAgentModelCatalog,
+  installClaudeCodeAgent,
+} from './services/agent-catalog/agent-catalog-api';
 
 const CHAT_PANEL_MIN_WIDTH = 360;
 const CHAT_PANEL_MAX_WIDTH = 600;
@@ -696,97 +701,6 @@ async function saveUploadedDesignStyleFile(
     throw new Error(text.importError);
   }
   return { ...designSystem, source: 'user' };
-}
-
-async function installClaudeCodeAgent(): Promise<ChatComposerAgentAvailability[]> {
-  const response = await fetch('/api/agents/claude/install', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({}),
-  });
-  const data = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    throw new Error(readApiErrorMessage(data) ?? 'Claude Code installation failed.');
-  }
-
-  return readAgentAvailability(data);
-}
-
-async function fetchAgentModelCatalog(): Promise<ChatComposerAgentModelCatalogEntry[]> {
-  const response = await fetch('/api/agents/models');
-  const data = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    return [];
-  }
-
-  return readAgentModelCatalog(data);
-}
-
-async function fetchAgentAvailability(): Promise<ChatComposerAgentAvailability[]> {
-  const response = await fetch('/api/agents/availability');
-  const data = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    return [];
-  }
-
-  return readAgentAvailability(data);
-}
-
-function readAgentModelCatalog(data: unknown): ChatComposerAgentModelCatalogEntry[] {
-  const value = isRecord(data) ? data.agents : null;
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    if (!isRecord(item) || !isAgentId(item.id) || typeof item.label !== 'string' || !Array.isArray(item.models)) {
-      return [];
-    }
-
-    const models = item.models.flatMap((model) => {
-      if (!isRecord(model) || typeof model.id !== 'string' || typeof model.label !== 'string') {
-        return [];
-      }
-      return [
-        {
-          id: model.id,
-          label: model.label,
-          ...(typeof model.description === 'string' && model.description.trim()
-            ? { description: model.description }
-            : {}),
-        },
-      ];
-    });
-
-    return [{ agentId: item.id, label: item.label, models }];
-  });
-}
-
-function isAgentId(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
-}
-
-function readAgentAvailability(data: unknown): ChatComposerAgentAvailability[] {
-  const value = isRecord(data) ? data.agentAvailability : null;
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    if (!isRecord(item) || typeof item.id !== 'string' || typeof item.label !== 'string') {
-      return [];
-    }
-
-    return [{
-      id: item.id,
-      label: item.label,
-      available: item.available === true,
-      ...(isAgentAuthState(item.authState) ? { authState: item.authState } : {}),
-      ...(typeof item.supported === 'boolean' ? { supported: item.supported } : {}),
-      ...(typeof item.unavailableReason === 'string' ? { unavailableReason: item.unavailableReason } : {}),
-    }];
-  });
-}
-
-function isAgentAuthState(value: unknown): value is NonNullable<ChatComposerAgentAvailability['authState']> {
-  return value === 'ok' || value === 'missing' || value === 'expired' || value === 'unknown';
 }
 
 function readApiErrorMessage(data: unknown): string | null {
