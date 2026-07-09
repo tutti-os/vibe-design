@@ -634,8 +634,6 @@ function dashboardModelOptionsFromCatalog(
 ): DashboardModelOption[] {
   return catalog.flatMap((entry) => {
     const provider = dashboardModelProviderFromAgentId(entry.agentId);
-    if (!provider) return [];
-
     return entry.models.map((model) => ({
       key: `${provider}:${model.id}`,
       provider,
@@ -676,24 +674,22 @@ function groupDashboardModelOptions(modelOptions: DashboardModelOption[]): Compo
   return groups;
 }
 
-function dashboardModelProviderFromAgentId(agentId: 'codex' | 'claude'): ComposerModelProvider | null {
-  if (agentId === 'codex') return 'codex';
-  if (agentId === 'claude') return 'claude-code';
-  return null;
+function dashboardModelProviderFromAgentId(agentId: string): ComposerModelProvider {
+  return agentId === 'claude' ? 'claude-code' : agentId;
 }
 
 function shouldSendDashboardModel(model: DashboardModelOption): boolean {
   return !(model.agentId === 'codex' && model.modelId === 'default');
 }
 
-function isDashboardAgentId(value: unknown): value is 'codex' | 'claude' {
-  return value === 'codex' || value === 'claude';
+function isDashboardAgentId(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 interface DashboardModelOption {
   key: string;
   provider: ComposerModelProvider;
-  agentId: 'codex' | 'claude';
+  agentId: string;
   providerLabel: string;
   modelId: string;
   modelLabel: string | null;

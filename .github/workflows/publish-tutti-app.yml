@@ -33,6 +33,7 @@ jobs:
     uses: tutti-os/tutti/.github/workflows/publish-tutti-app-release.yml@main
     with:
       app_id: vibe-design
+      min_tutti_version: "0.1.18"
       package_command: pnpm package:tutti-app
       package_dir: dist/tutti-app/vibe-design
       icon_path: dist/tutti-app/vibe-design/icon.png

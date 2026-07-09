@@ -1,14 +1,15 @@
-import { dirname } from 'node:path';
-import type { AgentDetection, DetectContext } from '@tutti-os/agent-acp-kit';
-import type { RuntimeAgentDef } from './agents.js';
+import type { DetectContext } from '@tutti-os/agent-acp-kit';
 import { localAgentRuntime } from './local-agent-runtime.js';
-import { agentRegistry } from './runtimes/index.js';
+import { resolveTuttiAgentProviderCatalog } from './tutti/index.js';
+import {
+  displayNameForAgentProvider,
+} from './tutti/agent-provider-id.js';
 
 export interface AgentAvailability {
   id: string;
   label: string;
   available: boolean;
-  authState?: AgentDetection['authState'];
+  authState?: 'ok' | 'missing' | 'expired' | 'unknown';
   supported?: boolean;
   unavailableReason?: string;
   version?: string;
@@ -17,16 +18,21 @@ export interface AgentAvailability {
 export type DetectAgentAvailability = (context?: DetectContext) => Promise<AgentAvailability[]>;
 
 export async function detectLocalAgentAvailability(context?: DetectContext): Promise<AgentAvailability[]> {
-  const detections = await localAgentRuntime.detect(context);
-  const byProvider = new Map<string, (typeof detections)[number]>();
-  for (const detection of detections) {
-    byProvider.set(detection.provider, detection);
-  }
-
-  return agentRegistry.listAgentDefs().map((agent) => {
-    const detection = byProvider.get(agent.id);
-    return availabilityFromDetection(agent, detection?.result ?? null);
+  const catalog = await resolveTuttiAgentProviderCatalog({
+    runtime: localAgentRuntime,
+    detectContext: context,
+    workspaceCwd: process.env.TUTTI_WORKSPACE_ROOT?.trim() || undefined,
   });
+
+  return catalog.providers.map((entry) => ({
+    id: entry.provider,
+    label: entry.displayName,
+    available: entry.available && entry.authState !== 'missing' && entry.authState !== 'expired',
+    authState: entry.authState,
+    supported: !/not supported/i.test(entry.reason ?? ''),
+    ...(entry.reason ? { unavailableReason: entry.reason } : {}),
+    version: entry.version,
+  }));
 }
 
 export function findUnavailableAgent(
@@ -37,53 +43,53 @@ export function findUnavailableAgent(
   return agent && !agent.available ? agent : null;
 }
 
-/** The provider we want to use by default, and the provider we fall back to when it breaks. */
+/** Default provider when callers omit an explicit agent id. */
 export const PRIMARY_AGENT_ID = 'codex';
-export const FALLBACK_AGENT_ID = 'claude';
 
 export interface AgentFallback {
-  /** Provider the caller asked for (or the default) that turned out to be unusable. */
   fromAgentId: string;
-  /** Provider we switched to instead. */
   toAgentId: string;
-  /** When/why the switch happened relative to the agent run. */
   stage: 'pre-session' | 'in-session' | 'conversation-locked';
-  /** Human-readable reason the original provider was abandoned. */
   reason: string;
 }
 
-function findAvailable(agents: AgentAvailability[], agentId: string): AgentAvailability | null {
-  return agents.find((candidate) => candidate.id === agentId && candidate.available) ?? null;
+function findFallbackAgent(
+  agents: AgentAvailability[],
+  requestedProvider: string,
+): AgentAvailability | null {
+  const fallbackProvider = requestedProvider === 'codex'
+    ? 'claude'
+    : requestedProvider === 'claude'
+      ? 'codex'
+      : null;
+  return fallbackProvider
+    ? agents.find((candidate) => candidate.id === fallbackProvider && candidate.available) ?? null
+    : null;
 }
 
 /**
- * Decide whether a requested provider should be swapped for the fallback provider *before* a
- * session is started, based on detected availability. Only the primary provider (codex) falls
- * back, and only when the fallback (claude) is actually available. Returns null when no swap
- * applies (the normal flow — including surfacing an AGENT_UNAVAILABLE error — then continues).
+ * When the requested provider is unavailable before a session starts, switch to the first
+ * other available provider instead of failing the call.
  */
 export function resolvePreSessionFallback(
   agents: AgentAvailability[],
   requestedProvider: string,
 ): AgentFallback | null {
-  if (requestedProvider !== PRIMARY_AGENT_ID) {
+  const requested = agents.find((candidate) => candidate.id === requestedProvider) ?? null;
+  if (!requested || requested.available) {
     return null;
   }
 
-  const primary = agents.find((candidate) => candidate.id === PRIMARY_AGENT_ID) ?? null;
-  if (!primary || primary.available) {
-    return null;
-  }
-
-  if (!findAvailable(agents, FALLBACK_AGENT_ID)) {
+  const fallback = findFallbackAgent(agents, requestedProvider);
+  if (!fallback) {
     return null;
   }
 
   return {
-    fromAgentId: PRIMARY_AGENT_ID,
-    toAgentId: FALLBACK_AGENT_ID,
+    fromAgentId: requestedProvider,
+    toAgentId: fallback.id,
     stage: 'pre-session',
-    reason: primary.unavailableReason ?? `${primary.label} is unavailable.`,
+    reason: requested.unavailableReason ?? `${requested.label} is unavailable.`,
   };
 }
 
@@ -128,96 +134,38 @@ export function isAgentBrokenFailure(errorCode: string | null, message: string |
 }
 
 /**
- * Decide whether to retry on the fallback provider *after* a run has already failed. Applies only
- * when the primary provider (codex) was the one that failed, the failure looks like the provider
- * is broken, and the fallback (claude) is available.
+ * After a run fails in a provider-broken way, retry on the first other available provider.
  */
 export function resolveRunFailureFallback(
   agents: AgentAvailability[],
   agentId: string,
   failure: { errorCode: string | null; error: string | null },
 ): AgentFallback | null {
-  if (agentId !== PRIMARY_AGENT_ID) {
-    return null;
-  }
-
   if (!isAgentBrokenFailure(failure.errorCode, failure.error)) {
     return null;
   }
 
-  if (!findAvailable(agents, FALLBACK_AGENT_ID)) {
+  const fallback = findFallbackAgent(agents, agentId);
+  if (!fallback) {
     return null;
   }
 
   return {
-    fromAgentId: PRIMARY_AGENT_ID,
-    toAgentId: FALLBACK_AGENT_ID,
+    fromAgentId: agentId,
+    toAgentId: fallback.id,
     stage: 'in-session',
-    reason: failure.error ?? `${PRIMARY_AGENT_ID} run failed.`,
+    reason: failure.error ?? `${agentId} run failed.`,
   };
 }
 
 export function unavailableAgentsForDetectionFailure(error: unknown): AgentAvailability[] {
   const reason = error instanceof Error ? error.message : 'Agent detection failed.';
-  return agentRegistry.listAgentDefs().map((agent) => ({
-    id: agent.id,
-    label: agent.label,
-    available: false,
-    unavailableReason: reason,
-  }));
-}
-
-function availabilityFromDetection(
-  agent: RuntimeAgentDef,
-  detection: AgentDetection | null,
-): AgentAvailability {
-  if (!detection) {
+  return localAgentRuntime.listProviders().map((provider) => {
     return {
-      id: agent.id,
-      label: agent.label,
+      id: provider.id,
+      label: displayNameForAgentProvider(provider.id),
       available: false,
-      unavailableReason: `${agent.label} detection is unavailable.`,
+      unavailableReason: reason,
     };
-  }
-
-  const unavailableReason = unavailableReasonForDetection(agent, detection);
-  return {
-    id: agent.id,
-    label: agent.label,
-    available: unavailableReason === null,
-    authState: detection.authState,
-    supported: detection.supported ?? true,
-    ...(unavailableReason ? { unavailableReason } : {}),
-    version: detection.version,
-  };
-}
-
-function unavailableReasonForDetection(
-  agent: RuntimeAgentDef,
-  detection: AgentDetection,
-): string | null {
-  if (detection.supported === false) {
-    return detection.unsupportedReason || `${agent.label} is not installed or is not available on PATH.`;
-  }
-
-  if (detection.authState === 'missing') {
-    if (agent.id === 'claude') {
-      return claudeMissingAuthReason(agent, detection);
-    }
-    return `${agent.label} is not authenticated. Run ${agent.id === 'claude' ? 'claude auth login' : `${agent.id} login`} first.`;
-  }
-
-  if (detection.authState === 'expired') {
-    return `${agent.label} authentication has expired.`;
-  }
-
-  return null;
-}
-
-function claudeMissingAuthReason(agent: RuntimeAgentDef, detection: AgentDetection): string {
-  const claudeHome = detection.configDir ? dirname(detection.configDir) : null;
-  const loginCommand = claudeHome
-    ? `HOME="${claudeHome}" claude auth login`
-    : 'claude auth login';
-  return `${agent.label} is not authenticated for this app workspace. Run ${loginCommand} first.`;
+  });
 }

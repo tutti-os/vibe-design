@@ -10,15 +10,24 @@ import {
 } from '@tutti-os/ui-system/components';
 import { CheckIcon, ChevronDownIcon, LoadingIcon } from '@tutti-os/ui-system/icons';
 
-export type ComposerModelProvider = 'codex' | 'claude-code' | 'tutti' | 'hermes' | 'openclaw';
+export type ComposerModelProvider = string;
 
-const MODEL_PROVIDER_ICON_URLS: Record<ComposerModelProvider, string> = {
+const MODEL_PROVIDER_ICON_URLS: Record<string, string> = {
   codex: '/assets/agent-icons/workspace-dock-agent-codex.png',
   'claude-code': '/assets/agent-icons/workspace-dock-agent-claude-code.png',
+  claude: '/assets/agent-icons/workspace-dock-agent-claude-code.png',
+  cursor: '/assets/agent-icons/workspace-dock-agent-cursor.png',
+  opencode: '/assets/agent-icons/workspace-dock-agent-opencode.png',
   tutti: '/assets/agent-icons/manage-agent-tutti.png',
   hermes: '/assets/agent-icons/hermes-rounded.png',
   openclaw: '/assets/agent-icons/openclaw-rounded.png',
 };
+
+function modelProviderIconUrl(provider: ComposerModelProvider): string {
+  const direct = MODEL_PROVIDER_ICON_URLS[provider];
+  if (direct) return direct;
+  return `/assets/agent-icons/workspace-dock-agent-${provider}.png`;
+}
 
 export function ComposerDesignSystemTrigger({
   ariaLabel,
@@ -116,15 +125,22 @@ export function ComposerModelProviderIcon({
 }: {
   provider: ComposerModelProvider;
 }) {
-  const iconUrl = MODEL_PROVIDER_ICON_URLS[provider];
+  const iconUrl = modelProviderIconUrl(provider);
   return (
     <img
+      key={iconUrl}
       src={iconUrl}
       alt=""
       aria-hidden
       className="composer-model-provider-icon"
       data-provider-icon={provider}
       title={provider}
+      onError={(event) => {
+        const image = event.currentTarget;
+        if (image.dataset.fallbackApplied === 'true') return;
+        image.dataset.fallbackApplied = 'true';
+        image.src = MODEL_PROVIDER_ICON_URLS.tutti;
+      }}
     />
   );
 }
