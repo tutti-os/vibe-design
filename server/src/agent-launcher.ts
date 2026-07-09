@@ -208,6 +208,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       return false;
     };
 
+    const requestedModel = readString(request.model);
     const agentRunInput: AcpAgentRunInput = {
       runId: run.id,
       provider: agentId,
@@ -215,7 +216,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       prompt,
       systemPrompt: runtimeSystemPrompt,
       ...(history.length > 0 ? { history } : {}),
-      ...(readString(request.model) ? { model: readString(request.model) ?? undefined } : {}),
+      ...(requestedModel ? { model: localAgentModelIdForAcp(requestedModel, agentId) } : {}),
       ...(readString(request.reasoning) ? { reasoning: readString(request.reasoning) ?? undefined } : {}),
       ...(managedAgentInvocation ? { managedAgentInvocation } : {}),
       ...(tuttiSkillBundle.skillManifest.length > 0 ? { skillManifest: tuttiSkillBundle.skillManifest } : {}),
@@ -1263,4 +1264,12 @@ function readRecord(value: unknown): ComposeInput['metadata'] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function localAgentModelIdForAcp(model: string, provider: string): string {
+  const trimmed = model.trim();
+  const prefix = `${provider}:`;
+  const stripped = trimmed.startsWith(prefix) ? trimmed.slice(prefix.length) : trimmed;
+  if (provider === 'cursor' && stripped === 'default') return 'default[]';
+  return stripped;
 }

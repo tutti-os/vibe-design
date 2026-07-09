@@ -9,7 +9,7 @@
     "build:css": "pnpm --filter @vibe-design/web build:css",
     "dev": "pnpm build:web && pnpm --filter @vibe-design/server dev",
     "package:cloud": "node ./scripts/package-cloud-zip.mjs",
-    "package:tutti-app": "node ./scripts/package-tutti-app.mjs",
+    "package:tutti-app": "node ./scripts/patch-agent-acp-kit-base.mjs && node ./scripts/package-tutti-app.mjs",
     "start": "pnpm build:web && pnpm --filter @vibe-design/server start",
     "test": "pnpm -r --if-present test",
     "test:package": "node --test ./scripts/package-tutti-app.test.mjs ./scripts/package-cloud-zip.test.mjs",
