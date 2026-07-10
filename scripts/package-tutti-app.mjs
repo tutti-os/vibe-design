@@ -227,28 +227,21 @@ async function validateCliManifest(cliManifestPath, packageRoot) {
 export async function packageTuttiApp(options = {}) {
   const repoRoot = options.repoRoot ?? REPO_ROOT;
   const packageRoot = options.packageRoot ?? DEFAULT_PACKAGE_ROOT;
-  const patchScript = path.join(repoRoot, 'scripts/patch-agent-acp-kit-base.mjs');
+  await run('pnpm', ['build:web'], { cwd: repoRoot });
+  await run('pnpm', ['build:server'], { cwd: repoRoot });
+  await rm(packageRoot, { recursive: true, force: true });
+  await mkdir(packageRoot, { recursive: true });
 
-  await run(process.execPath, [patchScript], { cwd: repoRoot });
-  try {
-    await run('pnpm', ['build:web'], { cwd: repoRoot });
-    await run('pnpm', ['build:server'], { cwd: repoRoot });
-    await rm(packageRoot, { recursive: true, force: true });
-    await mkdir(packageRoot, { recursive: true });
-
-    const files = await listFiles(repoRoot);
-    const plan = createPackageFilePlan(files);
-    for (const entry of plan) {
-      await copyPlannedFile(repoRoot, packageRoot, entry);
-    }
-    await chmod(path.join(packageRoot, 'bootstrap.sh'), 0o755);
-
-    await validatePackageOutput(packageRoot);
-
-    return { packageRoot, files: plan.length };
-  } finally {
-    await run(process.execPath, [patchScript, '--restore'], { cwd: repoRoot });
+  const files = await listFiles(repoRoot);
+  const plan = createPackageFilePlan(files);
+  for (const entry of plan) {
+    await copyPlannedFile(repoRoot, packageRoot, entry);
   }
+  await chmod(path.join(packageRoot, 'bootstrap.sh'), 0o755);
+
+  await validatePackageOutput(packageRoot);
+
+  return { packageRoot, files: plan.length };
 }
 
 function shouldIncludePackageFile(relativePath) {

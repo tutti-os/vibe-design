@@ -2,10 +2,10 @@ import {
   createLocalAgentRuntime,
   type DetectContext,
 } from '@tutti-os/agent-acp-kit';
+import { resolveTuttiAgentProviderCatalog } from '@tutti-os/agent-acp-kit/tutti';
 import type { ModelSummary } from './agents.js';
 import { AGENT_DEFS } from './runtimes/index.js';
 import { createVibeLocalAgentProviderPlugins } from './local-agent-providers.js';
-import { resolveTuttiAgentProviderCatalog } from './tutti/index.js';
 
 export interface AgentModelCatalogEntry {
   id: string;
@@ -23,7 +23,8 @@ export async function detectLocalAgentModelCatalog(context?: DetectContext): Pro
   const catalog = await resolveTuttiAgentProviderCatalog({
     runtime: agentModelRuntime,
     detectContext: context,
-    workspaceCwd: process.env.TUTTI_WORKSPACE_ROOT?.trim() || undefined,
+    cwd: process.env.TUTTI_WORKSPACE_ROOT?.trim() || undefined,
+    includeComposerModels: true,
   });
 
   return catalog.providers

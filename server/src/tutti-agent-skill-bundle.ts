@@ -50,7 +50,7 @@ function errorMessage(error: unknown): string {
 }
 
 function emptyTuttiAgentSkillContext(): TuttiAgentSkillContext {
-  return { skills: [], skillManifest: [] };
+  return { source: 'standalone', skills: [], skillManifest: [] };
 }
 
 export async function resolveTuttiAgentSkillManifest(

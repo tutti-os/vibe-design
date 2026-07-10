@@ -333,13 +333,13 @@ describe('startAgentRun', () => {
       });
 
       expect(JSON.parse(await readFile(argsPath, 'utf8'))).toEqual([
+        '--json',
         'agent',
         'tutti-cli-skill-bundle',
         '--provider',
         'codex',
         '--agent-session-id',
         run.id,
-        '--json',
       ]);
       expect(runtime.inputs[0]?.systemPrompt).toContain('Use Tutti routing.');
       expect(runtime.inputs[0]?.systemPrompt?.trim().endsWith('Use Tutti routing.')).toBe(true);
@@ -411,13 +411,13 @@ describe('startAgentRun', () => {
       });
 
       expect(JSON.parse(await readFile(argsPath, 'utf8'))).toEqual([
+        '--json',
         'agent',
         'tutti-cli-skill-bundle',
         '--provider',
         'codex',
         '--agent-session-id',
         run.id,
-        '--json',
       ]);
       expect(runtime.inputs[0]?.systemPrompt).toContain('Use Tutti routing locally.');
       expect(runtime.inputs[0]?.systemPrompt?.trim().endsWith('Use Tutti routing locally.')).toBe(true);
@@ -484,13 +484,13 @@ describe('startAgentRun', () => {
 
       expect(JSON.parse(await readFile(callsPath, 'utf8'))).toEqual([
         [
+          '--json',
           'agent',
           'tutti-cli-skill-bundle',
           '--provider',
           'codex',
           '--agent-session-id',
           run.id,
-          '--json',
         ],
       ]);
       expect(runtime.inputs[0]?.systemPrompt).not.toContain('When a request contains a mention:// URI');
