@@ -33,7 +33,11 @@ import {
   type ComposerModelGroup,
   type ComposerModelProvider,
 } from './components/ComposerControls';
-import { stashInitialProjectPrompt, stashInitialProjectSkills } from './initial-project-prompt';
+import {
+  stashInitialProjectAgent,
+  stashInitialProjectPrompt,
+  stashInitialProjectSkills,
+} from './initial-project-prompt';
 import { DesignSystemPickerDialog } from './components/DesignSystemPickerDialog';
 import { PromptInput, type PromptInputHandle } from './components/PromptInput';
 import type { ChatComposerAgentModelCatalogEntry } from './components/ChatComposer';
@@ -405,6 +409,10 @@ function ProjectCreator({
       }
       stashInitialProjectPrompt(project.id, nextPrompt);
       stashInitialProjectSkills(project.id, selectedSkillIds);
+      stashInitialProjectAgent(project.id, {
+        agentId: selectedModel.agentId,
+        ...(shouldSendDashboardModel(selectedModel) ? { model: selectedModel.modelId } : {}),
+      });
       setStagedFiles([]);
       // Clear the dashboard's skill selections so they don't leak into the next project.
       for (const skillId of selectedSkillIds) {

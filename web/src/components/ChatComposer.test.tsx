@@ -582,7 +582,7 @@ describe('ChatComposer', () => {
             label: 'Codex',
             models: [
               { id: 'default', label: 'Default' },
-              { id: 'codex:gpt-5.5', label: 'GPT-5.5' },
+              { id: 'gpt-5.5', label: 'GPT-5.5' },
             ],
           },
           {

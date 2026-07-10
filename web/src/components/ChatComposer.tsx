@@ -233,11 +233,12 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
 
     useEffect(() => {
       if (!lockedModelProvider || !lockedModel) return;
+      const composerModel = normalizeLockedComposerModel(lockedModelProvider, lockedModel);
       setSelectedModelsByProvider((current) => {
-        if (current[lockedModelProvider] === lockedModel) return current;
+        if (current[lockedModelProvider] === composerModel) return current;
         return {
           ...current,
-          [lockedModelProvider]: lockedModel,
+          [lockedModelProvider]: composerModel,
         };
       });
     }, [lockedModel, lockedModelProvider]);
@@ -819,6 +820,16 @@ function agentIdFromModelProvider(provider: string): AgentId {
 
 function modelProviderFromAgentId(agentId: AgentId): string {
   return agentId === 'claude' ? 'claude-code' : agentId;
+}
+
+function normalizeLockedComposerModel(provider: string, model: string): string {
+  const prefixes = [provider, agentIdFromModelProvider(provider)];
+  for (const prefix of prefixes) {
+    if (model.startsWith(`${prefix}:`)) {
+      return model.slice(prefix.length + 1);
+    }
+  }
+  return model;
 }
 
 function modelOptionsForProvider(

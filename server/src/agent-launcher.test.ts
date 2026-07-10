@@ -128,8 +128,7 @@ describe('startAgentRun', () => {
         ],
       });
 
-      const disabledFeatures = plan.args.flatMap((arg, index) => (arg === '--disable' ? [plan.args[index + 1]] : []));
-      expect(disabledFeatures.every((feature) => feature?.includes('mcp'))).toBe(true);
+      expect(plan.args).toEqual(expect.arrayContaining(['--disable', 'plugins']));
       expect(plan.args).not.toEqual(expect.arrayContaining(['-c', 'features.multi_agent=false']));
       expect(plan).not.toHaveProperty('mcpServers');
       expect(plan.env?.CODEX_HOME).toBeTruthy();
