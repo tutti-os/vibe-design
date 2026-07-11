@@ -8,8 +8,13 @@ import {
   createManagedAgentDetectContextFromHeaders,
   createManagedAgentRunContextFromHeaders,
   type DetectContext,
+  type ManagedAgentInvocationCredentialHeaders,
   type ManagedAgentRunContext,
 } from '@tutti-os/agent-acp-kit';
+import {
+  projectTuttiCliChildProcess,
+  redactTuttiCliChildProcessText,
+} from '@tutti-os/agent-acp-kit/tutti';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { isProjectId, type ProjectEditorInitialData, type VibeDesignRoute } from '@vibe-design/web';
 import { renderPage } from '@vibe-design/web/render-page';
@@ -75,7 +80,13 @@ import {
   type StoredConversationMessage,
   type StoredProject,
 } from './sqlite-store.js';
-import type { CliOpenAppInput, CliServiceResult, ServerContext, SubmitToolResultResult } from './server-context.js';
+import type {
+  CliOpenAppInput,
+  CliServiceResult,
+  CliStartSessionInput,
+  ServerContext,
+  SubmitToolResultResult,
+} from './server-context.js';
 import type { ChatRun, ChatRunCreateMeta, ChatRunService, RunStatus } from './types/run.js';
 
 export interface CreateServerOptions {
@@ -274,6 +285,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   function startRunFromRequest(
     run: ChatRun,
     request: Record<string, unknown>,
+    detectContext?: DetectContext,
     managedAgentRunContext?: ManagedAgentRunContext,
   ): Promise<void> | void {
     const runner = options.startAgentRun ?? startAgentRun;
@@ -289,6 +301,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
         userDesignSystemsRoot: ctx.paths.userDesignSystemsRoot,
         builtInDesignSystemsRoot: ctx.paths.builtInDesignSystemsRoot,
       },
+      detectContext,
       managedAgentRunContext,
     });
   }
@@ -488,7 +501,8 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     }
   }
 
-  async function startCliSession(input: Record<string, unknown>): Promise<CliServiceResult> {
+  async function startCliSession(request: CliStartSessionInput): Promise<CliServiceResult> {
+    const { detectContext, input, managedAgentHeaders } = request;
     const body = normalizeCliRunInput(input);
     const projectId = readString(body.projectId);
     if (!projectId || !isSafeProjectId(projectId)) {
@@ -503,7 +517,6 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const localAttachments = localFileResult.attachments;
 
     const requestedProvider = readString(body.agentId) ?? DEFAULT_AGENT_ID;
-    const detectContext = undefined;
 
     // Pre-session fallback: if we can already tell the requested provider (codex) is unavailable
     // and Claude Code is ready, switch before creating the run instead of failing the call.
@@ -521,7 +534,13 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       attemptBody = switched.body;
     }
 
-    let first = await executeCliRun(projectId, attemptBody, localAttachments);
+    let first = await executeCliRun(
+      projectId,
+      attemptBody,
+      localAttachments,
+      detectContext,
+      managedAgentHeaders,
+    );
 
     // The requested provider may not match the conversation it was pointed at (e.g. retrying with
     // Claude Code on a conversation already locked to codex). A conversation can't mix providers,
@@ -530,7 +549,13 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       const requested = readString(attemptBody.agentId) ?? requestedProvider;
       const switched = await createCliFallbackConversation(projectId, attemptBody, requested);
       if (switched.ok) {
-        const retry = await executeCliRun(projectId, switched.body, localAttachments);
+        const retry = await executeCliRun(
+          projectId,
+          switched.body,
+          localAttachments,
+          detectContext,
+          managedAgentHeaders,
+        );
         if (retry.ok) {
           fallback = {
             fromAgentId: lockedProviderFromMessage(first.message) ?? PRIMARY_AGENT_ID,
@@ -559,7 +584,13 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       if (inSession) {
         const switched = await createCliFallbackConversation(projectId, body, inSession.toAgentId);
         if (switched.ok) {
-          const retry = await executeCliRun(projectId, switched.body, localAttachments);
+          const retry = await executeCliRun(
+            projectId,
+            switched.body,
+            localAttachments,
+            detectContext,
+            managedAgentHeaders,
+          );
           if (retry.ok) {
             return { ok: true, value: { ...retry.value, agentFallback: describeAgentFallback(inSession) } };
           }
@@ -588,8 +619,10 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     projectId: string,
     body: Record<string, unknown>,
     localAttachments: unknown[],
+    detectContext: DetectContext | undefined,
+    managedAgentHeaders: ManagedAgentInvocationCredentialHeaders,
   ): Promise<{ ok: true; value: CliRunValue } | Extract<CliServiceResult, { ok: false }>> {
-    const persistentBodyResult = await preparePersistentRunBody(body);
+    const persistentBodyResult = await preparePersistentRunBody(body, detectContext);
     if (!persistentBodyResult.ok) {
       return {
         ok: false,
@@ -609,8 +642,21 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
 
     try {
       const run = runs.create(createRunMeta(persistentBody));
+      const managedAgentRunContext = await createManagedAgentRunContextFromHeaders(
+        managedAgentHeaders,
+        {
+          appDataDir: runtimeDir,
+          providerId: run.agentId ?? DEFAULT_AGENT_ID,
+          runId: run.id,
+        },
+      );
       await persistRunMessages(persistentBody, run);
-      runs.start(run, (startedRun) => startRunFromRequest(startedRun, persistentBody));
+      runs.start(run, (startedRun) => startRunFromRequest(
+        startedRun,
+        persistentBody,
+        detectContext,
+        managedAgentRunContext,
+      ));
       // Run synchronously to completion, then return the agent conversation verbatim.
       const status = await runs.wait(run);
       const messages =
@@ -780,7 +826,10 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
         ok: false,
         status: 503,
         code: 'APP_OPEN_FAILED',
-        message: error instanceof Error ? error.message : 'app open failed',
+        message: redactTuttiCliChildProcessText(
+          error instanceof Error ? error.message : 'app open failed',
+          input.detectContext?.redactionSecrets ?? [],
+        ),
       };
     }
   }
@@ -821,7 +870,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       provider: run.agentId,
     });
     runs.start(run, (startedRun) => (
-      startRunFromRequest(startedRun, persistentBody, managedAgentRunContext)
+      startRunFromRequest(startedRun, persistentBody, detectContext, managedAgentRunContext)
     ));
   });
 
@@ -856,7 +905,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     await persistRunMessages(persistentBody, run);
     runs.stream(run, req, res);
     runs.start(run, (startedRun) => (
-      startRunFromRequest(startedRun, persistentBody, managedAgentRunContext)
+      startRunFromRequest(startedRun, persistentBody, detectContext, managedAgentRunContext)
     ));
   });
 
@@ -1755,19 +1804,23 @@ function requestTuttiAppOpen(input: CliOpenAppInput): Promise<void> {
     return Promise.reject(new Error('open route must be an origin-root route'));
   }
 
-  const command = process.env.TUTTI_CLI?.trim();
+  const projectedChild = projectTuttiCliChildProcess({
+    baseEnv: process.env,
+    detectContext: input.detectContext,
+  });
+  const command = projectedChild.env.TUTTI_CLI?.trim();
   if (!command) {
     return Promise.reject(new Error('TUTTI_CLI is not configured'));
   }
 
-  const appId = process.env.TUTTI_APP_ID?.trim();
+  const appId = projectedChild.env.TUTTI_APP_ID?.trim();
   if (!appId) {
     return Promise.reject(new Error('TUTTI_APP_ID is not configured'));
   }
 
   return new Promise((resolvePromise, reject) => {
     const child = spawn(command, ['--json', 'app', 'open', '--app-id', appId, '--route', input.route], {
-      env: process.env,
+      env: projectedChild.env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -1781,7 +1834,11 @@ function requestTuttiAppOpen(input: CliOpenAppInput): Promise<void> {
 
       settled = true;
       child.kill('SIGKILL');
-      reject(new Error(`tutti app open timed out: ${cliFailureDetail(stdout, stderr)}`));
+      reject(new Error(`tutti app open timed out: ${cliFailureDetail(
+        stdout,
+        stderr,
+        projectedChild.redactionSecrets,
+      )}`));
     }, TUTTI_APP_OPEN_TIMEOUT_MS);
 
     child.stdout?.setEncoding('utf8');
@@ -1801,7 +1858,10 @@ function requestTuttiAppOpen(input: CliOpenAppInput): Promise<void> {
 
       settled = true;
       clearTimeout(timeout);
-      reject(error);
+      reject(new Error(redactTuttiCliChildProcessText(
+        error.message,
+        projectedChild.redactionSecrets,
+      )));
     });
 
     child.once('close', (exitCode) => {
@@ -1816,7 +1876,11 @@ function requestTuttiAppOpen(input: CliOpenAppInput): Promise<void> {
         return;
       }
 
-      reject(new Error(`tutti app open failed: ${cliFailureDetail(stdout, stderr)}`));
+      reject(new Error(`tutti app open failed: ${cliFailureDetail(
+        stdout,
+        stderr,
+        projectedChild.redactionSecrets,
+      )}`));
     });
   });
 }
@@ -1825,8 +1889,15 @@ function isSafeAppOpenRoute(route: string): boolean {
   return route.startsWith('/') && !route.startsWith('//') && !route.includes('\\') && !/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(route);
 }
 
-function cliFailureDetail(stdout: string, stderr: string): string {
-  return stderr.trim() || stdout.trim() || 'no output';
+function cliFailureDetail(
+  stdout: string,
+  stderr: string,
+  redactionSecrets: readonly string[] = [],
+): string {
+  return redactTuttiCliChildProcessText(
+    stderr.trim() || stdout.trim() || 'no output',
+    redactionSecrets,
+  );
 }
 
 function isMutatingMethod(method: string): boolean {

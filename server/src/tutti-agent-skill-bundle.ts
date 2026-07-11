@@ -1,4 +1,4 @@
-import type { SkillMaterializationRecord } from '@tutti-os/agent-acp-kit';
+import type { DetectContext, SkillMaterializationRecord } from '@tutti-os/agent-acp-kit';
 import {
   loadTuttiAgentSkillContext,
   type LoadTuttiAgentSkillContextInput,
@@ -10,6 +10,7 @@ export interface ResolveTuttiAgentSkillManifestInput {
   provider: string;
   command?: string | null;
   cwd?: string | null;
+  detectContext?: DetectContext;
   env?: NodeJS.ProcessEnv;
   runTuttiCli?: LoadTuttiAgentSkillContextInput['runTuttiCli'];
 }
@@ -23,6 +24,7 @@ export async function resolveTuttiAgentSkillBundle(
     agentSessionId: input.agentSessionId,
     command: input.command,
     cwd: input.cwd,
+    detectContext: input.detectContext,
     env: input.env ?? process.env,
     provider: input.provider,
     runTuttiCli: input.runTuttiCli,

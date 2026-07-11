@@ -1,5 +1,5 @@
 import { request as httpRequest, type Server } from 'node:http';
-import { access, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,6 +22,7 @@ import {
   writeProjectToStore,
 } from './sqlite-store';
 import type { ChatRun, ChatRunService } from './types/run';
+import { resolveTuttiAgentSkillBundle } from './tutti-agent-skill-bundle';
 
 let server: Server | undefined;
 const tempRoots: string[] = [];
@@ -44,11 +45,12 @@ type TestCreateServer = (options?: {
     models: Array<{ id: string; label: string; description?: string }>;
   }>>;
   installClaudeCode?: () => Promise<void>;
-  openApp?: (input: { route: string; projectId?: string }) => Promise<void> | void;
+  openApp?: (input: { detectContext?: DetectContext; route: string; projectId?: string }) => Promise<void> | void;
   startAgentRun?: (input: {
     run: ChatRun;
     runs: ChatRunService;
     request: Record<string, unknown>;
+    detectContext?: DetectContext;
     managedAgentRunContext?: ManagedAgentRunContext;
   }) => Promise<void> | void;
 }) => Server;
@@ -119,6 +121,14 @@ async function createTempRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'vibe-design-skills-api-'));
   tempRoots.push(root);
   return root;
+}
+
+function restoreProcessEnv(key: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[key];
+    return;
+  }
+  process.env[key] = value;
 }
 
 async function writeDesignSystem(
@@ -209,10 +219,11 @@ async function postCli(
   port: number,
   command: string,
   input: Record<string, unknown> = {},
+  headers: Record<string, string> = {},
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   const response = await fetch(`http://127.0.0.1:${port}/tutti/cli/${command}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify({ input }),
   });
   return {
@@ -727,7 +738,7 @@ describe('createServer', () => {
       note: 'Make the headline sharper.',
     });
 
-    const openRequests: Array<{ route: string; projectId?: string }> = [];
+    const openRequests: Array<{ detectContext?: DetectContext; route: string; projectId?: string }> = [];
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: testRuntimeDir,
@@ -749,8 +760,8 @@ describe('createServer', () => {
     expect(openProject.status).toBe(200);
     expect(openProject.body.value).toMatchObject({ openRequested: true, projectId, route: `/project/${projectId}` });
     expect(openRequests).toEqual([
-      { route: '/' },
-      { projectId, route: `/project/${projectId}` },
+      { detectContext: undefined, route: '/' },
+      { detectContext: undefined, projectId, route: `/project/${projectId}` },
     ]);
 
     const missingProject = await postCli(port, 'open', { 'project-id': 'missing-project' });
@@ -775,8 +786,8 @@ describe('createServer', () => {
     expect(nonRoutableProject.status).toBe(400);
     expect(nonRoutableProject.body).toMatchObject({ error: { code: 'BAD_REQUEST' } });
     expect(openRequests).toEqual([
-      { route: '/' },
-      { projectId, route: `/project/${projectId}` },
+      { detectContext: undefined, route: '/' },
+      { detectContext: undefined, projectId, route: `/project/${projectId}` },
     ]);
 
     const conversations = await postCli(port, 'conversations', { 'project-id': projectId });
@@ -836,6 +847,89 @@ describe('createServer', () => {
     ];
     for (const command of removedCommands) {
       await expect(postCliStatus(port, command, { 'project-id': projectId, 'conversation-id': conversationId })).resolves.toBe(404);
+    }
+  });
+
+  it('passes the request DetectContext to the Tutti app-open owner without persisting it', async () => {
+    const runtimeRoot = await createRuntimeDir();
+    const opened: Array<{ detectContext?: DetectContext; route: string }> = [];
+    const port = await listenOnRandomPort(createTestServer({
+      runtimeDir: runtimeRoot,
+      openApp: (input) => {
+        opened.push(input);
+      },
+    }));
+
+    const response = await fetch(`http://127.0.0.1:${port}/tutti/cli/open`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-open-1',
+      },
+      body: JSON.stringify({ input: {} }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(opened).toHaveLength(1);
+    expect(opened[0]?.route).toBe('/');
+    expect(opened[0]?.detectContext?.managedAgentInvocation).toEqual({
+      credential: 'credential-open-1',
+      cwd: runtimeRoot,
+    });
+    expect(JSON.stringify(await response.json())).not.toContain('credential-open-1');
+  });
+
+  it('projects and redacts the request credential for the Tutti app-open child', async () => {
+    const runtimeRoot = await createRuntimeDir();
+    const cliPath = join(runtimeRoot, 'fake-tutti-open.mjs');
+    const envPath = join(runtimeRoot, 'fake-tutti-open-env.json');
+    await writeFile(cliPath, [
+      '#!/usr/bin/env node',
+      'import { writeFileSync } from "node:fs";',
+      `writeFileSync(${JSON.stringify(envPath)}, JSON.stringify({`,
+      '  canonical: process.env.TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL,',
+      '  legacy: process.env.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL,',
+      '}));',
+      'process.stderr.write(process.env.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL ?? "missing");',
+      'process.exit(7);',
+    ].join('\n'));
+    await chmod(cliPath, 0o755);
+
+    const previous = {
+      appId: process.env.TUTTI_APP_ID,
+      canonical: process.env.TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL,
+      cli: process.env.TUTTI_CLI,
+      legacy: process.env.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL,
+    };
+    process.env.TUTTI_APP_ID = 'vibe-design';
+    process.env.TUTTI_CLI = cliPath;
+    process.env.TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL = 'ambient-canonical';
+    process.env.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL = 'ambient-legacy';
+    try {
+      const port = await listenOnRandomPort(createTestServer({ runtimeDir: runtimeRoot }));
+      const response = await fetch(`http://127.0.0.1:${port}/tutti/cli/open`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-open-child-1',
+        },
+        body: JSON.stringify({ input: {} }),
+      });
+      const body = await response.json() as Record<string, unknown>;
+
+      expect(response.status).toBe(503);
+      expect(JSON.stringify(body)).not.toContain('credential-open-child-1');
+      expect(JSON.stringify(body)).not.toContain('ambient-canonical');
+      expect(JSON.stringify(body)).not.toContain('ambient-legacy');
+      expect(JSON.stringify(body)).toContain('[REDACTED]');
+      expect(JSON.parse(await readFile(envPath, 'utf8'))).toEqual({
+        legacy: 'credential-open-child-1',
+      });
+    } finally {
+      restoreProcessEnv('TUTTI_APP_ID', previous.appId);
+      restoreProcessEnv('TUTTI_CLI', previous.cli);
+      restoreProcessEnv('TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL', previous.canonical);
+      restoreProcessEnv('TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL', previous.legacy);
     }
   });
 
@@ -923,6 +1017,80 @@ describe('createServer', () => {
       prompt: '生成一个项目。',
       projectKind: 'prototype',
     });
+  });
+
+  it('threads one request DetectContext through session-start and projects its credential only to the Tutti child', async () => {
+    const testRuntimeDir = await createRuntimeDir();
+    const observedContexts: Array<DetectContext | undefined> = [];
+    let startedContext: DetectContext | undefined;
+    let managedRunContext: ManagedAgentRunContext | undefined;
+    let childEnv: Readonly<NodeJS.ProcessEnv> | undefined;
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: testRuntimeDir,
+        detectAgentAvailability: async (context) => {
+          observedContexts.push(context);
+          return [
+            { id: 'codex', label: 'Codex', available: true },
+            { id: 'claude', label: 'Claude Code', available: true },
+          ];
+        },
+        startAgentRun: async ({ run, runs, detectContext, managedAgentRunContext }) => {
+          startedContext = detectContext;
+          managedRunContext = managedAgentRunContext;
+          await resolveTuttiAgentSkillBundle({
+            agentSessionId: run.id,
+            command: '/fake/tutti',
+            detectContext,
+            provider: run.agentId ?? 'codex',
+            runTuttiCli: async (_args, options) => {
+              childEnv = options.env;
+              return {
+                agentSessionId: run.id,
+                provider: run.agentId ?? 'codex',
+                schemaVersion: 1,
+                skills: [],
+              };
+            },
+          });
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+    const createdProject = await postCli(port, 'project-create', {
+      prompt: 'Create a visual direction.',
+      projectKind: 'prototype',
+    });
+    const projectId = ((createdProject.body.value as Record<string, unknown>).project as { id: string }).id;
+    const conversationId = (createdProject.body.value as { conversationId: string }).conversationId;
+
+    const started = await postCli(
+      port,
+      'session-start',
+      {
+        'project-id': projectId,
+        'conversation-id': conversationId,
+        agentId: 'codex',
+        prompt: 'Use Tutti context.',
+      },
+      {
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-session-start-1',
+      },
+    );
+
+    expect(started.status).toBe(200);
+    expect(startedContext?.managedAgentInvocation?.credential).toBe('credential-session-start-1');
+    const managedObservedContexts = observedContexts.filter(
+      (context) => context?.managedAgentInvocation?.credential === 'credential-session-start-1',
+    );
+    expect(managedObservedContexts.length).toBeGreaterThan(0);
+    expect(managedObservedContexts.every(
+      (context) => context?.managedAgentInvocation === startedContext?.managedAgentInvocation,
+    )).toBe(true);
+    expect(managedRunContext?.managedAgentInvocation?.credential).toBe('credential-session-start-1');
+    expect(childEnv?.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL).toBe('credential-session-start-1');
+    expect(childEnv?.TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL).toBeUndefined();
+    expect(JSON.stringify(started.body)).not.toContain('credential-session-start-1');
   });
 
   it('starts Tutti CLI sessions with local files uploaded as run attachments', async () => {
@@ -1896,6 +2064,7 @@ describe('createServer', () => {
     const started: Array<{
       run: ChatRun;
       request: Record<string, unknown>;
+      detectContext?: DetectContext;
       managedAgentRunContext?: ManagedAgentRunContext;
     }> = [];
     const observedContexts: Array<DetectContext | undefined> = [];
@@ -1910,8 +2079,8 @@ describe('createServer', () => {
             { id: 'claude', label: 'Claude Code', available: true },
           ];
         },
-        startAgentRun: ({ run, request, managedAgentRunContext }) => {
-          started.push({ run, request, managedAgentRunContext });
+        startAgentRun: ({ run, request, detectContext, managedAgentRunContext }) => {
+          started.push({ run, request, detectContext, managedAgentRunContext });
         },
       }),
     );
@@ -1938,6 +2107,9 @@ describe('createServer', () => {
       credential: 'credential-header-1',
       cwd: runtimeRoot,
     });
+    expect(started[0]?.detectContext?.managedAgentInvocation).toBe(
+      observedContexts[0]?.managedAgentInvocation,
+    );
     expect(started[0]?.run).not.toHaveProperty('managedAgentInvocationCredential');
     expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
     expect(started[0]?.managedAgentRunContext?.managedAgentInvocation).toEqual({
@@ -1957,6 +2129,7 @@ describe('createServer', () => {
     const started: Array<{
       run: ChatRun;
       request: Record<string, unknown>;
+      detectContext?: DetectContext;
       managedAgentRunContext?: ManagedAgentRunContext;
     }> = [];
     const observedContexts: Array<DetectContext | undefined> = [];
@@ -1970,8 +2143,8 @@ describe('createServer', () => {
             { id: 'codex', label: 'Codex', available: true },
           ];
         },
-        startAgentRun: ({ run, request, managedAgentRunContext }) => {
-          started.push({ run, request, managedAgentRunContext });
+        startAgentRun: ({ run, request, detectContext, managedAgentRunContext }) => {
+          started.push({ run, request, detectContext, managedAgentRunContext });
         },
       }),
     );
@@ -1997,6 +2170,9 @@ describe('createServer', () => {
       credential: 'credential-run-header-1',
       cwd: runtimeRoot,
     });
+    expect(started[0]?.detectContext?.managedAgentInvocation).toBe(
+      observedContexts[0]?.managedAgentInvocation,
+    );
     expect(started[0]?.run).not.toHaveProperty('managedAgentInvocationCredential');
     expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
     expect(started[0]?.managedAgentRunContext?.managedAgentInvocation).toEqual({
@@ -2045,6 +2221,7 @@ describe('createServer', () => {
     const started: Array<{
       run: ChatRun;
       request: Record<string, unknown>;
+      detectContext?: DetectContext;
       managedAgentRunContext?: ManagedAgentRunContext;
     }> = [];
     const observedContexts: Array<DetectContext | undefined> = [];
@@ -2058,8 +2235,8 @@ describe('createServer', () => {
             { id: 'codex', label: 'Codex', available: true },
           ];
         },
-        startAgentRun: ({ run, runs, request, managedAgentRunContext }) => {
-          started.push({ run, request, managedAgentRunContext });
+        startAgentRun: ({ run, runs, request, detectContext, managedAgentRunContext }) => {
+          started.push({ run, request, detectContext, managedAgentRunContext });
           runs.finish(run, 'succeeded');
         },
       }),
@@ -2086,6 +2263,9 @@ describe('createServer', () => {
       credential: 'credential-chat-header-1',
       cwd: runtimeRoot,
     });
+    expect(started[0]?.detectContext?.managedAgentInvocation).toBe(
+      observedContexts[0]?.managedAgentInvocation,
+    );
     expect(started[0]?.run).not.toHaveProperty('managedAgentInvocationCredential');
     expect(started[0]?.request).not.toHaveProperty('managedAgentInvocationCredential');
     expect(started[0]?.managedAgentRunContext?.managedAgentInvocation).toEqual({

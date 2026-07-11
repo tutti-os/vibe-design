@@ -163,12 +163,17 @@ describe('startAgentRun', () => {
       const projectsDir = join(root, 'projects');
       const cliPath = join(root, 'tutti-cli.mjs');
       const argsPath = join(root, 'tutti-cli-args.json');
+      const envPath = join(root, 'tutti-cli-env.json');
       await mkdir(builtInSkillsRoot, { recursive: true });
       await mkdir(userSkillsRoot, { recursive: true });
       await writeFile(cliPath, [
         '#!/usr/bin/env node',
         'import { writeFileSync } from "node:fs";',
         `writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)));`,
+        `writeFileSync(${JSON.stringify(envPath)}, JSON.stringify({`,
+        '  canonical: process.env.TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL,',
+        '  legacy: process.env.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL,',
+        '}));',
         'process.stdout.write(JSON.stringify({',
         '  schemaVersion: 1,',
         '  provider: "codex",',
@@ -208,6 +213,13 @@ describe('startAgentRun', () => {
         paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
         registry: createAgentRegistry([codexDef]),
         agentRuntime: runtime,
+        detectContext: {
+          managedAgentInvocation: {
+            credential: 'credential-request-1',
+            cwd: root,
+          },
+          redactionSecrets: ['credential-request-1'],
+        },
         managedAgentRunContext: {
           cwd: managedRunCwd,
           managedAgentInvocation: {
@@ -226,6 +238,9 @@ describe('startAgentRun', () => {
         '--agent-session-id',
         run.id,
       ]);
+      expect(JSON.parse(await readFile(envPath, 'utf8'))).toEqual({
+        legacy: 'credential-request-1',
+      });
       expect(runtime.inputs[0]?.systemPrompt).toContain('Use Tutti routing.');
       expect(runtime.inputs[0]?.systemPrompt?.trim().endsWith('Use Tutti routing.')).toBe(true);
       expect(runtime.inputs[0]?.env).toBeUndefined();
