@@ -128,8 +128,10 @@ describe('startAgentRun', () => {
         ],
       });
 
-      const disabledFeatures = plan.args.flatMap((arg, index) => (arg === '--disable' ? [plan.args[index + 1]] : []));
-      expect(disabledFeatures.every((feature) => feature?.includes('mcp'))).toBe(true);
+      const disablePluginsIndex = plan.args.findIndex(
+        (arg, index) => arg === '--disable' && plan.args[index + 1] === 'plugins',
+      );
+      expect(disablePluginsIndex).toBeGreaterThanOrEqual(0);
       expect(plan.args).not.toEqual(expect.arrayContaining(['-c', 'features.multi_agent=false']));
       expect(plan).not.toHaveProperty('mcpServers');
       expect(plan.env?.CODEX_HOME).toBeTruthy();
@@ -333,13 +335,13 @@ describe('startAgentRun', () => {
       });
 
       expect(JSON.parse(await readFile(argsPath, 'utf8'))).toEqual([
+        '--json',
         'agent',
         'tutti-cli-skill-bundle',
         '--provider',
         'codex',
         '--agent-session-id',
         run.id,
-        '--json',
       ]);
       expect(runtime.inputs[0]?.systemPrompt).toContain('Use Tutti routing.');
       expect(runtime.inputs[0]?.systemPrompt?.trim().endsWith('Use Tutti routing.')).toBe(true);
@@ -411,13 +413,13 @@ describe('startAgentRun', () => {
       });
 
       expect(JSON.parse(await readFile(argsPath, 'utf8'))).toEqual([
+        '--json',
         'agent',
         'tutti-cli-skill-bundle',
         '--provider',
         'codex',
         '--agent-session-id',
         run.id,
-        '--json',
       ]);
       expect(runtime.inputs[0]?.systemPrompt).toContain('Use Tutti routing locally.');
       expect(runtime.inputs[0]?.systemPrompt?.trim().endsWith('Use Tutti routing locally.')).toBe(true);
@@ -484,13 +486,13 @@ describe('startAgentRun', () => {
 
       expect(JSON.parse(await readFile(callsPath, 'utf8'))).toEqual([
         [
+          '--json',
           'agent',
           'tutti-cli-skill-bundle',
           '--provider',
           'codex',
           '--agent-session-id',
           run.id,
-          '--json',
         ],
       ]);
       expect(runtime.inputs[0]?.systemPrompt).not.toContain('When a request contains a mention:// URI');

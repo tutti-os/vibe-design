@@ -317,24 +317,9 @@ test('package script does not rebuild or require native sqlite bindings', async 
   assert.equal(source.includes('better-sqlite3'), false);
 });
 
-test('package script applies the ACP compatibility patch before building', async () => {
+test('package script builds without mutating installed SDK files', async () => {
   const source = await readFile(new URL('./package-tutti-app.mjs', import.meta.url), 'utf8');
-  const packageSource = await readFile(new URL('../package.json', import.meta.url), 'utf8');
-
-  assert.match(source, /patch-agent-acp-kit-base\.mjs/);
-  assert.doesNotMatch(JSON.parse(packageSource).scripts['package:tutti-app'], /patch-agent-acp-kit-base/);
-
-  const result = spawnSync(process.execPath, [fileURLToPath(new URL('./patch-agent-acp-kit-base.mjs', import.meta.url))], {
-    cwd: fileURLToPath(new URL('..', import.meta.url)),
-    encoding: 'utf8',
-  });
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  const restore = spawnSync(
-    process.execPath,
-    [fileURLToPath(new URL('./patch-agent-acp-kit-base.mjs', import.meta.url)), '--restore'],
-    { cwd: fileURLToPath(new URL('..', import.meta.url)), encoding: 'utf8' },
-  );
-  assert.equal(restore.status, 0, restore.stderr || restore.stdout);
+  assert.doesNotMatch(source, /patch-agent-acp-kit-base/);
 });
 
 test('package script does not install dependencies into package output', async () => {

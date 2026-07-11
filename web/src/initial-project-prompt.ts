@@ -1,5 +1,11 @@
 const INITIAL_PROJECT_PROMPT_PREFIX = 'vibe-design:initial-project-prompt:';
 const INITIAL_PROJECT_SKILLS_PREFIX = 'vibe-design:initial-project-skills:';
+const INITIAL_PROJECT_AGENT_PREFIX = 'vibe-design:initial-project-agent:';
+
+export interface InitialProjectAgentSelection {
+  agentId: string;
+  model?: string;
+}
 
 export function stashInitialProjectPrompt(projectId: string, prompt: string): void {
   const normalizedPrompt = prompt.trim();
@@ -70,10 +76,60 @@ export function consumeInitialProjectSkills(projectId: string): string[] {
   }
 }
 
+export function stashInitialProjectAgent(
+  projectId: string,
+  selection: InitialProjectAgentSelection,
+): void {
+  const agentId = selection.agentId.trim();
+  const model = selection.model?.trim();
+  if (!agentId || typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(
+      initialProjectAgentKey(projectId),
+      JSON.stringify({ agentId, ...(model ? { model } : {}) }),
+    );
+  } catch {
+    // Session storage is a best-effort handoff between dashboard navigation and the project page.
+  }
+}
+
+export function consumeInitialProjectAgent(
+  projectId: string,
+): InitialProjectAgentSelection | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const key = initialProjectAgentKey(projectId);
+    const raw = window.sessionStorage.getItem(key);
+    window.sessionStorage.removeItem(key);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    const agentId = 'agentId' in parsed && typeof parsed.agentId === 'string'
+      ? parsed.agentId.trim()
+      : '';
+    const model = 'model' in parsed && typeof parsed.model === 'string'
+      ? parsed.model.trim()
+      : '';
+    return agentId ? { agentId, ...(model ? { model } : {}) } : null;
+  } catch {
+    return null;
+  }
+}
+
 function initialProjectPromptKey(projectId: string): string {
   return `${INITIAL_PROJECT_PROMPT_PREFIX}${projectId}`;
 }
 
 function initialProjectSkillsKey(projectId: string): string {
   return `${INITIAL_PROJECT_SKILLS_PREFIX}${projectId}`;
+}
+
+function initialProjectAgentKey(projectId: string): string {
+  return `${INITIAL_PROJECT_AGENT_PREFIX}${projectId}`;
 }

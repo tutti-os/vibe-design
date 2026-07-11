@@ -104,7 +104,7 @@ describe('createAgentRegistry', () => {
   });
 
   it('reports a failed connection result from the default registry without a probe', async () => {
-    await expect(agentRegistry.testAgentConnection('claude')).resolves.toEqual({
+    await expect(agentRegistry.testAgentConnection('claude-code')).resolves.toEqual({
       ok: false,
       error: 'Connection probe not configured',
     });

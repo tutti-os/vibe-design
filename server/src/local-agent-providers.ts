@@ -5,7 +5,13 @@ import { createVibeCodexProvider } from './local-codex-provider.js';
 export function createVibeLocalAgentProviderPlugins() {
   return createDefaultLocalAgentProviderPlugins()
     .map((provider) => {
-      if (provider.id === 'claude') return createVibeClaudeProvider();
+      if (provider.id === 'claude-code') {
+        return {
+          ...createVibeClaudeProvider(),
+          id: 'claude-code',
+          aliases: ['claude'],
+        };
+      }
       if (provider.id === 'codex') return createVibeCodexProvider();
       return provider;
     });

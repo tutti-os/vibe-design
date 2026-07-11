@@ -1047,7 +1047,7 @@ describe('createServer', () => {
         runtimeDir: await createRuntimeDir(),
         detectAgentAvailability: async () => [
           { id: 'codex', label: 'Codex', available: false, unavailableReason: 'Codex is not authenticated.' },
-          { id: 'claude', label: 'Claude Code', available: true },
+          { id: 'claude-code', label: 'Claude Code', available: true },
         ],
         startAgentRun: ({ run, runs, request }) => {
           startedAgents.push((request.agentId as string | undefined) ?? null);
@@ -1065,17 +1065,17 @@ describe('createServer', () => {
 
     expect(started.status).toBe(200);
     expect(started.body.value).toMatchObject({
-      provider: 'claude',
+      provider: 'claude-code',
       status: 'succeeded',
       agentFallback: {
         from: 'codex',
-        to: 'claude',
+        to: 'claude-code',
         stage: 'pre-session',
         reason: 'Codex is not authenticated.',
       },
     });
     // Codex is never started; only Claude Code runs.
-    expect(startedAgents).toEqual(['claude']);
+    expect(startedAgents).toEqual(['claude-code']);
   });
 
   it('retries on Claude Code in a new conversation when a codex run breaks mid-session', async () => {
@@ -1085,7 +1085,7 @@ describe('createServer', () => {
         runtimeDir: await createRuntimeDir(),
         detectAgentAvailability: async () => [
           { id: 'codex', label: 'Codex', available: true },
-          { id: 'claude', label: 'Claude Code', available: true },
+          { id: 'claude-code', label: 'Claude Code', available: true },
         ],
         startAgentRun: ({ run, runs, request }) => {
           const agentId = (request.agentId as string | undefined) ?? null;
@@ -1111,17 +1111,17 @@ describe('createServer', () => {
 
     expect(started.status).toBe(200);
     expect(started.body.value).toMatchObject({
-      provider: 'claude',
+      provider: 'claude-code',
       status: 'succeeded',
       agentFallback: {
         from: 'codex',
-        to: 'claude',
+        to: 'claude-code',
         stage: 'in-session',
       },
     });
     // The fallback runs in a fresh conversation, not the codex-locked one.
     expect((started.body.value as { conversationId: string }).conversationId).not.toBe(codexConversationId);
-    expect(startedAgents).toEqual(['codex', 'claude']);
+    expect(startedAgents).toEqual(['codex', 'claude-code']);
   });
 
   it('reports no fallback and surfaces the failure when codex breaks and Claude Code is unavailable', async () => {
@@ -1131,7 +1131,7 @@ describe('createServer', () => {
         runtimeDir: await createRuntimeDir(),
         detectAgentAvailability: async () => [
           { id: 'codex', label: 'Codex', available: true },
-          { id: 'claude', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not installed.' },
+          { id: 'claude-code', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not installed.' },
         ],
         startAgentRun: ({ run, runs, request }) => {
           startedAgents.push((request.agentId as string | undefined) ?? null);

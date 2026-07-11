@@ -13,7 +13,12 @@ import {
 } from './features/canvas-workspace';
 import type { CanvasPreviewCommentTarget } from './features/canvas-workspace/canvas-comment/canvas-comment-types';
 import type { FileOpEntry } from './runtime/file-ops';
-import { consumeInitialProjectPrompt, consumeInitialProjectSkills } from './initial-project-prompt';
+import {
+  consumeInitialProjectAgent,
+  consumeInitialProjectPrompt,
+  consumeInitialProjectSkills,
+  type InitialProjectAgentSelection,
+} from './initial-project-prompt';
 import { useServiceSnapshot } from './hooks/use-service-snapshot';
 import { IChatSessionService } from './services/chat-session/chat-session-service.interface';
 import type { ChatSessionSnapshot, SendTurnInput } from './services/chat-session/chat-session-types';
@@ -616,7 +621,11 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
             projectId={projectId}
             persistedPrompt={initialData?.project.prompt ?? null}
             hasExistingMessages={timelineSnapshot.messages.length > 0}
-            onSendTurn={(draft) => void session.sendTurn({ draft, files: [] })}
+            onSendTurn={(draft, selection) => void session.sendTurn({
+              draft,
+              files: [],
+              ...(selection ?? {}),
+            })}
           />
           <CanvasWorkspace
             files={files}
@@ -1204,7 +1213,7 @@ function InitialProjectPromptStarter({
   projectId: string;
   persistedPrompt: string | null;
   hasExistingMessages: boolean;
-  onSendTurn: (draft: string) => void;
+  onSendTurn: (draft: string, selection: InitialProjectAgentSelection | null) => void;
 }) {
   const context = useService(IContextPickerService);
   const startedRef = React.useRef(false);
@@ -1217,6 +1226,7 @@ function InitialProjectPromptStarter({
     startedRef.current = true;
     const prompt = consumeInitialProjectPrompt(projectId) ?? persistedPrompt?.trim() ?? null;
     const skillIds = consumeInitialProjectSkills(projectId);
+    const agentSelection = consumeInitialProjectAgent(projectId);
     // Only replay the dashboard handoff to kick off a brand-new project. If the
     // conversation already has messages (reload or revisit), clear the stale
     // handoff without replaying so we never double-send the first turn.
@@ -1234,7 +1244,7 @@ function InitialProjectPromptStarter({
           // Best-effort: a skill that no longer exists is simply skipped.
         }
       }
-      onSendTurn(prompt);
+      onSendTurn(prompt, agentSelection);
     })();
   }, [projectId, persistedPrompt, hasExistingMessages, onSendTurn, context]);
 

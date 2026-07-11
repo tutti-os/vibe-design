@@ -1,9 +1,9 @@
 import type { DetectContext } from '@tutti-os/agent-acp-kit';
-import { localAgentRuntime } from './local-agent-runtime.js';
-import { resolveTuttiAgentProviderCatalog } from './tutti/index.js';
 import {
   displayNameForAgentProvider,
-} from './tutti/agent-provider-id.js';
+  resolveTuttiAgentProviderCatalog,
+} from '@tutti-os/agent-acp-kit/tutti';
+import { localAgentRuntime } from './local-agent-runtime.js';
 
 export interface AgentAvailability {
   id: string;
@@ -21,7 +21,8 @@ export async function detectLocalAgentAvailability(context?: DetectContext): Pro
   const catalog = await resolveTuttiAgentProviderCatalog({
     runtime: localAgentRuntime,
     detectContext: context,
-    workspaceCwd: process.env.TUTTI_WORKSPACE_ROOT?.trim() || undefined,
+    cwd: process.env.TUTTI_WORKSPACE_ROOT?.trim() || undefined,
+    includeComposerModels: false,
   });
 
   return catalog.providers.map((entry) => ({
@@ -57,9 +58,10 @@ function findFallbackAgent(
   agents: AgentAvailability[],
   requestedProvider: string,
 ): AgentAvailability | null {
-  const fallbackProvider = requestedProvider === 'codex'
-    ? 'claude'
-    : requestedProvider === 'claude'
+  const canonicalRequestedProvider = requestedProvider === 'claude' ? 'claude-code' : requestedProvider;
+  const fallbackProvider = canonicalRequestedProvider === 'codex'
+    ? 'claude-code'
+    : canonicalRequestedProvider === 'claude-code'
       ? 'codex'
       : null;
   return fallbackProvider
@@ -75,7 +77,8 @@ export function resolvePreSessionFallback(
   agents: AgentAvailability[],
   requestedProvider: string,
 ): AgentFallback | null {
-  const requested = agents.find((candidate) => candidate.id === requestedProvider) ?? null;
+  const canonicalRequestedProvider = requestedProvider === 'claude' ? 'claude-code' : requestedProvider;
+  const requested = agents.find((candidate) => candidate.id === canonicalRequestedProvider) ?? null;
   if (!requested || requested.available) {
     return null;
   }

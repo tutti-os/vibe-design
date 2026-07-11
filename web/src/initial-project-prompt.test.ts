@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  consumeInitialProjectAgent,
   consumeInitialProjectPrompt,
   consumeInitialProjectSkills,
+  stashInitialProjectAgent,
   stashInitialProjectPrompt,
   stashInitialProjectSkills,
 } from './initial-project-prompt';
@@ -23,6 +25,23 @@ describe('initial project prompt handoff', () => {
   it('ignores an empty prompt', () => {
     stashInitialProjectPrompt('project-1', '   ');
     expect(consumeInitialProjectPrompt('project-1')).toBeNull();
+  });
+});
+
+describe('initial project agent handoff', () => {
+  it('stashes and consumes the selected provider and model once', () => {
+    stashInitialProjectAgent('project-1', { agentId: 'codex', model: 'codex:gpt-5.4' });
+
+    expect(consumeInitialProjectAgent('project-1')).toEqual({
+      agentId: 'codex',
+      model: 'codex:gpt-5.4',
+    });
+    expect(consumeInitialProjectAgent('project-1')).toBeNull();
+  });
+
+  it('keeps a provider selection without an explicit model', () => {
+    stashInitialProjectAgent('project-1', { agentId: 'claude' });
+    expect(consumeInitialProjectAgent('project-1')).toEqual({ agentId: 'claude' });
   });
 });
 
