@@ -46,6 +46,7 @@ import { IContextPickerService } from './services/context-picker/context-picker-
 import type { ContextPickerSnapshot } from './services/context-picker/context-picker-types';
 import { type TranslateFn, useTranslation } from './i18n';
 import { IProjectService } from './services/projects/project-service.interface';
+import { useAgentModelCatalog } from './services/agent-catalog/use-agent-model-catalog';
 
 export interface DashboardProject {
   id: string;
@@ -311,16 +312,16 @@ function ProjectCreator({
   const [projectPrompt, setProjectPrompt] = React.useState('');
   const [stagedFiles, setStagedFiles] = React.useState<File[]>([]);
   const [selectedModel, setSelectedModel] = React.useState<DashboardModelOption | null>(null);
-  const [agentModelCatalog, setAgentModelCatalog] = React.useState<ChatComposerAgentModelCatalogEntry[]>(
-    initialAgentModelCatalog,
-  );
-  const [modelCatalogLoading, setModelCatalogLoading] = React.useState(false);
+  const {
+    catalog: agentModelCatalog,
+    loading: modelCatalogLoading,
+    refresh: refreshAgentModelCatalog,
+  } = useAgentModelCatalog(initialAgentModelCatalog);
   const [isCreating, setIsCreating] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const formRef = React.useRef<HTMLFormElement | null>(null);
   const imageInputRef = React.useRef<HTMLInputElement | null>(null);
   const promptInputRef = React.useRef<PromptInputHandle | null>(null);
-  const modelCatalogRequestedRef = React.useRef(false);
   const createProjectInFlightRef = React.useRef(false);
 
   // The dashboard has no project yet, so project files are unavailable here.
@@ -432,21 +433,6 @@ function ProjectCreator({
     setStagedFiles((currentFiles) => currentFiles.filter((_, fileIndex) => fileIndex !== index));
   }
 
-  async function loadModelCatalog(): Promise<void> {
-    if (modelCatalogRequestedRef.current || typeof fetch !== 'function') return;
-    modelCatalogRequestedRef.current = true;
-    setModelCatalogLoading(true);
-    try {
-      const nextCatalog = await fetchDashboardModelCatalog();
-      setAgentModelCatalog(nextCatalog);
-      if (nextCatalog.length === 0) {
-        modelCatalogRequestedRef.current = false;
-      }
-    } finally {
-      setModelCatalogLoading(false);
-    }
-  }
-
   return (
     <section className="mx-auto flex w-full max-w-[700px] flex-col items-center text-center">
       <h2 className="text-[32px] font-semibold leading-tight tracking-normal text-[var(--text-primary)]">
@@ -545,7 +531,7 @@ function ProjectCreator({
                   selectedProvider={selectedModel.provider}
                   selectedProviderLabel={selectedModel.providerLabel}
                   selectedModelLabel={selectedModel.modelLabel}
-                  onOpenMenu={() => void loadModelCatalog()}
+                  onOpenMenu={() => void refreshAgentModelCatalog()}
                   onSelect={(provider, modelId) => {
                     const option = modelOptions.find((m) => m.provider === provider && m.modelId === modelId);
                     if (option) setSelectedModel(option);
@@ -557,7 +543,7 @@ function ProjectCreator({
                   size="sm"
                   variant="outline"
                   disabled={modelCatalogLoading}
-                  onClick={() => void loadModelCatalog()}
+                  onClick={() => void refreshAgentModelCatalog()}
                 >
                   {modelCatalogLoading ? t('common.loading') : t('common.retry')}
                 </Button>
@@ -600,46 +586,6 @@ function isSupportedDashboardReferenceFile(file: File): boolean {
   if (file.type === 'text/markdown' || file.type === 'text/plain') return true;
   const lowerName = file.name.toLowerCase();
   return lowerName.endsWith('.md') || lowerName.endsWith('.markdown') || lowerName.endsWith('.txt');
-}
-
-async function fetchDashboardModelCatalog(): Promise<ChatComposerAgentModelCatalogEntry[]> {
-  const response = await fetch('/api/agents/models').catch(() => null);
-  if (!response) return [];
-
-  const data = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    return [];
-  }
-
-  return readDashboardModelCatalog(data);
-}
-
-function readDashboardModelCatalog(data: unknown): ChatComposerAgentModelCatalogEntry[] {
-  const value = isRecord(data) ? data.agents : null;
-  if (!Array.isArray(value)) return [];
-
-  return value.flatMap((item) => {
-    if (!isRecord(item) || !isDashboardAgentId(item.id) || typeof item.label !== 'string' || !Array.isArray(item.models)) {
-      return [];
-    }
-
-    const models = item.models.flatMap((model) => {
-      if (!isRecord(model) || typeof model.id !== 'string' || typeof model.label !== 'string') {
-        return [];
-      }
-
-      return [{
-        id: model.id,
-        label: model.label,
-        ...(typeof model.description === 'string' && model.description.trim()
-          ? { description: model.description }
-          : {}),
-      }];
-    });
-
-    return [{ agentId: item.id, label: item.label, models }];
-  });
 }
 
 function dashboardModelOptionsFromCatalog(
@@ -693,10 +639,6 @@ function dashboardModelProviderFromAgentId(agentId: string): ComposerModelProvid
 
 function shouldSendDashboardModel(model: DashboardModelOption): boolean {
   return !(model.agentId === 'codex' && model.modelId === 'default');
-}
-
-function isDashboardAgentId(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
 }
 
 interface DashboardModelOption {

@@ -190,8 +190,11 @@ export function ChatPane({
     const provider = visibleSnapshot.conversations.find(
       (conversation) => conversation.id === visibleSnapshot.activeConversationId,
     )?.provider;
-    return typeof provider === 'string' && provider.trim() ? provider.trim() : null;
-  }, [visibleSnapshot.activeConversationId, visibleSnapshot.conversations]);
+    const canonicalProvider = typeof provider === 'string' ? provider.trim() : '';
+    return canonicalProvider && agentModelCatalog.some((entry) => entry.agentId === canonicalProvider)
+      ? canonicalProvider
+      : null;
+  }, [agentModelCatalog, visibleSnapshot.activeConversationId, visibleSnapshot.conversations]);
   const activeConversationModel = React.useMemo(() => {
     const model = visibleSnapshot.conversations.find(
       (conversation) => conversation.id === visibleSnapshot.activeConversationId,

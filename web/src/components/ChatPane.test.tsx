@@ -990,6 +990,13 @@ describe('ChatPane', () => {
 
   it('keeps an arbitrary canonical conversation provider when submitting an inline question form', async () => {
     const onSend = vi.fn();
+    const agentModelCatalog = [
+      {
+        agentId: 'tutti-agent',
+        label: 'Tutti Agent',
+        models: [{ id: 'default', label: 'Default' }],
+      },
+    ];
     const snapshot: ChatTimelineSnapshot = {
       activeRunId: null,
       phase: 'idle',
@@ -1033,6 +1040,7 @@ describe('ChatPane', () => {
     const { container, root } = renderComponent(
       <ChatPane
         snapshot={snapshot}
+        agentModelCatalog={agentModelCatalog}
         contextSnapshot={{ selectedSkills: [], selectedDesignFiles: [] }}
         contextSearch={async () => ({ items: [] })}
         contextSelect={vi.fn()}
