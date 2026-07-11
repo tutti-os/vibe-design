@@ -1916,6 +1916,42 @@ describe('VibeDesignApp', () => {
     }
   });
 
+  it('lets an empty dashboard catalog recover by loading the authoritative catalog', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (url === '/api/agents/models') {
+        return Response.json({
+          agents: [
+            {
+              id: 'tutti-agent',
+              label: 'Tutti Agent',
+              models: [{ id: 'default', label: 'Default' }],
+            },
+          ],
+        });
+      }
+      return Response.json({});
+    });
+    vi.stubGlobal('fetch', fetch);
+    const flow = createVibeDesignFlow({ agentModelCatalog: [] });
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      expect(container.querySelector('[aria-label="Model"]')).toBeNull();
+      expect(container.textContent).not.toContain('Codex');
+
+      await act(async () => buttonByText(container, 'Retry').click());
+
+      await waitFor(() => {
+        expect(getByLabelText(container, 'Model').textContent).toContain('Tutti Agent');
+      });
+      expect(fetch).toHaveBeenCalledWith('/api/agents/models');
+    } finally {
+      cleanup(root, container);
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('does not render prototype fidelity choices in the dashboard creator', () => {
     const flow = createVibeDesignFlow();
     const { container, root } = renderComponent(flow.render());
@@ -2041,7 +2077,13 @@ describe('VibeDesignApp', () => {
         return Response.json({ projects: [] });
       }
       if (url === '/api/agents/models') {
-        return Response.json({ agents: [] });
+        return Response.json({
+          agents: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
+            id: entry.agentId,
+            label: entry.label,
+            models: entry.models,
+          })),
+        });
       }
       return Response.json({});
     }));
@@ -2482,7 +2524,22 @@ describe('VibeDesignApp', () => {
         );
       }
       if (url === '/api/agents/models') {
-        return Response.json({ agents: [] });
+        return Response.json({
+          agents: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
+            id: entry.agentId,
+            label: entry.label,
+            models: entry.models,
+          })),
+        });
+      }
+      if (url === '/api/agents/availability') {
+        return Response.json({
+          agentAvailability: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
+            id: entry.agentId,
+            label: entry.label,
+            available: true,
+          })),
+        });
       }
       return Response.json({ designSystems: [] });
     });

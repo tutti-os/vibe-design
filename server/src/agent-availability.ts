@@ -164,12 +164,9 @@ export function resolveRunFailureFallback(
   };
 }
 
-export function unavailableAgentsForDetectionFailure(error: unknown): AgentAvailability[] {
-  const reason = error instanceof Error ? error.message : 'Agent detection failed.';
-  return [{
-    id: '__catalog__',
-    label: 'Agent provider catalog',
-    available: false,
-    unavailableReason: reason,
-  }];
+export function agentDetectionFailureReason(error: unknown): string {
+  const reason = error instanceof Error ? error.message.trim() : '';
+  return reason
+    ? `Agent provider availability could not be verified: ${reason}`
+    : 'Agent provider availability could not be verified.';
 }

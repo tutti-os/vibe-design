@@ -314,6 +314,7 @@ function ProjectCreator({
   const [agentModelCatalog, setAgentModelCatalog] = React.useState<ChatComposerAgentModelCatalogEntry[]>(
     initialAgentModelCatalog,
   );
+  const [modelCatalogLoading, setModelCatalogLoading] = React.useState(false);
   const [isCreating, setIsCreating] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const formRef = React.useRef<HTMLFormElement | null>(null);
@@ -434,7 +435,16 @@ function ProjectCreator({
   async function loadModelCatalog(): Promise<void> {
     if (modelCatalogRequestedRef.current || typeof fetch !== 'function') return;
     modelCatalogRequestedRef.current = true;
-    setAgentModelCatalog(await fetchDashboardModelCatalog());
+    setModelCatalogLoading(true);
+    try {
+      const nextCatalog = await fetchDashboardModelCatalog();
+      setAgentModelCatalog(nextCatalog);
+      if (nextCatalog.length === 0) {
+        modelCatalogRequestedRef.current = false;
+      }
+    } finally {
+      setModelCatalogLoading(false);
+    }
   }
 
   return (
@@ -541,7 +551,17 @@ function ProjectCreator({
                     if (option) setSelectedModel(option);
                   }}
                 />
-              ) : null}
+              ) : (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={modelCatalogLoading}
+                  onClick={() => void loadModelCatalog()}
+                >
+                  {modelCatalogLoading ? t('common.loading') : t('common.retry')}
+                </Button>
+              )}
               <ComposerSendButton
                 ariaLabel={t('dashboard.creator.createAria')}
                 disabled={!canCreate}

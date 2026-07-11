@@ -28,8 +28,19 @@ const TEST_AGENT_AVAILABILITY = [
   { id: 'claude-code', label: 'Claude Code', available: true },
 ];
 
+const TEST_AGENT_MODEL_CATALOG = [
+  { agentId: 'codex', label: 'Codex', models: [] },
+  { agentId: 'claude-code', label: 'Claude Code', models: [] },
+];
+
 function ChatPane(props: React.ComponentProps<typeof ChatPaneBase>): React.ReactElement {
-  return <ChatPaneBase {...props} agentAvailability={props.agentAvailability ?? TEST_AGENT_AVAILABILITY} />;
+  return (
+    <ChatPaneBase
+      {...props}
+      agentAvailability={props.agentAvailability ?? TEST_AGENT_AVAILABILITY}
+      agentModelCatalog={props.agentModelCatalog ?? TEST_AGENT_MODEL_CATALOG}
+    />
+  );
 }
 
 vi.mock('react-zoom-pan-pinch', async () => {
@@ -977,14 +988,14 @@ describe('ChatPane', () => {
     }
   });
 
-  it('keeps the locked conversation provider when submitting an inline question form', async () => {
+  it('keeps an arbitrary canonical conversation provider when submitting an inline question form', async () => {
     const onSend = vi.fn();
     const snapshot: ChatTimelineSnapshot = {
       activeRunId: null,
       phase: 'idle',
       activeConversationId: 'conversation-1',
       activeConversationTitle: 'Build a product page',
-      conversations: [{ id: 'conversation-1', title: 'Build a product page', provider: 'claude-code', createdAt: 1, updatedAt: 1 }],
+      conversations: [{ id: 'conversation-1', title: 'Build a product page', provider: 'tutti-agent', createdAt: 1, updatedAt: 1 }],
       pinnedTodoInput: null,
       messages: [
         {
@@ -1046,7 +1057,7 @@ describe('ChatPane', () => {
           '- 品牌名称: Acme',
         ].join('\n'),
         files: [],
-        agentId: 'claude-code',
+        agentId: 'tutti-agent',
       });
     } finally {
       cleanup(root, container);

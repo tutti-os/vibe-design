@@ -21,8 +21,19 @@ const TEST_AGENT_AVAILABILITY = [
   { id: 'claude-code', label: 'Claude Code', available: true },
 ];
 
+const TEST_AGENT_MODEL_CATALOG = [
+  { agentId: 'codex', label: 'Codex', models: [] },
+  { agentId: 'claude-code', label: 'Claude Code', models: [] },
+];
+
 function ChatComposer(props: React.ComponentProps<typeof ChatComposerBase>): React.ReactElement {
-  return <ChatComposerBase {...props} agentAvailability={props.agentAvailability ?? TEST_AGENT_AVAILABILITY} />;
+  return (
+    <ChatComposerBase
+      {...props}
+      agentAvailability={props.agentAvailability ?? TEST_AGENT_AVAILABILITY}
+      agentModelCatalog={props.agentModelCatalog ?? TEST_AGENT_MODEL_CATALOG}
+    />
+  );
 }
 
 function renderComponent(element: React.ReactElement): { container: HTMLElement; root: Root } {
@@ -151,6 +162,64 @@ describe('ChatComposer', () => {
       expect(container.textContent).not.toContain('宠物');
       expect(getByLabelText(container, 'Open mentions')).toBeTruthy();
       expect(getByLabelText(container, 'Attach files')).toBeTruthy();
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('does not synthesize selectable providers from availability', async () => {
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        agentAvailability={[
+          { id: 'codex', label: 'Codex', available: true },
+          { id: 'tutti-agent', label: 'Tutti Agent', available: true },
+        ]}
+        agentModelCatalog={[
+          { agentId: 'codex', label: 'Codex', models: [{ id: 'default', label: 'Default' }] },
+        ]}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      await openModelMenu(container);
+      expect(document.body.querySelector('[data-provider-option="tutti-agent"]')).toBeNull();
+      expect(document.body.textContent).not.toContain('Tutti Agent');
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('does not send when availability has a provider omitted from the catalog', async () => {
+    const onSend = vi.fn();
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        draft="Use hidden provider"
+        agentAvailability={[{ id: 'codex', label: 'Codex', available: true }]}
+        agentModelCatalog={[]}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onSend={onSend}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      const send = getByLabelText(container, 'Send message') as HTMLButtonElement;
+      expect(send.disabled).toBe(true);
+      await act(async () => send.click());
+      expect(onSend).not.toHaveBeenCalled();
     } finally {
       cleanup(root, container);
     }

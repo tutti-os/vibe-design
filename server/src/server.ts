@@ -15,12 +15,12 @@ import { isProjectId, type ProjectEditorInitialData, type VibeDesignRoute } from
 import { renderPage } from '@vibe-design/web/render-page';
 import { DEFAULT_AGENT_ID } from './agents.js';
 import {
+  agentDetectionFailureReason,
   detectLocalAgentAvailability,
   findUnavailableAgent,
   PRIMARY_AGENT_ID,
   resolvePreSessionFallback,
   resolveRunFailureFallback,
-  unavailableAgentsForDetectionFailure,
   type AgentAvailability,
   type AgentFallback,
   type DetectAgentAvailability,
@@ -308,10 +308,18 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     }
 
     const requestedProvider = readString(body.agentId) ?? DEFAULT_AGENT_ID;
-    const unavailableAgent = findUnavailableAgent(
-      await safeDetectAgentAvailability(detectAgentAvailability, { ...detectContext, refresh: true }),
-      requestedProvider,
-    );
+    let agentAvailability: AgentAvailability[];
+    try {
+      agentAvailability = await detectAgentAvailability({ ...detectContext, refresh: true });
+    } catch (error) {
+      return {
+        ok: false,
+        status: 409,
+        code: 'AGENT_UNAVAILABLE',
+        message: agentDetectionFailureReason(error),
+      };
+    }
+    const unavailableAgent = findUnavailableAgent(agentAvailability, requestedProvider);
     if (unavailableAgent) {
       return {
         ok: false,
@@ -874,7 +882,10 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   app.get('/api/agents/availability', async (req: Request, res: Response): Promise<void> => {
     const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
     res.json({
-      agentAvailability: await cachedAgentAvailability.detect(detectContext, { refresh: true }),
+      agentAvailability: await cachedAgentAvailability.detect(
+        { ...detectContext, refresh: true },
+        { refresh: true },
+      ),
     });
   });
 
@@ -900,7 +911,10 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     }
 
     res.status(200).json({
-      agentAvailability: await cachedAgentAvailability.detect(detectContext, { refresh: true }),
+      agentAvailability: await cachedAgentAvailability.detect(
+        { ...detectContext, refresh: true },
+        { refresh: true },
+      ),
     });
   });
 
@@ -987,10 +1001,8 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   app.get(['/', '/index.html'], async (req: Request, res: Response) => {
     const recentProjects = await listProjectSummaries(projectsDir, 20);
     const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
-    const agentModelCatalog = (await cachedAgentModelCatalog.detect(
-      { ...detectContext, refresh: true },
-      { refresh: true },
-    )).map((entry) => ({ agentId: entry.id, label: entry.label, models: entry.models }));
+    const agentModelCatalog = (await cachedAgentModelCatalog.detect(detectContext))
+      .map((entry) => ({ agentId: entry.id, label: entry.label, models: entry.models }));
     sendNoStore(res);
     res.type('html').send(renderPage({ route: { kind: 'dashboard' }, recentProjects, agentModelCatalog }));
   });
@@ -1113,7 +1125,7 @@ function createCachedAgentAvailabilityDetector(detectAgentAvailability: DetectAg
     async detect(context?: DetectContext, options: CachedAgentDetectOptions = {}): Promise<AgentAvailability[]> {
       const isManagedRequest = Boolean(context?.managedAgentInvocation);
       if (isManagedRequest) {
-        return safeDetectAgentAvailability(detectAgentAvailability, context);
+        return detectAgentAvailability(context).catch(() => []);
       }
 
       if (!options.refresh) {
@@ -1121,7 +1133,7 @@ function createCachedAgentAvailabilityDetector(detectAgentAvailability: DetectAg
         if (inFlight) return inFlight;
       }
 
-      const detection = safeDetectAgentAvailability(detectAgentAvailability, context)
+      const detection = detectAgentAvailability(context)
         .then((next) => {
           if (hasTransientAvailabilityFailure(next)) {
             return cached ?? next;
@@ -1129,6 +1141,7 @@ function createCachedAgentAvailabilityDetector(detectAgentAvailability: DetectAg
           cached = next;
           return next;
         })
+        .catch(() => cached ?? [])
         .finally(() => {
           if (inFlight === detection) {
             inFlight = null;
@@ -1192,17 +1205,6 @@ function hasTransientAvailabilityFailure(agentAvailability: AgentAvailability[])
       'connection reset',
     ].some((needle) => reason.includes(needle));
   });
-}
-
-async function safeDetectAgentAvailability(
-  detectAgentAvailability: DetectAgentAvailability,
-  context?: DetectContext,
-): Promise<AgentAvailability[]> {
-  try {
-    return await detectAgentAvailability(context);
-  } catch (error) {
-    return unavailableAgentsForDetectionFailure(error);
-  }
 }
 
 function conversationSummaryForClient(conversation: {

@@ -641,6 +641,7 @@ describe('createServer', () => {
 
   it('installs Claude Code and returns refreshed local agent availability', async () => {
     const installCalls: string[] = [];
+    const detectContexts: Array<DetectContext | undefined> = [];
     let detectCalls = 0;
     const port = await listenOnRandomPort(
       createTestServer({
@@ -648,16 +649,17 @@ describe('createServer', () => {
         installClaudeCode: async () => {
           installCalls.push('claude');
         },
-        detectAgentAvailability: async () => {
+        detectAgentAvailability: async (context) => {
+          detectContexts.push(context);
           detectCalls += 1;
           return detectCalls === 1
             ? [
                 { id: 'codex', label: 'Codex', available: true },
-                { id: 'claude', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not installed.' },
+                { id: 'claude-code', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not installed.' },
               ]
             : [
                 { id: 'codex', label: 'Codex', available: true },
-                { id: 'claude', label: 'Claude Code', available: true },
+                { id: 'claude-code', label: 'Claude Code', available: true },
               ];
         },
       }),
@@ -673,11 +675,13 @@ describe('createServer', () => {
     expect(await response.json()).toMatchObject({
       agentAvailability: [
         { id: 'codex', label: 'Codex', available: true },
-        { id: 'claude', label: 'Claude Code', available: true },
+        { id: 'claude-code', label: 'Claude Code', available: true },
       ],
     });
     expect(installCalls).toEqual(['claude']);
     expect(detectCalls).toBe(2);
+    expect(detectContexts[0]?.refresh).not.toBe(true);
+    expect(detectContexts[1]?.refresh).toBe(true);
   });
 
   it('exposes project context through Tutti CLI handlers without destructive project tools', async () => {
@@ -1218,6 +1222,32 @@ describe('createServer', () => {
     expect(html).toContain('Prototype Design');
     expect(html).toContain('New prototype');
     expect(html).toContain('What will you prototype today?');
+  });
+
+  it('reuses dashboard model detection while the models API explicitly refreshes it', async () => {
+    const detectContexts: Array<DetectContext | undefined> = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentModelCatalog: async (context) => {
+          detectContexts.push(context);
+          return [{
+            id: 'codex',
+            label: 'Codex',
+            models: [{ id: 'default', label: 'Default' }],
+          }];
+        },
+      }),
+    );
+
+    expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200);
+    expect((await fetch(`http://127.0.0.1:${port}/index.html`)).status).toBe(200);
+    expect(detectContexts).toHaveLength(1);
+    expect(detectContexts[0]?.refresh).not.toBe(true);
+
+    expect((await fetch(`http://127.0.0.1:${port}/api/agents/models`)).status).toBe(200);
+    expect(detectContexts).toHaveLength(2);
+    expect(detectContexts[1]?.refresh).toBe(true);
   });
 
   it('serves the project editor page under /project/:projectId', async () => {
@@ -2159,6 +2189,44 @@ describe('createServer', () => {
     });
     expect(startedRequests).toEqual([]);
     expect(detectContexts.at(-1)).toMatchObject({ refresh: true });
+  });
+
+  it('fails runs closed on catalog detection errors without exposing a sentinel provider', async () => {
+    const startedRequests: Record<string, unknown>[] = [];
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentAvailability: async () => {
+          throw new Error('Tutti provider catalog timed out.');
+        },
+        startAgentRun: ({ request }) => {
+          startedRequests.push(request);
+        },
+      }),
+    );
+
+    const availabilityResponse = await fetch(`http://127.0.0.1:${port}/api/agents/availability`);
+    expect(availabilityResponse.status).toBe(200);
+    expect(await availabilityResponse.json()).toEqual({ agentAvailability: [] });
+
+    const runResponse = await fetch(`http://127.0.0.1:${port}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: 'project-detection-failure',
+        prompt: 'Build a small page',
+        agentId: 'tutti-agent',
+      }),
+    });
+
+    expect(runResponse.status).toBe(409);
+    expect(await runResponse.json()).toEqual({
+      error: {
+        code: 'AGENT_UNAVAILABLE',
+        message: 'Agent provider availability could not be verified: Tutti provider catalog timed out.',
+      },
+    });
+    expect(startedRequests).toEqual([]);
   });
 
   it('rejects a provider omitted by the fresh Tutti catalog', async () => {

@@ -190,7 +190,7 @@ export function ChatPane({
     const provider = visibleSnapshot.conversations.find(
       (conversation) => conversation.id === visibleSnapshot.activeConversationId,
     )?.provider;
-    return provider === 'claude-code' || provider === 'codex' ? provider : null;
+    return typeof provider === 'string' && provider.trim() ? provider.trim() : null;
   }, [visibleSnapshot.activeConversationId, visibleSnapshot.conversations]);
   const activeConversationModel = React.useMemo(() => {
     const model = visibleSnapshot.conversations.find(
