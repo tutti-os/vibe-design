@@ -194,6 +194,9 @@ export function ChatPane({
     )?.model;
     return typeof model === 'string' && model.trim() ? model : null;
   }, [visibleSnapshot.activeConversationId, visibleSnapshot.conversations]);
+  const activeConversationProviderLabel = activeConversationProvider
+    ? agentModelCatalog.find((entry) => entry.agentId === activeConversationProvider)?.label ?? activeConversationProvider
+    : 'Codex';
   const activeQueuedTurns = React.useMemo(
     () => queuedTurns.filter((turn) => turn.conversationId === visibleSnapshot.activeConversationId),
     [queuedTurns, visibleSnapshot.activeConversationId],
@@ -523,6 +526,7 @@ export function ChatPane({
                   <TimelineMessage
                     key={message.id}
                     message={message}
+                    agentLabel={activeConversationProviderLabel}
                     streaming={streaming && message.role === 'assistant' && message.runStatus === 'running'}
                     nextUserContent={nextUserContent(visibleSnapshot.messages, message.id)}
                     projectId={projectId}
@@ -1080,6 +1084,7 @@ function previewCommentThumbnailUrl(comment: CanvasPreviewComment, projectId?: s
 
 function TimelineMessage({
   message,
+  agentLabel,
   streaming,
   nextUserContent,
   projectId,
@@ -1091,6 +1096,7 @@ function TimelineMessage({
   onOpenFileOp,
 }: {
   message: ChatTimelineMessage;
+  agentLabel: string;
   streaming: boolean;
   nextUserContent?: string;
   projectId?: string | null;
@@ -1106,7 +1112,7 @@ function TimelineMessage({
     return (
       <div className="msg assistant" data-message-id={message.id}>
         <div className="role">
-          <span>Codex</span>
+          <span>{agentLabel}</span>
           {message.runStatus === 'running' ? (
             <Badge className="chat-run-status" variant="secondary" aria-label={t('chat.message.agentRunStatus')}>
               <StatusDot tone="blue" size="xs" pulse ariaLabel={t('chat.message.running')} />
