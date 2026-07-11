@@ -1,4 +1,8 @@
 import type { Response } from 'express';
+import type {
+  DetectContext,
+  ManagedAgentInvocationCredentialHeaders,
+} from '@tutti-os/agent-acp-kit';
 import type { SseResponse } from './http/sse.js';
 import type { ChatRunService } from './types/run.js';
 
@@ -35,8 +39,15 @@ export type CliServiceResult =
   | { ok: false; status: number; code: string; message: string };
 
 export interface CliOpenAppInput {
+  detectContext?: DetectContext;
   route: string;
   projectId?: string;
+}
+
+export interface CliStartSessionInput {
+  detectContext?: DetectContext;
+  input: Record<string, unknown>;
+  managedAgentHeaders: ManagedAgentInvocationCredentialHeaders;
 }
 
 export interface ServerContext {
@@ -57,7 +68,7 @@ export interface ServerContext {
     openApp: (input: CliOpenAppInput) => Promise<CliServiceResult>;
     createProject: (input: Record<string, unknown>) => Promise<CliServiceResult>;
     updateProject: (input: Record<string, unknown>) => Promise<CliServiceResult>;
-    startSession: (input: Record<string, unknown>) => Promise<CliServiceResult>;
+    startSession: (input: CliStartSessionInput) => Promise<CliServiceResult>;
   };
   telemetry?: {
     reportFeedback?: (input: {

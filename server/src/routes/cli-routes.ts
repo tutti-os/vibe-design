@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Express, Request, Response } from 'express';
 import { isProjectId } from '@vibe-design/web';
+import { createManagedAgentDetectContextFromHeaders } from '@tutti-os/agent-acp-kit';
 import { isSafeConversationId, listConversationMessages, listConversations } from '../conversations.js';
 import type { CliServiceResult, RouteDeps } from '../server-context.js';
 import {
@@ -41,7 +42,14 @@ export function registerCliRoutes(app: Express, ctx: CliRouteDeps): void {
     }
 
     const route = projectId ? `/project/${encodeURIComponent(projectId)}` : '/';
-    sendCliServiceResult(res, await ctx.cli.openApp({ route, ...(projectId ? { projectId } : {}) }));
+    const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, {
+      appDataDir: ctx.paths.runtimeDir,
+    });
+    sendCliServiceResult(res, await ctx.cli.openApp({
+      detectContext,
+      route,
+      ...(projectId ? { projectId } : {}),
+    }));
   });
 
   postCli('/tutti/cli/project-create', async (req: Request, res: Response) => {
@@ -53,7 +61,14 @@ export function registerCliRoutes(app: Express, ctx: CliRouteDeps): void {
   });
 
   postCli('/tutti/cli/session-start', async (req: Request, res: Response) => {
-    sendCliServiceResult(res, await ctx.cli.startSession(cliInput(req.body)));
+    const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, {
+      appDataDir: ctx.paths.runtimeDir,
+    });
+    sendCliServiceResult(res, await ctx.cli.startSession({
+      detectContext,
+      input: cliInput(req.body),
+      managedAgentHeaders: req.headers,
+    }));
   });
 
   postCli('/tutti/cli/conversations', async (req: Request, res: Response) => {

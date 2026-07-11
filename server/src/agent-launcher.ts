@@ -4,6 +4,7 @@ import {
   type AgentEvent as AcpAgentEvent,
   type AgentRunInput as AcpAgentRunInput,
   type AgentRunMessage as AcpAgentRunMessage,
+  type DetectContext,
   type ManagedAgentRunContext,
 } from '@tutti-os/agent-acp-kit';
 import { DEFAULT_AGENT_ID, type AgentRegistry } from './agents.js';
@@ -65,6 +66,7 @@ export interface StartAgentRunInput {
   paths: AgentRunPaths;
   registry?: AgentRegistry;
   agentRuntime?: LocalAgentRuntime;
+  detectContext?: DetectContext;
   managedAgentRunContext?: ManagedAgentRunContext;
 }
 
@@ -134,6 +136,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   const tuttiSkillBundle = await resolveTuttiAgentSkillBundle({
     agentSessionId: run.id,
     cwd: resolveTuttiWorkspaceCwd(projectWorkspaceDir),
+    detectContext: input.detectContext,
     provider: agentId,
   });
   const runtimeSystemPrompt = [
