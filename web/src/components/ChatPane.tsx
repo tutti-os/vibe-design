@@ -88,6 +88,7 @@ export interface ChatPaneProps {
   commentPanelOpen?: boolean;
   agentAvailability?: ChatComposerAgentAvailability[];
   agentModelCatalog?: ChatComposerAgentModelCatalogEntry[];
+  activeConversationProvider?: string | null;
   queuedTurns?: QueuedTurnPreview[];
   startingRun?: boolean;
   onSend(input: {
@@ -138,6 +139,7 @@ export function ChatPane({
   commentPanelOpen = false,
   agentAvailability = [],
   agentModelCatalog = [],
+  activeConversationProvider = null,
   queuedTurns = [],
   startingRun = false,
   onSend,
@@ -186,12 +188,6 @@ export function ChatPane({
     () => groupMessagesByDay(visibleSnapshot.messages, locale),
     [locale, visibleSnapshot.messages],
   );
-  const activeConversationProvider = React.useMemo(() => {
-    const provider = visibleSnapshot.conversations.find(
-      (conversation) => conversation.id === visibleSnapshot.activeConversationId,
-    )?.provider;
-    return provider === 'claude' || provider === 'codex' ? provider : null;
-  }, [visibleSnapshot.activeConversationId, visibleSnapshot.conversations]);
   const activeConversationModel = React.useMemo(() => {
     const model = visibleSnapshot.conversations.find(
       (conversation) => conversation.id === visibleSnapshot.activeConversationId,

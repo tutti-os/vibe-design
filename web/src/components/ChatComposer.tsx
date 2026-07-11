@@ -55,14 +55,6 @@ type ModelProviderEntry = {
   comingSoon?: boolean;
 };
 
-const DEFAULT_MODEL_PROVIDERS: ModelProviderEntry[] = [
-  { value: 'codex', label: 'Codex' },
-  { value: 'claude-code', label: 'Claude Code' },
-  { value: 'tutti', label: 'Tutti', comingSoon: true },
-  { value: 'hermes', label: 'Hermes', comingSoon: true },
-  { value: 'openclaw', label: 'OpenClaw', comingSoon: true },
-];
-
 export interface ChatComposerProps {
   streaming: boolean;
   draft?: string;
@@ -160,30 +152,17 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     const draft = controlledDraft ?? uncontrolledDraft;
     const hasCommentAttachments = commentAttachments.length > 0;
     const activeModelProviders = useMemo<ModelProviderEntry[]>(() => {
-      const byAgentId = new Map<string, { value: string; label: string }>();
-      for (const agent of agentAvailability) {
-        byAgentId.set(agent.id, { value: modelProviderFromAgentId(agent.id), label: agent.label });
-      }
-      for (const entry of agentModelCatalog) {
-        if (!byAgentId.has(entry.agentId)) {
-          byAgentId.set(entry.agentId, {
-            value: modelProviderFromAgentId(entry.agentId),
-            label: entry.label,
-          });
-        }
-      }
-      return Array.from(byAgentId.values());
-    }, [agentAvailability, agentModelCatalog]);
-    const modelProviders = useMemo(() => {
-      const providers = new Map(DEFAULT_MODEL_PROVIDERS.map((provider) => [provider.value, provider]));
-      for (const provider of activeModelProviders) providers.set(provider.value, provider);
-      return Array.from(providers.values());
-    }, [activeModelProviders]);
+      return agentModelCatalog.map((entry) => ({
+        value: entry.agentId,
+        label: entry.label,
+      }));
+    }, [agentModelCatalog]);
+    const modelProviders = activeModelProviders;
     const activeModelProviderIds = useMemo(
-      () => new Set(['codex', 'claude-code', ...activeModelProviders.map((provider) => provider.value)]),
+      () => new Set(activeModelProviders.map((provider) => provider.value)),
       [activeModelProviders],
     );
-    const lockedModelProvider = lockedAgentId ? modelProviderFromAgentId(lockedAgentId) : null;
+    const lockedModelProvider = lockedAgentId?.trim() || null;
     const providerLocked = lockedModelProvider !== null;
     const selectedProviderUnavailableReason = unavailableReasonForProvider(modelProvider, agentAvailability);
     const selectedModelOptions = modelOptionsForProvider(modelProvider, agentModelCatalog);
@@ -204,7 +183,11 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     // instead of showing an inert spinner. With new input staged the button stays
     // a send action so the turn can be queued.
     const canInterrupt = streaming && !hasSendableInput && !sendPending;
-    const canSend = hasSendableInput && !sendPending && !selectedProviderUnavailableReason;
+    const canSend =
+      hasSendableInput &&
+      !sendPending &&
+      activeModelProviderIds.has(modelProvider) &&
+      !selectedProviderUnavailableReason;
 
     useImperativeHandle(
       ref,
@@ -261,9 +244,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     }, [activeModelProviderIds, activeModelProviders, agentAvailability, modelProvider, providerLocked]);
 
     useEffect(() => {
-      const agentId = agentIdFromModelProvider(modelProvider);
       const label = modelProviders.find((provider) => provider.value === modelProvider)?.label ?? modelProvider;
-      onAgentChange?.(agentId, label);
+      onAgentChange?.(modelProvider, label);
     }, [modelProvider, modelProviders, onAgentChange]);
 
     const selectedChips = useMemo(
@@ -301,7 +283,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           draft: draft.trim(),
           files,
           ...(uploadedAttachments.length > 0 ? { attachments: uploadedAttachments } : {}),
-          agentId: agentIdFromModelProvider(modelProvider),
+          agentId: modelProvider,
           ...(selectedModel ? { model: selectedModel } : {}),
           ...(hasCommentAttachments ? { commentAttachments } : {}),
         });
@@ -411,10 +393,10 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  void installAgent(agentIdFromModelProvider(activeProvider), provider.label);
+                  void installAgent(activeProvider, provider.label);
                 }}
               >
-                {installingAgentId === agentIdFromModelProvider(activeProvider)
+                {installingAgentId === activeProvider
                   ? t('chat.composer.installing')
                   : t('chat.composer.install')}
               </Button>
@@ -818,14 +800,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
   },
 );
 
-function agentIdFromModelProvider(provider: string): AgentId {
-  return provider === 'claude-code' ? 'claude' : provider;
-}
-
-function modelProviderFromAgentId(agentId: AgentId): string {
-  return agentId === 'claude' ? 'claude-code' : agentId;
-}
-
 function normalizeLockedComposerModel(
   provider: string,
   model: string,
@@ -835,13 +809,10 @@ function normalizeLockedComposerModel(
   if (options.some((option) => option.id === model)) {
     return model;
   }
-  const prefixes = [provider, agentIdFromModelProvider(provider)];
-  for (const prefix of prefixes) {
-    if (model.startsWith(`${prefix}:`)) {
-      const stripped = model.slice(prefix.length + 1);
-      if (options.some((option) => option.id === stripped)) {
-        return stripped;
-      }
+  if (model.startsWith(`${provider}:`)) {
+    const stripped = model.slice(provider.length + 1);
+    if (options.some((option) => option.id === stripped)) {
+      return stripped;
     }
   }
   return model;
@@ -851,8 +822,7 @@ function modelOptionsForProvider(
   provider: string,
   catalog: ChatComposerAgentModelCatalogEntry[],
 ): ChatComposerModelOption[] {
-  const agentId = agentIdFromModelProvider(provider);
-  return catalog.find((entry) => entry.agentId === agentId)?.models ?? [];
+  return catalog.find((entry) => entry.agentId === provider)?.models ?? [];
 }
 
 function selectedModelForProvider(
@@ -882,12 +852,12 @@ function availabilityForProvider(
   provider: string,
   agentAvailability: ChatComposerAgentAvailability[],
 ): ChatComposerAgentAvailability | null {
-  const agentId = agentIdFromModelProvider(provider);
-  return agentAvailability.find((candidate) => candidate.id === agentId) ?? null;
+  return agentAvailability.find((candidate) => candidate.id === provider) ?? null;
 }
 
 function unavailableReasonForAvailability(agent: ChatComposerAgentAvailability | null): string | null {
-  return agent && !agent.available ? agent.unavailableReason ?? `${agent.label} is unavailable.` : null;
+  if (!agent) return 'This provider is not available from Tutti.';
+  return !agent.available ? agent.unavailableReason ?? `${agent.label} is unavailable.` : null;
 }
 
 function canInstallUnavailableAgent(agent: ChatComposerAgentAvailability | null): boolean {

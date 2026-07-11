@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { fireEvent, waitFor } from '@testing-library/react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChatPane } from './ChatPane';
+import { ChatPane as ChatPaneBase } from './ChatPane';
 import { PRESET_PROMPTS, pickPresetPrompts } from './presetPrompts';
 import type { ChatTimelineSnapshot } from '../services/chat-timeline/chat-timeline-types';
 import type { CanvasCommentAttachment, ChatAttachment, ProjectFile } from '../types';
@@ -22,6 +22,26 @@ const transformControls = vi.hoisted(() => ({
 const transformWrapperProps = vi.hoisted(() => ({
   current: null as Record<string, unknown> | null,
 }));
+
+const TEST_AGENT_AVAILABILITY = [
+  { id: 'codex', label: 'Codex', available: true },
+  { id: 'claude-code', label: 'Claude Code', available: true },
+];
+
+const TEST_AGENT_MODEL_CATALOG = [
+  { agentId: 'codex', label: 'Codex', models: [] },
+  { agentId: 'claude-code', label: 'Claude Code', models: [] },
+];
+
+function ChatPane(props: React.ComponentProps<typeof ChatPaneBase>): React.ReactElement {
+  return (
+    <ChatPaneBase
+      {...props}
+      agentAvailability={props.agentAvailability ?? TEST_AGENT_AVAILABILITY}
+      agentModelCatalog={props.agentModelCatalog ?? TEST_AGENT_MODEL_CATALOG}
+    />
+  );
+}
 
 vi.mock('react-zoom-pan-pinch', async () => {
   const ReactModule = await import('react');
@@ -593,7 +613,7 @@ describe('ChatPane', () => {
         contextSelect={vi.fn()}
         agentAvailability={[
           { id: 'codex', label: 'Codex', available: true },
-          { id: 'claude', label: 'Claude Code', available: true },
+          { id: 'claude-code', label: 'Claude Code', available: true },
         ]}
         onSend={vi.fn()}
         onStop={vi.fn()}
@@ -968,14 +988,21 @@ describe('ChatPane', () => {
     }
   });
 
-  it('keeps the locked conversation provider when submitting an inline question form', async () => {
+  it('keeps an arbitrary canonical conversation provider when submitting an inline question form', async () => {
     const onSend = vi.fn();
+    const agentModelCatalog = [
+      {
+        agentId: 'tutti-agent',
+        label: 'Tutti Agent',
+        models: [{ id: 'default', label: 'Default' }],
+      },
+    ];
     const snapshot: ChatTimelineSnapshot = {
       activeRunId: null,
       phase: 'idle',
       activeConversationId: 'conversation-1',
       activeConversationTitle: 'Build a product page',
-      conversations: [{ id: 'conversation-1', title: 'Build a product page', provider: 'claude', createdAt: 1, updatedAt: 1 }],
+      conversations: [{ id: 'conversation-1', title: 'Build a product page', provider: 'tutti-agent', createdAt: 1, updatedAt: 1 }],
       pinnedTodoInput: null,
       messages: [
         {
@@ -1013,6 +1040,8 @@ describe('ChatPane', () => {
     const { container, root } = renderComponent(
       <ChatPane
         snapshot={snapshot}
+        agentModelCatalog={agentModelCatalog}
+        activeConversationProvider="tutti-agent"
         contextSnapshot={{ selectedSkills: [], selectedDesignFiles: [] }}
         contextSearch={async () => ({ items: [] })}
         contextSelect={vi.fn()}
@@ -1037,7 +1066,7 @@ describe('ChatPane', () => {
           '- 品牌名称: Acme',
         ].join('\n'),
         files: [],
-        agentId: 'claude',
+        agentId: 'tutti-agent',
       });
     } finally {
       cleanup(root, container);
@@ -1694,7 +1723,7 @@ describe('ChatPane', () => {
         {
           id: 'conversation-1',
           title: 'Build a dashboard',
-          provider: 'claude',
+          provider: 'claude-code',
           createdAt: 1,
           updatedAt: 1,
         },
@@ -1750,7 +1779,7 @@ describe('ChatPane', () => {
       expect(onSend).toHaveBeenCalledWith({
         draft: '[form answers — discovery]\n- 任务类型是什么？: 仪表盘 [value: dashboard]',
         files: [],
-        agentId: 'claude',
+        agentId: 'claude-code',
       });
     } finally {
       cleanup(root, container);
@@ -1768,7 +1797,7 @@ describe('ChatPane', () => {
         {
           id: 'conversation-1',
           title: 'Build a dashboard',
-          provider: 'claude',
+          provider: 'claude-code',
           createdAt: 1,
           updatedAt: 1,
         },

@@ -1,11 +1,9 @@
 import {
-  createLocalAgentRuntime,
+  createDefaultLocalAgentRuntime,
   type DetectContext,
 } from '@tutti-os/agent-acp-kit';
 import { resolveTuttiAgentProviderCatalog } from '@tutti-os/agent-acp-kit/tutti';
 import type { ModelSummary } from './agents.js';
-import { AGENT_DEFS } from './runtimes/index.js';
-import { createVibeLocalAgentProviderPlugins } from './local-agent-providers.js';
 
 export interface AgentModelCatalogEntry {
   id: string;
@@ -15,9 +13,7 @@ export interface AgentModelCatalogEntry {
 
 export type DetectAgentModelCatalog = (context?: DetectContext) => Promise<AgentModelCatalogEntry[]>;
 
-const agentModelRuntime = createLocalAgentRuntime({
-  providers: createVibeLocalAgentProviderPlugins(),
-});
+const agentModelRuntime = createDefaultLocalAgentRuntime();
 
 export async function detectLocalAgentModelCatalog(context?: DetectContext): Promise<AgentModelCatalogEntry[]> {
   const catalog = await resolveTuttiAgentProviderCatalog({
@@ -39,14 +35,6 @@ export async function detectLocalAgentModelCatalog(context?: DetectContext): Pro
         })),
       ),
     }));
-}
-
-export function fallbackAgentModelCatalog(): AgentModelCatalogEntry[] {
-  return AGENT_DEFS.map((agent) => ({
-    id: agent.id,
-    label: agent.label,
-    models: sanitizeModelOptions(agent.models),
-  }));
 }
 
 function sanitizeModelOptions(models: readonly ModelSummary[] | undefined): ModelSummary[] {

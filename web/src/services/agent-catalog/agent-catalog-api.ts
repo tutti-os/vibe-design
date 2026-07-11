@@ -19,7 +19,10 @@ export async function installClaudeCodeAgent(): Promise<AgentAvailability[]> {
 export async function fetchAgentModelCatalog(): Promise<AgentModelCatalogEntry[]> {
   const response = await fetch('/api/agents/models');
   const data = await response.json().catch(() => null);
-  return response.ok ? readAgentModelCatalog(data) : [];
+  if (!response.ok) {
+    throw new Error(readApiErrorMessage(data) ?? 'Agent model catalog request failed.');
+  }
+  return readAgentModelCatalog(data);
 }
 
 export async function fetchAgentAvailability(): Promise<AgentAvailability[]> {

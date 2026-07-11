@@ -5,16 +5,7 @@ import { codexAgentDef } from './codex.js';
 
 const KNOWN_AGENT_DEFS: Record<string, RuntimeAgentDef> = {
   codex: codexAgentDef,
-  'claude-code': {
-    ...claudeAgentDef,
-    id: 'claude-code',
-    models: claudeAgentDef.models.map((model) => ({
-      ...model,
-      id: model.id.startsWith('claude:')
-        ? `claude-code:${model.id.slice('claude:'.length)}`
-        : model.id,
-    })),
-  },
+  'claude-code': claudeAgentDef,
 };
 
 const ACP_DISPLAY_NAMES: ReadonlyMap<string, string> = new Map(

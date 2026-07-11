@@ -4,7 +4,10 @@ import { fireEvent, waitFor } from '@testing-library/react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import { applyLocale } from './i18n';
-import { createVibeDesignFlow } from './launch/vibe-design-flow';
+import {
+  createVibeDesignFlow as createVibeDesignFlowBase,
+  type VibeDesignFlowOptions,
+} from './launch/vibe-design-flow';
 import { ChatTimelineService } from './services/chat-timeline/internal/chat-timeline-service';
 import { ContextPickerService } from './services/context-picker/internal/context-picker-service';
 import type { CanvasPreviewComment } from './features/canvas-workspace/canvas-comment/canvas-comment-types';
@@ -19,6 +22,18 @@ import type { ProjectEditorInitialData } from './project-editor-data';
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
+
+const TEST_AGENT_MODEL_CATALOG = [
+  { agentId: 'codex', label: 'Codex', models: [{ id: 'default', label: 'Default (CLI config)' }] },
+  { agentId: 'claude-code', label: 'Claude Code', models: [{ id: 'default', label: 'Default' }] },
+];
+
+function createVibeDesignFlow(options: VibeDesignFlowOptions = {}) {
+  return createVibeDesignFlowBase({
+    ...options,
+    agentModelCatalog: options.agentModelCatalog ?? TEST_AGENT_MODEL_CATALOG,
+  });
+}
 
 function renderComponent(element: React.ReactNode): { container: HTMLElement; root: Root } {
   const container = document.createElement('div');
@@ -1815,7 +1830,7 @@ describe('VibeDesignApp', () => {
               models: [{ id: 'default', label: 'Default' }],
             },
             {
-              id: 'claude',
+              id: 'claude-code',
               label: 'Claude Code',
               models: [
                 { id: 'default', label: 'Default' },
@@ -1891,10 +1906,46 @@ describe('VibeDesignApp', () => {
           title: 'Untitled',
           prompt: '生成品牌首页',
           projectKind: 'prototype',
-          agentId: 'claude',
+          agentId: 'claude-code',
           model: 'claude:opus',
         },
       ]);
+    } finally {
+      cleanup(root, container);
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('lets an empty dashboard catalog recover by loading the authoritative catalog', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      if (url === '/api/agents/models') {
+        return Response.json({
+          agents: [
+            {
+              id: 'tutti-agent',
+              label: 'Tutti Agent',
+              models: [{ id: 'default', label: 'Default' }],
+            },
+          ],
+        });
+      }
+      return Response.json({});
+    });
+    vi.stubGlobal('fetch', fetch);
+    const flow = createVibeDesignFlow({ agentModelCatalog: [] });
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      expect(container.querySelector('[aria-label="Model"]')).toBeNull();
+      expect(container.textContent).not.toContain('Codex');
+
+      await act(async () => buttonByText(container, 'Retry').click());
+
+      await waitFor(() => {
+        expect(getByLabelText(container, 'Model').textContent).toContain('Tutti Agent');
+      });
+      expect(fetch).toHaveBeenCalledWith('/api/agents/models');
     } finally {
       cleanup(root, container);
       vi.unstubAllGlobals();
@@ -2026,7 +2077,13 @@ describe('VibeDesignApp', () => {
         return Response.json({ projects: [] });
       }
       if (url === '/api/agents/models') {
-        return Response.json({ agents: [] });
+        return Response.json({
+          agents: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
+            id: entry.agentId,
+            label: entry.label,
+            models: entry.models,
+          })),
+        });
       }
       return Response.json({});
     }));
@@ -2467,7 +2524,22 @@ describe('VibeDesignApp', () => {
         );
       }
       if (url === '/api/agents/models') {
-        return Response.json({ agents: [] });
+        return Response.json({
+          agents: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
+            id: entry.agentId,
+            label: entry.label,
+            models: entry.models,
+          })),
+        });
+      }
+      if (url === '/api/agents/availability') {
+        return Response.json({
+          agentAvailability: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
+            id: entry.agentId,
+            label: entry.label,
+            available: true,
+          })),
+        });
       }
       return Response.json({ designSystems: [] });
     });
@@ -2477,6 +2549,11 @@ describe('VibeDesignApp', () => {
       projectEditor: {
         project: { id: 'design-md-project', tabsState: { tabs: [], activeTabKey: null } },
         files: [],
+        agentAvailability: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
+          id: entry.agentId,
+          label: entry.label,
+          available: true,
+        })),
         conversations: [{ id: 'conversation-1', title: 'Project', createdAt: 1, updatedAt: 1 }],
         activeConversationId: 'conversation-1',
         messages: [],

@@ -2,6 +2,7 @@ import { InstantiationContext, InstantiationService, ServiceCollection } from '@
 import { TooltipProvider } from '@tutti-os/ui-system/components';
 import React, { type ReactNode } from 'react';
 import type { DashboardProject } from '../DashboardPage';
+import type { ChatComposerAgentModelCatalogEntry } from '../components/ChatComposer';
 import { createVibeDesignI18nRuntime, defaultVibeDesignLocale, I18nProvider, type VibeDesignLocale } from '../i18n';
 import type { ProjectEditorInitialData } from '../project-editor-data';
 import { VibeDesignApp } from '../VibeDesignApp';
@@ -32,6 +33,11 @@ import {
 import { FetchRunApi } from '../services/run/run-api';
 import { RunService } from '../services/run/internal/run-service';
 import { IRunService, type IRunService as IRunServiceContract } from '../services/run/run-service.interface';
+import { AgentCatalogService } from '../services/agent-catalog/internal/agent-catalog-service';
+import {
+  IAgentCatalogService,
+  type IAgentCatalogService as IAgentCatalogServiceContract,
+} from '../services/agent-catalog/agent-catalog-service.interface';
 
 export interface VibeDesignFlowOptions {
   locale?: VibeDesignLocale;
@@ -46,6 +52,8 @@ export interface VibeDesignFlowOptions {
   previewCommentService?: IPreviewCommentServiceContract;
   openProject?: (projectId: string) => void;
   recentProjects?: DashboardProject[];
+  agentModelCatalog?: ChatComposerAgentModelCatalogEntry[];
+  agentCatalogService?: IAgentCatalogServiceContract;
   projectEditor?: ProjectEditorInitialData;
 }
 
@@ -101,6 +109,8 @@ export class VibeDesignFlow {
     const projectContextService =
       this.options.projectContextService ?? new ProjectContextService(projectId ?? 'default');
     const projectService = this.options.projectService ?? new ProjectService(new FetchProjectApi());
+    const agentCatalogService =
+      this.options.agentCatalogService ?? new AgentCatalogService(this.options.agentModelCatalog);
     const previewCommentService =
       this.options.previewCommentService ??
       new PreviewCommentService(new FetchPreviewCommentApi(), projectId ?? 'default');
@@ -121,6 +131,7 @@ export class VibeDesignFlow {
     serviceCollection.set(IChatTimelineService, chatTimelineService);
     serviceCollection.set(IProjectContextService, projectContextService);
     serviceCollection.set(IProjectService, projectService);
+    serviceCollection.set(IAgentCatalogService, agentCatalogService);
     serviceCollection.set(IPreviewCommentService, previewCommentService);
     serviceCollection.set(IChatSessionService, chatSessionService);
     this._instantiationService = new InstantiationService(serviceCollection);

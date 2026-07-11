@@ -6,7 +6,6 @@ import {
   type AgentRunMessage as AcpAgentRunMessage,
   type ManagedAgentRunContext,
 } from '@tutti-os/agent-acp-kit';
-import type { AgentEvent } from './claude-stream.js';
 import { DEFAULT_AGENT_ID, type AgentRegistry } from './agents.js';
 import {
   createFileOutputProtocolParser,
@@ -21,7 +20,7 @@ import {
 import { composeSystemPrompt, type ComposeInput } from './prompts/system.js';
 import { localAgentRuntime } from './local-agent-runtime.js';
 import { findSkillById, listSkills, type SkillInfo } from './skills.js';
-import { resolveTuttiAgentSkillBundle, tuttiCliEnv } from './tutti-agent-skill-bundle.js';
+import { resolveTuttiAgentSkillBundle } from './tutti-agent-skill-bundle.js';
 import {
   readAvailableDesignSystemDetail,
   resolveDesignSystemAssets,
@@ -32,6 +31,18 @@ import type { ChatRun, ChatRunService } from './types/run.js';
 export interface AgentRunRequest {
   [key: string]: unknown;
 }
+
+export type AgentEvent =
+  | { type: 'status'; label: string; model?: unknown; sessionId?: unknown; ttftMs?: number }
+  | { type: 'text_delta'; delta: string }
+  | { type: 'thinking_delta'; delta: string }
+  | { type: 'thinking_start' }
+  | { type: 'tool_use'; id: unknown; name: unknown; input: unknown }
+  | { type: 'tool_result'; toolUseId: unknown; content: string; isError: boolean }
+  | { type: 'usage'; usage: unknown; costUsd: unknown; durationMs: unknown; stopReason: unknown }
+  | { type: 'turn_end'; stopReason: string }
+  | { type: 'raw'; line: string }
+  | { type: 'fabricated_role_marker'; marker: string; messageId: string };
 
 export interface AgentRunPaths {
   projectsDir: string;
@@ -129,7 +140,6 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     systemPrompt,
     tuttiSkillBundle.recommendedSystemPrompt?.content,
   ].filter((part): part is string => typeof part === 'string' && part.trim().length > 0).join('\n\n');
-  const agentEnv = tuttiCliEnv();
 
   run.status = 'running';
   run.updatedAt = Date.now();
@@ -221,7 +231,6 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       ...(readString(request.reasoning) ? { reasoning: readString(request.reasoning) ?? undefined } : {}),
       ...(managedAgentInvocation ? { managedAgentInvocation } : {}),
       ...(tuttiSkillBundle.skillManifest.length > 0 ? { skillManifest: tuttiSkillBundle.skillManifest } : {}),
-      ...(Object.keys(agentEnv).length > 0 ? { env: agentEnv } : {}),
       signal: controller.signal,
       resume,
     };

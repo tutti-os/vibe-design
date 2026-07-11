@@ -1,8 +1,5 @@
 import type { DetectContext } from '@tutti-os/agent-acp-kit';
-import {
-  displayNameForAgentProvider,
-  resolveTuttiAgentProviderCatalog,
-} from '@tutti-os/agent-acp-kit/tutti';
+import { resolveTuttiAgentProviderCatalog } from '@tutti-os/agent-acp-kit/tutti';
 import { localAgentRuntime } from './local-agent-runtime.js';
 
 export interface AgentAvailability {
@@ -41,7 +38,15 @@ export function findUnavailableAgent(
   agentId: string,
 ): AgentAvailability | null {
   const agent = agents.find((candidate) => candidate.id === agentId);
-  return agent && !agent.available ? agent : null;
+  if (!agent) {
+    return {
+      id: agentId,
+      label: agentId,
+      available: false,
+      unavailableReason: `${agentId} is not available from Tutti.`,
+    };
+  }
+  return agent.available ? null : agent;
 }
 
 /** Default provider when callers omit an explicit agent id. */
@@ -58,10 +63,9 @@ function findFallbackAgent(
   agents: AgentAvailability[],
   requestedProvider: string,
 ): AgentAvailability | null {
-  const canonicalRequestedProvider = requestedProvider === 'claude' ? 'claude-code' : requestedProvider;
-  const fallbackProvider = canonicalRequestedProvider === 'codex'
+  const fallbackProvider = requestedProvider === 'codex'
     ? 'claude-code'
-    : canonicalRequestedProvider === 'claude-code'
+    : requestedProvider === 'claude-code'
       ? 'codex'
       : null;
   return fallbackProvider
@@ -77,8 +81,7 @@ export function resolvePreSessionFallback(
   agents: AgentAvailability[],
   requestedProvider: string,
 ): AgentFallback | null {
-  const canonicalRequestedProvider = requestedProvider === 'claude' ? 'claude-code' : requestedProvider;
-  const requested = agents.find((candidate) => candidate.id === canonicalRequestedProvider) ?? null;
+  const requested = agents.find((candidate) => candidate.id === requestedProvider) ?? null;
   if (!requested || requested.available) {
     return null;
   }
@@ -161,14 +164,9 @@ export function resolveRunFailureFallback(
   };
 }
 
-export function unavailableAgentsForDetectionFailure(error: unknown): AgentAvailability[] {
-  const reason = error instanceof Error ? error.message : 'Agent detection failed.';
-  return localAgentRuntime.listProviders().map((provider) => {
-    return {
-      id: provider.id,
-      label: displayNameForAgentProvider(provider.id),
-      available: false,
-      unavailableReason: reason,
-    };
-  });
+export function agentDetectionFailureReason(error: unknown): string {
+  const reason = error instanceof Error ? error.message.trim() : '';
+  return reason
+    ? `Agent provider availability could not be verified: ${reason}`
+    : 'Agent provider availability could not be verified.';
 }

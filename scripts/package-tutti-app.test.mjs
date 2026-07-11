@@ -334,6 +334,6 @@ test('bootstrap uses the managed Tutti Node runtime', async () => {
 
   assert.equal(source.includes('TUTTI_APP_NODE'), true);
   assert.equal(source.includes('TUTTI_APP_NODE'), true);
-  assert.equal(source.includes('VIBE_TUTTI_CLI="${TUTTI_CLI:-}"'), true);
+  assert.equal(source.includes('VIBE_TUTTI_CLI'), false);
   assert.equal(source.includes('exec node '), false);
 });
