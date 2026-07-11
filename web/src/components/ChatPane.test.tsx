@@ -1068,6 +1068,7 @@ describe('ChatPane', () => {
         files: [],
         agentId: 'tutti-agent',
       });
+      expect(container.textContent).toContain('Tutti Agent');
     } finally {
       cleanup(root, container);
     }
