@@ -43,7 +43,7 @@ import {
   fetchAgentAvailability,
   installClaudeCodeAgent,
 } from './services/agent-catalog/agent-catalog-api';
-import { useAgentModelCatalog } from './services/agent-catalog/use-agent-model-catalog';
+import { IAgentCatalogService } from './services/agent-catalog/agent-catalog-service.interface';
 
 const CHAT_PANEL_MIN_WIDTH = 360;
 const CHAT_PANEL_MAX_WIDTH = 600;
@@ -76,10 +76,8 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
   const [agentAvailability, setAgentAvailability] = React.useState<ChatComposerAgentAvailability[]>(
     () => initialData?.agentAvailability ?? [],
   );
-  const {
-    catalog: agentModelCatalog,
-    ensureLoaded: ensureAgentModelCatalogLoaded,
-  } = useAgentModelCatalog([]);
+  const agentCatalog = useService(IAgentCatalogService);
+  const { catalog: agentModelCatalog } = useServiceSnapshot(agentCatalog);
   const [stagedCommentAttachments, setStagedCommentAttachments] = React.useState<CanvasCommentAttachment[]>([]);
   const [commentPanelOpen, setCommentPanelOpen] = React.useState(false);
   const [autoOpenFileRequest, setAutoOpenFileRequest] = React.useState<{ path: string; revision: number } | null>(null);
@@ -510,8 +508,8 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
   }, []);
 
   React.useEffect(() => {
-    void ensureAgentModelCatalogLoaded();
-  }, [ensureAgentModelCatalogLoaded]);
+    void agentCatalog.ensureLoaded();
+  }, [agentCatalog]);
 
   React.useEffect(() => {
     const loadedPreviewComments = loadedPreviewCommentsRef.current;
@@ -1305,7 +1303,6 @@ function ChatPanel({
   const contextSnapshot = useServiceSnapshot<ContextPickerSnapshot>(context);
   const activeConversationProvider = resolveActiveConversationProvider(
     snapshot,
-    agentModelCatalog,
   );
 
   return (
@@ -1388,15 +1385,12 @@ function ChatPanel({
 
 function resolveActiveConversationProvider(
   snapshot: ChatTimelineSnapshot,
-  catalog: ChatComposerAgentModelCatalogEntry[],
 ): string | null {
   const provider = snapshot.conversations.find(
     (conversation) => conversation.id === snapshot.activeConversationId,
   )?.provider;
   const canonicalProvider = typeof provider === 'string' ? provider.trim() : '';
-  return canonicalProvider && catalog.some((entry) => entry.agentId === canonicalProvider)
-    ? canonicalProvider
-    : null;
+  return canonicalProvider || null;
 }
 
 function previewCommentDisplayDraft(attachments: readonly CanvasCommentAttachment[]): string {

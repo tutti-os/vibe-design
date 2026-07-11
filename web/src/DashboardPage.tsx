@@ -46,7 +46,7 @@ import { IContextPickerService } from './services/context-picker/context-picker-
 import type { ContextPickerSnapshot } from './services/context-picker/context-picker-types';
 import { type TranslateFn, useTranslation } from './i18n';
 import { IProjectService } from './services/projects/project-service.interface';
-import { useAgentModelCatalog } from './services/agent-catalog/use-agent-model-catalog';
+import { IAgentCatalogService } from './services/agent-catalog/agent-catalog-service.interface';
 
 export interface DashboardProject {
   id: string;
@@ -62,11 +62,9 @@ const EMPTY_DASHBOARD_PROJECTS: DashboardProject[] = [];
 export function DashboardPage({
   openProject = openProjectInCurrentWindow,
   recentProjects = EMPTY_DASHBOARD_PROJECTS,
-  initialAgentModelCatalog = [],
 }: {
   openProject?: (projectId: string) => void;
   recentProjects?: DashboardProject[];
-  initialAgentModelCatalog?: ChatComposerAgentModelCatalogEntry[];
 }) {
   const { locale, t } = useTranslation();
   const projectService = useService(IProjectService);
@@ -229,7 +227,6 @@ export function DashboardPage({
           designSystemId={selectedDesignSystemId}
           selectedDesignSystem={selectedDesignSystem}
           onSetupDesignSystem={openDesignSystemPicker}
-          initialAgentModelCatalog={initialAgentModelCatalog}
         />
         <ProjectBrowser
           projects={projects}
@@ -297,13 +294,11 @@ function ProjectCreator({
   openProject,
   selectedDesignSystem,
   onSetupDesignSystem,
-  initialAgentModelCatalog,
 }: {
   designSystemId: string | null;
   openProject: (projectId: string) => void;
   selectedDesignSystem: DashboardDesignSystem | null;
   onSetupDesignSystem: () => void;
-  initialAgentModelCatalog: ChatComposerAgentModelCatalogEntry[];
 }) {
   const { t } = useTranslation();
   const projectService = useService(IProjectService);
@@ -312,12 +307,9 @@ function ProjectCreator({
   const [projectPrompt, setProjectPrompt] = React.useState('');
   const [stagedFiles, setStagedFiles] = React.useState<File[]>([]);
   const [selectedModel, setSelectedModel] = React.useState<DashboardModelOption | null>(null);
-  const {
-    catalog: agentModelCatalog,
-    loading: modelCatalogLoading,
-    ensureLoaded: ensureAgentModelCatalogLoaded,
-    refresh: refreshAgentModelCatalog,
-  } = useAgentModelCatalog(initialAgentModelCatalog);
+  const agentCatalog = useService(IAgentCatalogService);
+  const { catalog: agentModelCatalog, loading: modelCatalogLoading } =
+    useServiceSnapshot(agentCatalog);
   const [isCreating, setIsCreating] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const formRef = React.useRef<HTMLFormElement | null>(null);
@@ -532,7 +524,7 @@ function ProjectCreator({
                   selectedProvider={selectedModel.provider}
                   selectedProviderLabel={selectedModel.providerLabel}
                   selectedModelLabel={selectedModel.modelLabel}
-                  onOpenMenu={() => void ensureAgentModelCatalogLoaded()}
+                  onOpenMenu={() => void agentCatalog.ensureLoaded()}
                   onSelect={(provider, modelId) => {
                     const option = modelOptions.find((m) => m.provider === provider && m.modelId === modelId);
                     if (option) setSelectedModel(option);
@@ -544,7 +536,7 @@ function ProjectCreator({
                   size="sm"
                   variant="outline"
                   disabled={modelCatalogLoading}
-                  onClick={() => void refreshAgentModelCatalog()}
+                  onClick={() => void agentCatalog.refresh()}
                 >
                   {modelCatalogLoading ? t('common.loading') : t('common.retry')}
                 </Button>

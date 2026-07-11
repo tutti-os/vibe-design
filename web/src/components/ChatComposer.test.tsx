@@ -225,6 +225,35 @@ describe('ChatComposer', () => {
     }
   });
 
+  it('keeps an omitted conversation provider locked and disables sending', async () => {
+    const onSend = vi.fn();
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        draft="Continue hidden conversation"
+        lockedAgentId="tutti-agent"
+        agentModelCatalog={TEST_AGENT_MODEL_CATALOG}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onSend={onSend}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      expect(getByLabelText(container, 'Model provider').textContent).toContain('tutti-agent');
+      const send = getByLabelText(container, 'Send message') as HTMLButtonElement;
+      expect(send.disabled).toBe(true);
+      await act(async () => send.click());
+      expect(onSend).not.toHaveBeenCalled();
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('focuses the message input when the textarea layer blank area is clicked', async () => {
     const { container, root } = renderComponent(
       <ChatComposer
