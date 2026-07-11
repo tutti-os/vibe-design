@@ -7,6 +7,7 @@ import {
   installAgentProvider,
   createManagedAgentDetectContextFromHeaders,
   createManagedAgentRunContextFromHeaders,
+  isManagedAgentInvocationProviderId,
   type DetectContext,
   type ManagedAgentInvocationCredentialHeaders,
   type ManagedAgentRunContext,
@@ -642,14 +643,14 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
 
     try {
       const run = runs.create(createRunMeta(persistentBody));
-      const managedAgentRunContext = await createManagedAgentRunContextFromHeaders(
-        managedAgentHeaders,
-        {
-          appDataDir: runtimeDir,
-          providerId: run.agentId ?? DEFAULT_AGENT_ID,
-          runId: run.id,
-        },
-      );
+      const providerId = run.agentId ?? DEFAULT_AGENT_ID;
+      const managedAgentRunContext = isManagedAgentInvocationProviderId(providerId)
+        ? await createManagedAgentRunContextFromHeaders(managedAgentHeaders, {
+            appDataDir: runtimeDir,
+            providerId,
+            runId: run.id,
+          })
+        : undefined;
       await persistRunMessages(persistentBody, run);
       runs.start(run, (startedRun) => startRunFromRequest(
         startedRun,
@@ -857,11 +858,14 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const persistentBody = persistentBodyResult.body;
 
     const run = runs.create(createRunMeta(persistentBody));
-    const managedAgentRunContext = await createManagedAgentRunContextFromHeaders(req.headers, {
-      providerId: readString(persistentBody.agentId) ?? DEFAULT_AGENT_ID,
-      runId: run.id,
-      appDataDir: runtimeDir,
-    });
+    const providerId = readString(persistentBody.agentId) ?? DEFAULT_AGENT_ID;
+    const managedAgentRunContext = isManagedAgentInvocationProviderId(providerId)
+      ? await createManagedAgentRunContextFromHeaders(req.headers, {
+          providerId,
+          runId: run.id,
+          appDataDir: runtimeDir,
+        })
+      : undefined;
     await persistRunMessages(persistentBody, run);
     res.status(202).json({
       runId: run.id,
@@ -897,11 +901,14 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const persistentBody = persistentBodyResult.body;
 
     const run = runs.create(createRunMeta(persistentBody));
-    const managedAgentRunContext = await createManagedAgentRunContextFromHeaders(req.headers, {
-      providerId: readString(persistentBody.agentId) ?? DEFAULT_AGENT_ID,
-      runId: run.id,
-      appDataDir: runtimeDir,
-    });
+    const providerId = readString(persistentBody.agentId) ?? DEFAULT_AGENT_ID;
+    const managedAgentRunContext = isManagedAgentInvocationProviderId(providerId)
+      ? await createManagedAgentRunContextFromHeaders(req.headers, {
+          providerId,
+          runId: run.id,
+          appDataDir: runtimeDir,
+        })
+      : undefined;
     await persistRunMessages(persistentBody, run);
     runs.stream(run, req, res);
     runs.start(run, (startedRun) => (

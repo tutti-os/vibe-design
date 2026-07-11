@@ -1093,6 +1093,49 @@ describe('createServer', () => {
     expect(JSON.stringify(started.body)).not.toContain('credential-session-start-1');
   });
 
+  it('keeps request DetectContext without creating a managed run context for non-managed ACP providers', async () => {
+    let startedContext: DetectContext | undefined;
+    let managedRunContext: ManagedAgentRunContext | undefined;
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentAvailability: async () => [
+          { id: 'gemini', label: 'Gemini', available: true },
+        ],
+        startAgentRun: ({ runs, run, detectContext, managedAgentRunContext: runContext }) => {
+          startedContext = detectContext;
+          managedRunContext = runContext;
+          runs.finish(run, 'succeeded');
+        },
+      }),
+    );
+    const createdProject = await postCli(port, 'project-create', {
+      prompt: 'Create a visual direction.',
+      projectKind: 'prototype',
+    });
+    const projectId = ((createdProject.body.value as Record<string, unknown>).project as { id: string }).id;
+    const conversationId = (createdProject.body.value as { conversationId: string }).conversationId;
+
+    const started = await postCli(
+      port,
+      'session-start',
+      {
+        'project-id': projectId,
+        'conversation-id': conversationId,
+        agentId: 'gemini',
+        prompt: 'Use the request context.',
+      },
+      {
+        [MANAGED_AGENT_INVOCATION_CREDENTIAL_HEADER]: 'credential-gemini-1',
+      },
+    );
+
+    expect(started.status).toBe(200);
+    expect(startedContext?.managedAgentInvocation?.credential).toBe('credential-gemini-1');
+    expect(managedRunContext).toBeUndefined();
+    expect(JSON.stringify(started.body)).not.toContain('credential-gemini-1');
+  });
+
   it('starts Tutti CLI sessions with local files uploaded as run attachments', async () => {
     const testRuntimeDir = await createRuntimeDir();
     const localFilePath = join(testRuntimeDir, 'reference.png');
