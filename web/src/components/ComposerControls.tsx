@@ -15,7 +15,6 @@ export type ComposerModelProvider = string;
 const MODEL_PROVIDER_ICON_URLS: Record<string, string> = {
   codex: '/assets/agent-icons/workspace-dock-agent-codex.png',
   'claude-code': '/assets/agent-icons/workspace-dock-agent-claude-code.png',
-  claude: '/assets/agent-icons/workspace-dock-agent-claude-code.png',
   cursor: '/assets/agent-icons/workspace-dock-agent-cursor.png',
   opencode: '/assets/agent-icons/workspace-dock-agent-opencode.png',
   tutti: '/assets/agent-icons/manage-agent-tutti.png',

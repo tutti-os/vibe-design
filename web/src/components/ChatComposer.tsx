@@ -55,14 +55,6 @@ type ModelProviderEntry = {
   comingSoon?: boolean;
 };
 
-const DEFAULT_MODEL_PROVIDERS: ModelProviderEntry[] = [
-  { value: 'codex', label: 'Codex' },
-  { value: 'claude-code', label: 'Claude Code' },
-  { value: 'tutti', label: 'Tutti', comingSoon: true },
-  { value: 'hermes', label: 'Hermes', comingSoon: true },
-  { value: 'openclaw', label: 'OpenClaw', comingSoon: true },
-];
-
 export interface ChatComposerProps {
   streaming: boolean;
   draft?: string;
@@ -174,13 +166,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       }
       return Array.from(byAgentId.values());
     }, [agentAvailability, agentModelCatalog]);
-    const modelProviders = useMemo(() => {
-      const providers = new Map(DEFAULT_MODEL_PROVIDERS.map((provider) => [provider.value, provider]));
-      for (const provider of activeModelProviders) providers.set(provider.value, provider);
-      return Array.from(providers.values());
-    }, [activeModelProviders]);
+    const modelProviders = activeModelProviders;
     const activeModelProviderIds = useMemo(
-      () => new Set(['codex', 'claude-code', ...activeModelProviders.map((provider) => provider.value)]),
+      () => new Set(activeModelProviders.map((provider) => provider.value)),
       [activeModelProviders],
     );
     const lockedModelProvider = lockedAgentId ? modelProviderFromAgentId(lockedAgentId) : null;
@@ -819,11 +807,11 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
 );
 
 function agentIdFromModelProvider(provider: string): AgentId {
-  return provider === 'claude-code' ? 'claude' : provider;
+  return provider;
 }
 
 function modelProviderFromAgentId(agentId: AgentId): string {
-  return agentId === 'claude' ? 'claude-code' : agentId;
+  return agentId;
 }
 
 function normalizeLockedComposerModel(
@@ -887,7 +875,8 @@ function availabilityForProvider(
 }
 
 function unavailableReasonForAvailability(agent: ChatComposerAgentAvailability | null): string | null {
-  return agent && !agent.available ? agent.unavailableReason ?? `${agent.label} is unavailable.` : null;
+  if (!agent) return 'This provider is not available from Tutti.';
+  return !agent.available ? agent.unavailableReason ?? `${agent.label} is unavailable.` : null;
 }
 
 function canInstallUnavailableAgent(agent: ChatComposerAgentAvailability | null): boolean {

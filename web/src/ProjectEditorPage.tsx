@@ -216,7 +216,7 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
     [activeDesignSystem, projectId, projects, t],
   );
   const handleInstallAgent = React.useCallback(async (agentId: string) => {
-    if (agentId !== 'claude') {
+    if (agentId !== 'claude-code') {
       throw new Error(`Unsupported agent installer: ${agentId}`);
     }
 

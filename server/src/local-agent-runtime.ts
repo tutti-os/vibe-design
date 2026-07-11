@@ -1,6 +1,3 @@
-import { createLocalAgentRuntime } from '@tutti-os/agent-acp-kit';
-import { createVibeLocalAgentProviderPlugins } from './local-agent-providers.js';
+import { createDefaultLocalAgentRuntime } from '@tutti-os/agent-acp-kit';
 
-export const localAgentRuntime = createLocalAgentRuntime({
-  providers: createVibeLocalAgentProviderPlugins(),
-});
+export const localAgentRuntime = createDefaultLocalAgentRuntime();

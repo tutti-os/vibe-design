@@ -2,6 +2,7 @@ import { InstantiationContext, InstantiationService, ServiceCollection } from '@
 import { TooltipProvider } from '@tutti-os/ui-system/components';
 import React, { type ReactNode } from 'react';
 import type { DashboardProject } from '../DashboardPage';
+import type { ChatComposerAgentModelCatalogEntry } from '../components/ChatComposer';
 import { createVibeDesignI18nRuntime, defaultVibeDesignLocale, I18nProvider, type VibeDesignLocale } from '../i18n';
 import type { ProjectEditorInitialData } from '../project-editor-data';
 import { VibeDesignApp } from '../VibeDesignApp';
@@ -46,6 +47,7 @@ export interface VibeDesignFlowOptions {
   previewCommentService?: IPreviewCommentServiceContract;
   openProject?: (projectId: string) => void;
   recentProjects?: DashboardProject[];
+  agentModelCatalog?: ChatComposerAgentModelCatalogEntry[];
   projectEditor?: ProjectEditorInitialData;
 }
 
@@ -141,6 +143,7 @@ export class VibeDesignFlow {
               route={this.options.route ?? DEFAULT_ROUTE}
               openProject={this.options.openProject}
               recentProjects={this.options.recentProjects}
+              agentModelCatalog={this.options.agentModelCatalog}
               projectEditor={this.options.projectEditor}
             />
           </InstantiationContext>

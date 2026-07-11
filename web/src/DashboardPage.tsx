@@ -58,32 +58,14 @@ export interface DashboardProject {
 }
 
 const EMPTY_DASHBOARD_PROJECTS: DashboardProject[] = [];
-const DASHBOARD_MODEL_OPTIONS: DashboardModelOption[] = [
-  {
-    key: 'codex:default',
-    provider: 'codex',
-    agentId: 'codex',
-    providerLabel: 'Codex',
-    modelId: 'default',
-    modelLabel: 'Default (CLI config)',
-  },
-  {
-    key: 'claude-code:default',
-    provider: 'claude-code',
-    agentId: 'claude',
-    providerLabel: 'Claude Code',
-    modelId: 'default',
-    modelLabel: 'Default (recommended)',
-  },
-];
-
-
 export function DashboardPage({
   openProject = openProjectInCurrentWindow,
   recentProjects = EMPTY_DASHBOARD_PROJECTS,
+  initialAgentModelCatalog = [],
 }: {
   openProject?: (projectId: string) => void;
   recentProjects?: DashboardProject[];
+  initialAgentModelCatalog?: ChatComposerAgentModelCatalogEntry[];
 }) {
   const { locale, t } = useTranslation();
   const projectService = useService(IProjectService);
@@ -246,6 +228,7 @@ export function DashboardPage({
           designSystemId={selectedDesignSystemId}
           selectedDesignSystem={selectedDesignSystem}
           onSetupDesignSystem={openDesignSystemPicker}
+          initialAgentModelCatalog={initialAgentModelCatalog}
         />
         <ProjectBrowser
           projects={projects}
@@ -313,11 +296,13 @@ function ProjectCreator({
   openProject,
   selectedDesignSystem,
   onSetupDesignSystem,
+  initialAgentModelCatalog,
 }: {
   designSystemId: string | null;
   openProject: (projectId: string) => void;
   selectedDesignSystem: DashboardDesignSystem | null;
   onSetupDesignSystem: () => void;
+  initialAgentModelCatalog: ChatComposerAgentModelCatalogEntry[];
 }) {
   const { t } = useTranslation();
   const projectService = useService(IProjectService);
@@ -325,8 +310,10 @@ function ProjectCreator({
   const contextSnapshot = useServiceSnapshot<ContextPickerSnapshot>(context);
   const [projectPrompt, setProjectPrompt] = React.useState('');
   const [stagedFiles, setStagedFiles] = React.useState<File[]>([]);
-  const [selectedModel, setSelectedModel] = React.useState<DashboardModelOption>(DASHBOARD_MODEL_OPTIONS[0]);
-  const [agentModelCatalog, setAgentModelCatalog] = React.useState<ChatComposerAgentModelCatalogEntry[]>([]);
+  const [selectedModel, setSelectedModel] = React.useState<DashboardModelOption | null>(null);
+  const [agentModelCatalog, setAgentModelCatalog] = React.useState<ChatComposerAgentModelCatalogEntry[]>(
+    initialAgentModelCatalog,
+  );
   const [isCreating, setIsCreating] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const formRef = React.useRef<HTMLFormElement | null>(null);
@@ -364,18 +351,18 @@ function ProjectCreator({
   }
   const modelOptions = React.useMemo(() => {
     const catalogOptions = dashboardModelOptionsFromCatalog(agentModelCatalog);
-    return catalogOptions.length > 0 ? catalogOptions : DASHBOARD_MODEL_OPTIONS;
+    return catalogOptions;
   }, [agentModelCatalog]);
-  const canCreate = projectPrompt.trim().length > 0 && !isCreating;
+  const canCreate = projectPrompt.trim().length > 0 && selectedModel !== null && !isCreating;
 
   React.useEffect(() => {
-    if (modelOptions.some((model) => model.key === selectedModel.key)) return;
+    if (selectedModel && modelOptions.some((model) => model.key === selectedModel.key)) return;
     setSelectedModel(
-      modelOptions.find((model) => model.provider === selectedModel.provider) ??
-        modelOptions[0] ??
-        DASHBOARD_MODEL_OPTIONS[0],
+      (selectedModel
+        ? modelOptions.find((model) => model.provider === selectedModel.provider)
+        : undefined) ?? modelOptions[0] ?? null,
     );
-  }, [modelOptions, selectedModel.key, selectedModel.provider]);
+  }, [modelOptions, selectedModel]);
 
   async function createProject(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -383,7 +370,7 @@ function ProjectCreator({
     const formPrompt = formData.get('prompt');
     const formProjectKind = formData.get('projectKind');
     const nextPrompt = typeof formPrompt === 'string' ? formPrompt.trim() : '';
-    if (!nextPrompt || createProjectInFlightRef.current) {
+    if (!nextPrompt || !selectedModel || createProjectInFlightRef.current) {
       return;
     }
 
@@ -449,10 +436,6 @@ function ProjectCreator({
     modelCatalogRequestedRef.current = true;
     setAgentModelCatalog(await fetchDashboardModelCatalog());
   }
-
-  React.useEffect(() => {
-    void loadModelCatalog();
-  }, []);
 
   return (
     <section className="mx-auto flex w-full max-w-[700px] flex-col items-center text-center">
@@ -544,19 +527,21 @@ function ProjectCreator({
               </ComposerIconButton>
               <DesignSystemPrompt selectedDesignSystem={selectedDesignSystem} onSetup={onSetupDesignSystem} />
               <span className="min-w-0 flex-1" />
-              <ComposerModelPicker
-                ariaLabel={t('dashboard.creator.modelLabel')}
-                groups={groupDashboardModelOptions(modelOptions)}
-                selectedKey={selectedModel.key}
-                selectedProvider={selectedModel.provider}
-                selectedProviderLabel={selectedModel.providerLabel}
-                selectedModelLabel={selectedModel.modelLabel}
-                onOpenMenu={() => void loadModelCatalog()}
-                onSelect={(provider, modelId) => {
-                  const option = modelOptions.find((m) => m.provider === provider && m.modelId === modelId);
-                  if (option) setSelectedModel(option);
-                }}
-              />
+              {selectedModel ? (
+                <ComposerModelPicker
+                  ariaLabel={t('dashboard.creator.modelLabel')}
+                  groups={groupDashboardModelOptions(modelOptions)}
+                  selectedKey={selectedModel.key}
+                  selectedProvider={selectedModel.provider}
+                  selectedProviderLabel={selectedModel.providerLabel}
+                  selectedModelLabel={selectedModel.modelLabel}
+                  onOpenMenu={() => void loadModelCatalog()}
+                  onSelect={(provider, modelId) => {
+                    const option = modelOptions.find((m) => m.provider === provider && m.modelId === modelId);
+                    if (option) setSelectedModel(option);
+                  }}
+                />
+              ) : null}
               <ComposerSendButton
                 ariaLabel={t('dashboard.creator.createAria')}
                 disabled={!canCreate}
@@ -683,7 +668,7 @@ function groupDashboardModelOptions(modelOptions: DashboardModelOption[]): Compo
 }
 
 function dashboardModelProviderFromAgentId(agentId: string): ComposerModelProvider {
-  return agentId === 'claude' ? 'claude-code' : agentId;
+  return agentId;
 }
 
 function shouldSendDashboardModel(model: DashboardModelOption): boolean {

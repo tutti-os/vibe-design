@@ -4,7 +4,10 @@ import { fireEvent, waitFor } from '@testing-library/react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import { applyLocale } from './i18n';
-import { createVibeDesignFlow } from './launch/vibe-design-flow';
+import {
+  createVibeDesignFlow as createVibeDesignFlowBase,
+  type VibeDesignFlowOptions,
+} from './launch/vibe-design-flow';
 import { ChatTimelineService } from './services/chat-timeline/internal/chat-timeline-service';
 import { ContextPickerService } from './services/context-picker/internal/context-picker-service';
 import type { CanvasPreviewComment } from './features/canvas-workspace/canvas-comment/canvas-comment-types';
@@ -19,6 +22,18 @@ import type { ProjectEditorInitialData } from './project-editor-data';
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
+
+const TEST_AGENT_MODEL_CATALOG = [
+  { agentId: 'codex', label: 'Codex', models: [{ id: 'default', label: 'Default (CLI config)' }] },
+  { agentId: 'claude-code', label: 'Claude Code', models: [{ id: 'default', label: 'Default' }] },
+];
+
+function createVibeDesignFlow(options: VibeDesignFlowOptions = {}) {
+  return createVibeDesignFlowBase({
+    ...options,
+    agentModelCatalog: options.agentModelCatalog ?? TEST_AGENT_MODEL_CATALOG,
+  });
+}
 
 function renderComponent(element: React.ReactNode): { container: HTMLElement; root: Root } {
   const container = document.createElement('div');
@@ -1815,7 +1830,7 @@ describe('VibeDesignApp', () => {
               models: [{ id: 'default', label: 'Default' }],
             },
             {
-              id: 'claude',
+              id: 'claude-code',
               label: 'Claude Code',
               models: [
                 { id: 'default', label: 'Default' },
@@ -1891,7 +1906,7 @@ describe('VibeDesignApp', () => {
           title: 'Untitled',
           prompt: '生成品牌首页',
           projectKind: 'prototype',
-          agentId: 'claude',
+          agentId: 'claude-code',
           model: 'claude:opus',
         },
       ]);
@@ -2477,6 +2492,11 @@ describe('VibeDesignApp', () => {
       projectEditor: {
         project: { id: 'design-md-project', tabsState: { tabs: [], activeTabKey: null } },
         files: [],
+        agentAvailability: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
+          id: entry.agentId,
+          label: entry.label,
+          available: true,
+        })),
         conversations: [{ id: 'conversation-1', title: 'Project', createdAt: 1, updatedAt: 1 }],
         activeConversationId: 'conversation-1',
         messages: [],

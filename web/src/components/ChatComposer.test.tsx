@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { fireEvent, waitFor } from '@testing-library/react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
-import { ChatComposer } from './ChatComposer';
+import { ChatComposer as ChatComposerBase } from './ChatComposer';
 import type {
   ContextPickerSnapshot,
   ContextSearchResultItem,
@@ -15,6 +15,15 @@ import type { CanvasCommentAttachment } from '../types';
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 Element.prototype.scrollIntoView = vi.fn();
+
+const TEST_AGENT_AVAILABILITY = [
+  { id: 'codex', label: 'Codex', available: true },
+  { id: 'claude-code', label: 'Claude Code', available: true },
+];
+
+function ChatComposer(props: React.ComponentProps<typeof ChatComposerBase>): React.ReactElement {
+  return <ChatComposerBase {...props} agentAvailability={props.agentAvailability ?? TEST_AGENT_AVAILABILITY} />;
+}
 
 function renderComponent(element: React.ReactElement): { container: HTMLElement; root: Root } {
   const container = document.createElement('div');
@@ -229,7 +238,7 @@ describe('ChatComposer', () => {
       });
       await flushAsyncWork();
 
-      expect(onSend).toHaveBeenCalledWith({ draft: 'Use Claude', files: [], agentId: 'claude' });
+      expect(onSend).toHaveBeenCalledWith({ draft: 'Use Claude', files: [], agentId: 'claude-code' });
     } finally {
       cleanup(root, container);
     }
@@ -301,7 +310,7 @@ describe('ChatComposer', () => {
     }
   });
 
-  it('switches to Claude models and keeps future providers disabled as coming soon', async () => {
+  it('switches to Claude models without synthesizing providers omitted by Tutti', async () => {
     const onSend = vi.fn();
     const { container, root } = renderComponent(
       <ChatComposer
@@ -313,7 +322,7 @@ describe('ChatComposer', () => {
             models: [{ id: 'default', label: 'Default' }],
           },
           {
-            agentId: 'claude',
+            agentId: 'claude-code',
             label: 'Claude Code',
             models: [
               { id: 'default', label: 'Default' },
@@ -341,28 +350,9 @@ describe('ChatComposer', () => {
       expect(provider.textContent).toContain('Default');
       await openModelMenu(container);
 
-      const tuttiOption = document.body.querySelector('[data-provider-option="tutti"]');
-      expect(tuttiOption).toBeInstanceOf(HTMLElement);
-      expect(tuttiOption!.getAttribute('aria-disabled')).toBe('true');
-      expect(tuttiOption!.getAttribute('title')).toBe('Coming soon');
-      const tuttiIcon = tuttiOption!.querySelector('[data-provider-icon="tutti"]');
-      expect(tuttiIcon).toBeInstanceOf(HTMLImageElement);
-      expect((tuttiIcon as HTMLImageElement | null)?.getAttribute('src')).toContain('manage-agent-tutti.png');
-      const hermesIcon = document.body.querySelector('[data-provider-option="hermes"] [data-provider-icon="hermes"]');
-      expect(hermesIcon).toBeInstanceOf(HTMLImageElement);
-      expect((hermesIcon as HTMLImageElement | null)?.getAttribute('src')).toContain('hermes-rounded.png');
-      const openclawIcon = document.body.querySelector('[data-provider-option="openclaw"] [data-provider-icon="openclaw"]');
-      expect(openclawIcon).toBeInstanceOf(HTMLImageElement);
-      expect((openclawIcon as HTMLImageElement | null)?.getAttribute('src')).toContain('openclaw-rounded.png');
-
-      const comingSoonTrigger = tuttiOption!.closest('[data-slot="tooltip-trigger"]') ?? tuttiOption;
-      expect(comingSoonTrigger).not.toBeNull();
-      await act(async () => {
-        fireEvent.pointerMove(comingSoonTrigger!);
-      });
-      await waitFor(() => {
-        expect(document.body.textContent).toContain('Coming soon');
-      });
+      expect(document.body.querySelector('[data-provider-option="tutti"]')).toBeNull();
+      expect(document.body.querySelector('[data-provider-option="hermes"]')).toBeNull();
+      expect(document.body.querySelector('[data-provider-option="openclaw"]')).toBeNull();
 
       const opusOption = document.body.querySelector('[data-model-option-id="claude:opus"]');
       expect(opusOption).toBeInstanceOf(HTMLElement);
@@ -383,7 +373,7 @@ describe('ChatComposer', () => {
       expect(onSend).toHaveBeenCalledWith({
         draft: 'Use Claude opus',
         files: [],
-        agentId: 'claude',
+        agentId: 'claude-code',
         model: 'claude:opus',
       });
     } finally {
@@ -398,7 +388,7 @@ describe('ChatComposer', () => {
         streaming={false}
         agentAvailability={[
           { id: 'codex', label: 'Codex', available: true },
-          { id: 'claude', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not installed.' },
+          { id: 'claude-code', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not installed.' },
         ]}
         context={{
           search: async () => ({ items: [] }),
@@ -443,7 +433,7 @@ describe('ChatComposer', () => {
         streaming={false}
         agentAvailability={[
           { id: 'codex', label: 'Codex', available: true },
-          { id: 'claude', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not installed.' },
+          { id: 'claude-code', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not installed.' },
         ]}
         context={{
           search: async () => ({ items: [] }),
@@ -470,7 +460,7 @@ describe('ChatComposer', () => {
       });
       await flushAsyncWork();
 
-      expect(onInstallAgent).toHaveBeenCalledWith('claude');
+      expect(onInstallAgent).toHaveBeenCalledWith('claude-code');
       expect(container.textContent).toContain('Claude Code installed. Select it to use it.');
     } finally {
       cleanup(root, container);
@@ -485,7 +475,7 @@ describe('ChatComposer', () => {
         agentAvailability={[
           { id: 'codex', label: 'Codex', available: true },
           {
-            id: 'claude',
+            id: 'claude-code',
             label: 'Claude Code',
             available: false,
             authState: 'missing',
@@ -523,7 +513,7 @@ describe('ChatComposer', () => {
     const { container, root } = renderComponent(
       <ChatComposer
         streaming={false}
-        lockedAgentId="claude"
+        lockedAgentId="claude-code"
         context={{
           search: async () => ({ items: [] }),
           selectResult: vi.fn(),
@@ -563,7 +553,7 @@ describe('ChatComposer', () => {
       });
       await flushAsyncWork();
 
-      expect(onSend).toHaveBeenCalledWith({ draft: 'Continue with Claude', files: [], agentId: 'claude' });
+      expect(onSend).toHaveBeenCalledWith({ draft: 'Continue with Claude', files: [], agentId: 'claude-code' });
     } finally {
       cleanup(root, container);
     }
@@ -586,7 +576,7 @@ describe('ChatComposer', () => {
             ],
           },
           {
-            agentId: 'claude',
+            agentId: 'claude-code',
             label: 'Claude Code',
             models: [{ id: 'claude:opus', label: 'Opus' }],
           },

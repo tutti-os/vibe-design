@@ -8,7 +8,6 @@ import {
 } from './agent-launcher.js';
 import { createAgentRegistry, type RuntimeAgentDef } from './agents.js';
 import { createConversation, upsertConversationMessage } from './conversations.js';
-import { createVibeCodexProvider } from './local-codex-provider.js';
 import { createChatRunService } from './runs.js';
 import { listProjectFilesFromStore, upsertProjectFileInStore, writeProjectToStore } from './sqlite-store.js';
 import type { SseResponse } from './http/sse.js';
@@ -39,14 +38,12 @@ const codexDef: RuntimeAgentDef = {
 type RuntimeInput = Parameters<LocalAgentRuntime['run']>[0];
 const originalTuttiCli = process.env.TUTTI_CLI;
 const originalTuttiAppId = process.env.TUTTI_APP_ID;
-const originalVibeTuttiCli = process.env.VIBE_TUTTI_CLI;
 const originalTuttiWorkspaceRoot = process.env.TUTTI_WORKSPACE_ROOT;
 const originalVibeWorkspaceRoot = process.env.VIBE_WORKSPACE_ROOT;
 
 beforeEach(() => {
   delete process.env.TUTTI_CLI;
   delete process.env.TUTTI_APP_ID;
-  delete process.env.VIBE_TUTTI_CLI;
   delete process.env.TUTTI_WORKSPACE_ROOT;
   delete process.env.VIBE_WORKSPACE_ROOT;
 });
@@ -54,7 +51,6 @@ beforeEach(() => {
 afterEach(() => {
   restoreOptionalEnv('TUTTI_CLI', originalTuttiCli);
   restoreOptionalEnv('TUTTI_APP_ID', originalTuttiAppId);
-  restoreOptionalEnv('VIBE_TUTTI_CLI', originalVibeTuttiCli);
   restoreOptionalEnv('TUTTI_WORKSPACE_ROOT', originalTuttiWorkspaceRoot);
   restoreOptionalEnv('VIBE_WORKSPACE_ROOT', originalVibeWorkspaceRoot);
 });
@@ -89,120 +85,6 @@ function createRecordingRuntime(
 }
 
 describe('startAgentRun', () => {
-  it('lets agent-acp-kit use a run-scoped Codex home with MCP disabled while leaving other tools available', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'vibe-codex-home-'));
-    const sourceHome = join(root, 'source-home');
-    await mkdir(sourceHome, { recursive: true });
-    await writeFile(join(sourceHome, 'auth.json'), JSON.stringify({ OPENAI_API_KEY: 'test-key' }));
-    await writeFile(join(sourceHome, 'config.toml'), [
-      'model = "gpt-5.4"',
-      'base_url = "https://example.test/v1"',
-      'service_tier = "default"',
-      '',
-      '[mcp_servers.filesystem]',
-      'type = "stdio"',
-      'command = "node"',
-      'args = ["filesystem-server.js"]',
-      '',
-    ].join('\n'));
-
-    const provider = createVibeCodexProvider();
-    const adapter = provider.createAdapter?.();
-
-    expect(adapter).toBeDefined();
-
-    try {
-      const plan = await adapter!.buildLaunchPlan({
-        runId: 'run-1',
-        cwd: '/tmp/vibe-project',
-        env: { CODEX_HOME: sourceHome },
-        prompt: 'Build a page',
-        mcpServers: [
-          {
-            type: 'stdio',
-            name: 'vibe-design',
-            command: 'node',
-            args: ['server.js'],
-            env: [{ key: 'TOKEN', value: 'secret' }],
-          },
-        ],
-      });
-
-      const disablePluginsIndex = plan.args.findIndex(
-        (arg, index) => arg === '--disable' && plan.args[index + 1] === 'plugins',
-      );
-      expect(disablePluginsIndex).toBeGreaterThanOrEqual(0);
-      expect(plan.args).not.toEqual(expect.arrayContaining(['-c', 'features.multi_agent=false']));
-      expect(plan).not.toHaveProperty('mcpServers');
-      expect(plan.env?.CODEX_HOME).toBeTruthy();
-      expect(plan.env?.CODEX_HOME).not.toBe(sourceHome);
-      const runConfig = await readFile(join(plan.env!.CODEX_HOME!, 'config.toml'), 'utf8');
-      expect(runConfig).toContain('base_url = "https://example.test/v1"');
-      expect(runConfig).not.toContain('service_tier = "default"');
-      expect(runConfig).not.toContain('[mcp_servers.');
-      expect(runConfig).not.toContain('filesystem-server.js');
-      expect(runConfig).not.toContain('server.js');
-    } finally {
-      for await (const _event of adapter!.parseEvents((async function* () {})())) {
-        // Drain the adapter stream so its run-scoped cleanup runs.
-      }
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('maps current Codex JSONL response_item records into ACP kit events', async () => {
-    const provider = createVibeCodexProvider();
-    const adapter = provider.createAdapter?.();
-
-    expect(adapter).toBeDefined();
-
-    const events = [];
-    for await (const event of adapter!.parseEvents((async function* () {
-      yield { type: 'session_meta', payload: { id: 'session-1' } };
-      yield {
-        type: 'response_item',
-        payload: {
-          type: 'message',
-          role: 'assistant',
-          content: [{ type: 'output_text', text: 'Built the page.' }],
-        },
-      };
-      yield {
-        type: 'response_item',
-        payload: {
-          type: 'function_call',
-          name: 'exec_command',
-          call_id: 'call-1',
-          arguments: '{"cmd":"wc -l DESIGN.md"}',
-        },
-      };
-      yield {
-        type: 'response_item',
-        payload: {
-          type: 'function_call_output',
-          call_id: 'call-1',
-          output: '229 DESIGN.md\n',
-        },
-      };
-      yield { type: 'done', status: 'completed', exitCode: 0 };
-    })())) {
-      events.push(event);
-    }
-
-    expect(events).toEqual([
-      { type: 'text_delta', text: 'Built the page.' },
-      { type: 'tool_call', id: 'call-1', name: 'exec_command', input: { cmd: 'wc -l DESIGN.md' } },
-      {
-        type: 'tool_result',
-        id: 'call-1',
-        output: '229 DESIGN.md\n',
-        status: 'completed',
-        isError: false,
-      },
-      { type: 'done', status: 'completed', exitCode: 0, sessionId: 'session-1' },
-    ]);
-  });
-
   it('runs Codex through the ACP kit runtime and maps kit events into existing run events', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     try {
@@ -290,6 +172,7 @@ describe('startAgentRun', () => {
         'process.stdout.write(JSON.stringify({',
         '  schemaVersion: 1,',
         '  provider: "codex",',
+        '  agentSessionId: process.argv[process.argv.indexOf("--agent-session-id") + 1],',
         '  recommendedSystemPrompt: { format: "text/markdown", content: "Use Tutti routing." },',
         '  skills: [{',
         '    skillId: "tutti/tutti-cli",',
@@ -345,7 +228,7 @@ describe('startAgentRun', () => {
       ]);
       expect(runtime.inputs[0]?.systemPrompt).toContain('Use Tutti routing.');
       expect(runtime.inputs[0]?.systemPrompt?.trim().endsWith('Use Tutti routing.')).toBe(true);
-      expect(runtime.inputs[0]?.env).toEqual({ TUTTI_CLI: cliPath });
+      expect(runtime.inputs[0]?.env).toBeUndefined();
       expect(runtime.inputs[0]?.skillManifest).toEqual([
         {
           skillId: 'tutti/tutti-cli',
@@ -378,6 +261,7 @@ describe('startAgentRun', () => {
         'process.stdout.write(JSON.stringify({',
         '  schemaVersion: 1,',
         '  provider: "codex",',
+        '  agentSessionId: process.argv[process.argv.indexOf("--agent-session-id") + 1],',
         '  recommendedSystemPrompt: { format: "text/markdown", content: "Use Tutti routing locally." },',
         '  skills: [{',
         '    skillId: "tutti/tutti-cli",',
@@ -423,7 +307,7 @@ describe('startAgentRun', () => {
       ]);
       expect(runtime.inputs[0]?.systemPrompt).toContain('Use Tutti routing locally.');
       expect(runtime.inputs[0]?.systemPrompt?.trim().endsWith('Use Tutti routing locally.')).toBe(true);
-      expect(runtime.inputs[0]?.env).toEqual({ TUTTI_CLI: cliPath });
+      expect(runtime.inputs[0]?.env).toBeUndefined();
       expect(runtime.inputs[0]?.skillManifest).toEqual([
         {
           skillId: 'tutti/tutti-cli',
@@ -437,9 +321,8 @@ describe('startAgentRun', () => {
     }
   });
 
-  it('continues without a Tutti skill bundle when the SDK helper command fails', async () => {
+  it('fails closed when the configured Tutti CLI skill command fails', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
       const builtInSkillsRoot = join(root, 'skills');
       const userSkillsRoot = join(root, 'user-skills');
@@ -461,7 +344,7 @@ describe('startAgentRun', () => {
         '',
       ].join('\n'));
       await chmod(cliPath, 0o755);
-      process.env.VIBE_TUTTI_CLI = cliPath;
+      process.env.TUTTI_CLI = cliPath;
 
       const runs = createChatRunService({
         createSseResponse: createNoopSseResponse,
@@ -471,7 +354,7 @@ describe('startAgentRun', () => {
       const run = runs.create({ projectId: 'project-1', agentId: 'codex' });
       const runtime = createRecordingRuntime();
 
-      await startAgentRun({
+      await expect(startAgentRun({
         run,
         runs,
         request: {
@@ -482,7 +365,7 @@ describe('startAgentRun', () => {
         paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
         registry: createAgentRegistry([codexDef]),
         agentRuntime: runtime,
-      });
+      })).rejects.toThrow('Tutti CLI request failed.');
 
       expect(JSON.parse(await readFile(callsPath, 'utf8'))).toEqual([
         [
@@ -495,12 +378,8 @@ describe('startAgentRun', () => {
           run.id,
         ],
       ]);
-      expect(runtime.inputs[0]?.systemPrompt).not.toContain('When a request contains a mention:// URI');
-      expect(runtime.inputs[0]?.env).toEqual({ TUTTI_CLI: cliPath });
-      expect(runtime.inputs[0]).not.toHaveProperty('skillManifest');
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Unable to load Tutti agent skill context'));
+      expect(runtime.inputs).toEqual([]);
     } finally {
-      warn.mockRestore();
       await rm(root, { recursive: true, force: true });
     }
   });

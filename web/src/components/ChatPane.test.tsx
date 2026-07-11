@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { fireEvent, waitFor } from '@testing-library/react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChatPane } from './ChatPane';
+import { ChatPane as ChatPaneBase } from './ChatPane';
 import { PRESET_PROMPTS, pickPresetPrompts } from './presetPrompts';
 import type { ChatTimelineSnapshot } from '../services/chat-timeline/chat-timeline-types';
 import type { CanvasCommentAttachment, ChatAttachment, ProjectFile } from '../types';
@@ -22,6 +22,15 @@ const transformControls = vi.hoisted(() => ({
 const transformWrapperProps = vi.hoisted(() => ({
   current: null as Record<string, unknown> | null,
 }));
+
+const TEST_AGENT_AVAILABILITY = [
+  { id: 'codex', label: 'Codex', available: true },
+  { id: 'claude-code', label: 'Claude Code', available: true },
+];
+
+function ChatPane(props: React.ComponentProps<typeof ChatPaneBase>): React.ReactElement {
+  return <ChatPaneBase {...props} agentAvailability={props.agentAvailability ?? TEST_AGENT_AVAILABILITY} />;
+}
 
 vi.mock('react-zoom-pan-pinch', async () => {
   const ReactModule = await import('react');
@@ -593,7 +602,7 @@ describe('ChatPane', () => {
         contextSelect={vi.fn()}
         agentAvailability={[
           { id: 'codex', label: 'Codex', available: true },
-          { id: 'claude', label: 'Claude Code', available: true },
+          { id: 'claude-code', label: 'Claude Code', available: true },
         ]}
         onSend={vi.fn()}
         onStop={vi.fn()}
@@ -975,7 +984,7 @@ describe('ChatPane', () => {
       phase: 'idle',
       activeConversationId: 'conversation-1',
       activeConversationTitle: 'Build a product page',
-      conversations: [{ id: 'conversation-1', title: 'Build a product page', provider: 'claude', createdAt: 1, updatedAt: 1 }],
+      conversations: [{ id: 'conversation-1', title: 'Build a product page', provider: 'claude-code', createdAt: 1, updatedAt: 1 }],
       pinnedTodoInput: null,
       messages: [
         {
@@ -1037,7 +1046,7 @@ describe('ChatPane', () => {
           '- 品牌名称: Acme',
         ].join('\n'),
         files: [],
-        agentId: 'claude',
+        agentId: 'claude-code',
       });
     } finally {
       cleanup(root, container);
@@ -1694,7 +1703,7 @@ describe('ChatPane', () => {
         {
           id: 'conversation-1',
           title: 'Build a dashboard',
-          provider: 'claude',
+          provider: 'claude-code',
           createdAt: 1,
           updatedAt: 1,
         },
@@ -1750,7 +1759,7 @@ describe('ChatPane', () => {
       expect(onSend).toHaveBeenCalledWith({
         draft: '[form answers — discovery]\n- 任务类型是什么？: 仪表盘 [value: dashboard]',
         files: [],
-        agentId: 'claude',
+        agentId: 'claude-code',
       });
     } finally {
       cleanup(root, container);
@@ -1768,7 +1777,7 @@ describe('ChatPane', () => {
         {
           id: 'conversation-1',
           title: 'Build a dashboard',
-          provider: 'claude',
+          provider: 'claude-code',
           createdAt: 1,
           updatedAt: 1,
         },
