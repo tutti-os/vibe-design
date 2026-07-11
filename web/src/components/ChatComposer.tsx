@@ -233,7 +233,11 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
 
     useEffect(() => {
       if (!lockedModelProvider || !lockedModel) return;
-      const composerModel = normalizeLockedComposerModel(lockedModelProvider, lockedModel);
+      const composerModel = normalizeLockedComposerModel(
+        lockedModelProvider,
+        lockedModel,
+        agentModelCatalog,
+      );
       setSelectedModelsByProvider((current) => {
         if (current[lockedModelProvider] === composerModel) return current;
         return {
@@ -241,7 +245,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           [lockedModelProvider]: composerModel,
         };
       });
-    }, [lockedModel, lockedModelProvider]);
+    }, [agentModelCatalog, lockedModel, lockedModelProvider]);
 
     useEffect(() => {
       if (providerLocked) return;
@@ -822,11 +826,22 @@ function modelProviderFromAgentId(agentId: AgentId): string {
   return agentId === 'claude' ? 'claude-code' : agentId;
 }
 
-function normalizeLockedComposerModel(provider: string, model: string): string {
+function normalizeLockedComposerModel(
+  provider: string,
+  model: string,
+  catalog: ChatComposerAgentModelCatalogEntry[],
+): string {
+  const options = modelOptionsForProvider(provider, catalog);
+  if (options.some((option) => option.id === model)) {
+    return model;
+  }
   const prefixes = [provider, agentIdFromModelProvider(provider)];
   for (const prefix of prefixes) {
     if (model.startsWith(`${prefix}:`)) {
-      return model.slice(prefix.length + 1);
+      const stripped = model.slice(prefix.length + 1);
+      if (options.some((option) => option.id === stripped)) {
+        return stripped;
+      }
     }
   }
   return model;

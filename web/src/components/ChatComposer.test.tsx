@@ -638,6 +638,43 @@ describe('ChatComposer', () => {
     }
   });
 
+  it('keeps a locked canonical model id when the catalog uses canonical ids', async () => {
+    const onSend = vi.fn();
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        lockedAgentId="codex"
+        lockedModel="codex:gpt-5.4"
+        agentModelCatalog={[
+          {
+            agentId: 'codex',
+            label: 'Codex',
+            models: [
+              { id: 'default', label: 'Default' },
+              { id: 'codex:gpt-5.4', label: 'GPT-5.4' },
+            ],
+          },
+        ]}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onSend={onSend}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      const provider = getByLabelText(container, 'Model provider');
+      await waitFor(() => {
+        expect(provider.textContent).toContain('GPT-5.4');
+      });
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('explains why a Codex conversation cannot switch to Claude Code', () => {
     const { container, root } = renderComponent(
       <ChatComposer

@@ -128,7 +128,10 @@ describe('startAgentRun', () => {
         ],
       });
 
-      expect(plan.args).toEqual(expect.arrayContaining(['--disable', 'plugins']));
+      const disablePluginsIndex = plan.args.findIndex(
+        (arg, index) => arg === '--disable' && plan.args[index + 1] === 'plugins',
+      );
+      expect(disablePluginsIndex).toBeGreaterThanOrEqual(0);
       expect(plan.args).not.toEqual(expect.arrayContaining(['-c', 'features.multi_agent=false']));
       expect(plan).not.toHaveProperty('mcpServers');
       expect(plan.env?.CODEX_HOME).toBeTruthy();
