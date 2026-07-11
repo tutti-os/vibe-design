@@ -1041,6 +1041,7 @@ describe('ChatPane', () => {
       <ChatPane
         snapshot={snapshot}
         agentModelCatalog={agentModelCatalog}
+        activeConversationProvider="tutti-agent"
         contextSnapshot={{ selectedSkills: [], selectedDesignFiles: [] }}
         contextSearch={async () => ({ items: [] })}
         contextSelect={vi.fn()}

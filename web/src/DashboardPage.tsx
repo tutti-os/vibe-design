@@ -315,6 +315,7 @@ function ProjectCreator({
   const {
     catalog: agentModelCatalog,
     loading: modelCatalogLoading,
+    ensureLoaded: ensureAgentModelCatalogLoaded,
     refresh: refreshAgentModelCatalog,
   } = useAgentModelCatalog(initialAgentModelCatalog);
   const [isCreating, setIsCreating] = React.useState(false);
@@ -531,7 +532,7 @@ function ProjectCreator({
                   selectedProvider={selectedModel.provider}
                   selectedProviderLabel={selectedModel.providerLabel}
                   selectedModelLabel={selectedModel.modelLabel}
-                  onOpenMenu={() => void refreshAgentModelCatalog()}
+                  onOpenMenu={() => void ensureAgentModelCatalogLoaded()}
                   onSelect={(provider, modelId) => {
                     const option = modelOptions.find((m) => m.provider === provider && m.modelId === modelId);
                     if (option) setSelectedModel(option);

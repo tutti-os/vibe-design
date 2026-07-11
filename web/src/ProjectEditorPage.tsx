@@ -41,9 +41,9 @@ import type { ChatAttachment, ProjectFile } from './types';
 import { useTranslation } from './i18n';
 import {
   fetchAgentAvailability,
-  fetchAgentModelCatalog,
   installClaudeCodeAgent,
 } from './services/agent-catalog/agent-catalog-api';
+import { useAgentModelCatalog } from './services/agent-catalog/use-agent-model-catalog';
 
 const CHAT_PANEL_MIN_WIDTH = 360;
 const CHAT_PANEL_MAX_WIDTH = 600;
@@ -76,7 +76,10 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
   const [agentAvailability, setAgentAvailability] = React.useState<ChatComposerAgentAvailability[]>(
     () => initialData?.agentAvailability ?? [],
   );
-  const [agentModelCatalog, setAgentModelCatalog] = React.useState<ChatComposerAgentModelCatalogEntry[]>([]);
+  const {
+    catalog: agentModelCatalog,
+    ensureLoaded: ensureAgentModelCatalogLoaded,
+  } = useAgentModelCatalog([]);
   const [stagedCommentAttachments, setStagedCommentAttachments] = React.useState<CanvasCommentAttachment[]>([]);
   const [commentPanelOpen, setCommentPanelOpen] = React.useState(false);
   const [autoOpenFileRequest, setAutoOpenFileRequest] = React.useState<{ path: string; revision: number } | null>(null);
@@ -507,23 +510,8 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
   }, []);
 
   React.useEffect(() => {
-    let canceled = false;
-    void fetchAgentModelCatalog()
-      .then((catalog) => {
-        if (!canceled) {
-          setAgentModelCatalog(catalog);
-        }
-      })
-      .catch(() => {
-        if (!canceled) {
-          setAgentModelCatalog([]);
-        }
-      });
-
-    return () => {
-      canceled = true;
-    };
-  }, []);
+    void ensureAgentModelCatalogLoaded();
+  }, [ensureAgentModelCatalogLoaded]);
 
   React.useEffect(() => {
     const loadedPreviewComments = loadedPreviewCommentsRef.current;
@@ -1315,6 +1303,10 @@ function ChatPanel({
   const session = useService(IChatSessionService);
   const snapshot = useServiceSnapshot<ChatTimelineSnapshot>(timeline);
   const contextSnapshot = useServiceSnapshot<ContextPickerSnapshot>(context);
+  const activeConversationProvider = resolveActiveConversationProvider(
+    snapshot,
+    agentModelCatalog,
+  );
 
   return (
     <aside
@@ -1333,6 +1325,7 @@ function ChatPanel({
           contextRemove={(kind, id) => context.removeSelection(kind, id)}
           agentAvailability={agentAvailability}
           agentModelCatalog={agentModelCatalog}
+          activeConversationProvider={activeConversationProvider}
           activeDesignSystem={activeDesignSystem}
           designSystems={designSystems}
           designSystemPickerState={designSystemPickerState}
@@ -1391,6 +1384,19 @@ function ChatPanel({
       </div>
     </aside>
   );
+}
+
+function resolveActiveConversationProvider(
+  snapshot: ChatTimelineSnapshot,
+  catalog: ChatComposerAgentModelCatalogEntry[],
+): string | null {
+  const provider = snapshot.conversations.find(
+    (conversation) => conversation.id === snapshot.activeConversationId,
+  )?.provider;
+  const canonicalProvider = typeof provider === 'string' ? provider.trim() : '';
+  return canonicalProvider && catalog.some((entry) => entry.agentId === canonicalProvider)
+    ? canonicalProvider
+    : null;
 }
 
 function previewCommentDisplayDraft(attachments: readonly CanvasCommentAttachment[]): string {
