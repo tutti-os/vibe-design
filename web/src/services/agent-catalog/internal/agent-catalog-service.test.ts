@@ -24,6 +24,7 @@ describe('AgentCatalogService', () => {
     expect(service.getSnapshot()).toEqual({
       catalog: [{ agentId: 'tutti-agent', label: 'Tutti Agent', models: [] }],
       loading: false,
+      error: 'temporary',
     });
   });
 });

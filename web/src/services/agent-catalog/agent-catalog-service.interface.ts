@@ -4,6 +4,7 @@ import type { AgentModelCatalogEntry } from './agent-catalog-types';
 export interface AgentCatalogSnapshot {
   catalog: AgentModelCatalogEntry[];
   loading: boolean;
+  error: string | null;
 }
 
 export interface IAgentCatalogService {

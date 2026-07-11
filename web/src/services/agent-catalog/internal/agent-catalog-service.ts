@@ -14,7 +14,11 @@ export class AgentCatalogService implements IAgentCatalogService {
   private readonly listeners = new Set<() => void>();
 
   constructor(initialCatalog: AgentModelCatalogEntry[] = []) {
-    this.snapshot = { catalog: cloneCatalog(initialCatalog), loading: false };
+    this.snapshot = {
+      catalog: cloneCatalog(initialCatalog),
+      loading: false,
+      error: null,
+    };
     this.loaded = initialCatalog.length > 0;
   }
 
@@ -39,15 +43,18 @@ export class AgentCatalogService implements IAgentCatalogService {
     if (!force && this.loaded) return Promise.resolve(cloneCatalog(this.snapshot.catalog));
     if (this.inFlight) return this.inFlight;
 
-    this.setSnapshot({ loading: true });
+    this.setSnapshot({ loading: true, error: null });
     const request = fetchAgentModelCatalog()
       .then((catalog) => {
         this.loaded = true;
-        this.setSnapshot({ catalog, loading: false });
+        this.setSnapshot({ catalog, loading: false, error: null });
         return cloneCatalog(catalog);
       })
-      .catch(() => {
-        this.setSnapshot({ loading: false });
+      .catch((error: unknown) => {
+        this.setSnapshot({
+          loading: false,
+          error: error instanceof Error ? error.message : 'Agent model catalog request failed.',
+        });
         return cloneCatalog(this.snapshot.catalog);
       })
       .finally(() => {

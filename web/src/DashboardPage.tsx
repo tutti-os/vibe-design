@@ -308,8 +308,11 @@ function ProjectCreator({
   const [stagedFiles, setStagedFiles] = React.useState<File[]>([]);
   const [selectedModel, setSelectedModel] = React.useState<DashboardModelOption | null>(null);
   const agentCatalog = useService(IAgentCatalogService);
-  const { catalog: agentModelCatalog, loading: modelCatalogLoading } =
-    useServiceSnapshot(agentCatalog);
+  const {
+    catalog: agentModelCatalog,
+    loading: modelCatalogLoading,
+    error: modelCatalogError,
+  } = useServiceSnapshot(agentCatalog);
   const [isCreating, setIsCreating] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const formRef = React.useRef<HTMLFormElement | null>(null);
@@ -541,6 +544,11 @@ function ProjectCreator({
                   {modelCatalogLoading ? t('common.loading') : t('common.retry')}
                 </Button>
               )}
+              {modelCatalogError ? (
+                <span className="text-xs text-[var(--destructive)]" role="alert">
+                  {modelCatalogError}
+                </span>
+              ) : null}
               <ComposerSendButton
                 ariaLabel={t('dashboard.creator.createAria')}
                 disabled={!canCreate}
