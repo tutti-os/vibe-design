@@ -32,11 +32,13 @@ describe('agent catalog API', () => {
       agents: [{
         id: 'opencode',
         label: 'OpenCode',
+        supported: false,
         models: [{ id: 'default', label: 'Default', description: 'CLI default' }],
       }],
     })).toEqual([{
       agentId: 'opencode',
       label: 'OpenCode',
+      supported: false,
       models: [{ id: 'default', label: 'Default', description: 'CLI default' }],
     }]);
   });

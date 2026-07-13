@@ -22,11 +22,15 @@ describe('createAgentProviderSnapshotDetector', () => {
     const context = {
       cwd: '/workspace/one',
       refresh: true,
+      env: { PATH: '/opt/bin', TSH_WORKSPACE_ID: 'workspace-one' },
       managedAgentInvocation: { cwd: '/workspace/one', credential: 'secret-one' },
     };
 
     const first = snapshots.detect(context);
-    const second = snapshots.detect({ ...context });
+    const second = snapshots.detect({
+      ...context,
+      env: { TSH_WORKSPACE_ID: 'workspace-one', PATH: '/opt/bin' },
+    });
 
     await Promise.resolve();
     expect(detect).toHaveBeenCalledTimes(1);

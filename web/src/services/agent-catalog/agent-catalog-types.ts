@@ -15,5 +15,6 @@ export interface AgentModelOption {
 export interface AgentModelCatalogEntry {
   agentId: string;
   label: string;
+  supported?: boolean;
   models: AgentModelOption[];
 }

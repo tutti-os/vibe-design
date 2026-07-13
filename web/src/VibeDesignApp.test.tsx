@@ -1925,6 +1925,13 @@ describe('VibeDesignApp', () => {
             {
               id: 'tutti-agent',
               label: 'Tutti Agent',
+              supported: true,
+              models: [{ id: 'default', label: 'Default' }],
+            },
+            {
+              id: 'claude-code',
+              label: 'Claude Code',
+              supported: false,
               models: [{ id: 'default', label: 'Default' }],
             },
           ],
@@ -1945,6 +1952,7 @@ describe('VibeDesignApp', () => {
       await waitFor(() => {
         expect(getByLabelText(container, 'Model').textContent).toContain('Tutti Agent');
       });
+      expect(container.textContent).not.toContain('Claude Code');
       expect(fetch).toHaveBeenCalledWith('/api/agents/models');
     } finally {
       cleanup(root, container);

@@ -592,7 +592,7 @@ function isSupportedDashboardReferenceFile(file: File): boolean {
 function dashboardModelOptionsFromCatalog(
   catalog: ChatComposerAgentModelCatalogEntry[],
 ): DashboardModelOption[] {
-  return catalog.flatMap((entry) => {
+  return catalog.filter((entry) => entry.supported !== false).flatMap((entry) => {
     const provider = dashboardModelProviderFromAgentId(entry.agentId);
     return entry.models.map((model) => ({
       key: `${provider}:${model.id}`,

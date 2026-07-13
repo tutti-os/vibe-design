@@ -504,6 +504,7 @@ describe('createServer', () => {
         {
           id: 'claude',
           label: 'Claude Code',
+          supported: true,
           models: [
             { id: 'default', label: 'Default (recommended)' },
             { id: 'opus[1m]', label: 'Opus 4.7 (1M context)', description: 'Detected by Claude.' },
@@ -512,6 +513,7 @@ describe('createServer', () => {
         {
           id: 'codex',
           label: 'Codex',
+          supported: true,
           models: [
             { id: 'default', label: 'Default (CLI config)' },
             { id: 'gpt-5.5', label: 'GPT-5.5', description: 'Detected by Codex.' },

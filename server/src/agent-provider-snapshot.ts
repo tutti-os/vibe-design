@@ -75,7 +75,7 @@ function providerSnapshotKey(context?: DetectContext): string {
     .update(
       Object.entries(context?.env ?? {})
         .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-        .sort(([left], [right]) => left.localeCompare(right))
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
         .map(([key, value]) => `${key}\u0000${value}`)
         .join('\u0001'),
     )

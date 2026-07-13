@@ -48,7 +48,12 @@ export function readAgentModelCatalog(data: unknown): AgentModelCatalogEntry[] {
           : {}),
       }];
     });
-    return [{ agentId: item.id, label: item.label, models }];
+    return [{
+      agentId: item.id,
+      label: item.label,
+      supported: typeof item.supported === 'boolean' ? item.supported : true,
+      models,
+    }];
   });
 }
 
