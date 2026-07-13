@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { projectAgentModelCatalog } from './agent-model-catalog.js';
 
 describe('projectAgentModelCatalog', () => {
-  it('returns sanitized models only for supported providers', () => {
+  it('returns sanitized models while preserving unavailable providers', () => {
     expect(projectAgentModelCatalog([
       {
         id: 'codex',
@@ -27,7 +27,13 @@ describe('projectAgentModelCatalog', () => {
     ])).toEqual([{
       id: 'codex',
       label: 'Codex',
+      supported: true,
       models: [{ id: 'default', label: 'Default' }],
+    }, {
+      id: 'claude-code',
+      label: 'Claude Code',
+      supported: false,
+      models: [{ id: 'opus', label: 'Opus' }],
     }]);
   });
 });

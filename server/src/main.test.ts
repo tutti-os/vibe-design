@@ -533,19 +533,29 @@ describe('createServer', () => {
       resolveDetection = resolve;
     });
     let detectCalls = 0;
-    const port = await listenOnRandomPort(
-      createTestServer({
-        runtimeDir: await createRuntimeDir(),
-        detectAgentProviders: async () => {
-          detectCalls += 1;
-          return detection;
-        },
-      }),
-    );
+    let resolveBothRequests!: () => void;
+    const bothRequests = new Promise<void>((resolve) => {
+      resolveBothRequests = resolve;
+    });
+    let observedRequestCount = 0;
+    const candidate = createTestServer({
+      runtimeDir: await createRuntimeDir(),
+      detectAgentProviders: async () => {
+        detectCalls += 1;
+        return detection;
+      },
+    });
+    candidate.on('request', (request) => {
+      if (request.url === '/api/agents/models' || request.url === '/api/agents/availability') {
+        observedRequestCount += 1;
+        if (observedRequestCount === 2) resolveBothRequests();
+      }
+    });
+    const port = await listenOnRandomPort(candidate);
 
     const modelsResponse = fetch(`http://127.0.0.1:${port}/api/agents/models`);
     const availabilityResponse = fetch(`http://127.0.0.1:${port}/api/agents/availability`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await bothRequests;
 
     expect(detectCalls).toBe(1);
     resolveDetection([{

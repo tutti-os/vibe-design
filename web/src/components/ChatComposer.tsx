@@ -863,8 +863,8 @@ function unavailableReasonForAvailability(agent: ChatComposerAgentAvailability |
 function canInstallUnavailableAgent(agent: ChatComposerAgentAvailability | null): boolean {
   if (!agent || agent.supported) return false;
 
-  return agent.authState === 'unknown' &&
-    /not installed|not detected|not available on PATH/i.test(agent.unavailableReason ?? '');
+  return (agent.authState === 'missing' || agent.authState === 'unknown') &&
+    /not installed|not detected|not available on PATH|not found on PATH/i.test(agent.unavailableReason ?? '');
 }
 
 function readSendErrorMessage(error: unknown, fallback: string): string {

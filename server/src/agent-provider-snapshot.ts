@@ -71,5 +71,20 @@ function providerSnapshotKey(context?: DetectContext): string {
   const credentialFingerprint = managed?.credential
     ? createHash('sha256').update(managed.credential).digest('hex')
     : 'none';
-  return [managed ? 'managed' : 'standalone', context?.refresh ? 'refresh' : 'normal', workspace, credentialFingerprint].join('\u0000');
+  const environmentFingerprint = createHash('sha256')
+    .update(
+      Object.entries(context?.env ?? {})
+        .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, value]) => `${key}\u0000${value}`)
+        .join('\u0001'),
+    )
+    .digest('hex');
+  return [
+    managed ? 'managed' : 'standalone',
+    context?.refresh ? 'refresh' : 'normal',
+    workspace,
+    credentialFingerprint,
+    environmentFingerprint,
+  ].join('\u0000');
 }

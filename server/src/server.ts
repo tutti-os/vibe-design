@@ -1055,6 +1055,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const recentProjects = await listProjectSummaries(projectsDir, 20);
     const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
     const agentModelCatalog = (await detectAgentModelCatalog(detectContext).catch(() => []))
+      .filter((entry) => entry.supported)
       .map((entry) => ({ agentId: entry.id, label: entry.label, models: entry.models }));
     sendNoStore(res);
     res.type('html').send(renderPage({ route: { kind: 'dashboard' }, recentProjects, agentModelCatalog }));

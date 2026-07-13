@@ -565,6 +565,50 @@ describe('ChatComposer', () => {
     }
   });
 
+  it('offers installation for the standalone CLI-not-found snapshot', async () => {
+    const onInstallAgent = vi.fn(async () => undefined);
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        agentAvailability={[
+          { id: 'codex', label: 'Codex', supported: true, authState: 'ok' },
+          {
+            id: 'claude-code',
+            label: 'Claude Code',
+            supported: false,
+            authState: 'missing',
+            unavailableReason: 'Executable not found on PATH: claude',
+          },
+        ]}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onInstallAgent={onInstallAgent}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      await openModelMenu(container);
+      const installButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
+        button.textContent?.includes('Install'),
+      );
+      expect(installButton?.getAttribute('aria-label')).toBe('Install Claude Code');
+
+      await act(async () => {
+        fireEvent.click(installButton!);
+      });
+      await flushAsyncWork();
+
+      expect(onInstallAgent).toHaveBeenCalledWith('claude-code');
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('does not offer installation when Claude Code is installed but app-local auth is missing', async () => {
     const onInstallAgent = vi.fn(async () => undefined);
     const { container, root } = renderComponent(

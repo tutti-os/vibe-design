@@ -4,15 +4,16 @@ import type { AgentProviderSnapshot } from './agent-provider-snapshot.js';
 export interface AgentModelCatalogEntry {
   id: string;
   label: string;
+  supported: boolean;
   models: ModelSummary[];
 }
 
 export function projectAgentModelCatalog(providers: readonly AgentProviderSnapshot[]): AgentModelCatalogEntry[] {
   return providers
-    .filter((entry) => entry.supported)
     .map((entry) => ({
       id: entry.id,
       label: entry.label,
+      supported: entry.supported,
       models: sanitizeModelOptions(
         entry.models,
       ),
