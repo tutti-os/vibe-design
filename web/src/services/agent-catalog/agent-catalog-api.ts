@@ -35,7 +35,13 @@ export function readAgentModelCatalog(data: unknown): AgentModelCatalogEntry[] {
   const value = isRecord(data) ? data.agents : null;
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
-    if (!isRecord(item) || !isAgentId(item.id) || typeof item.label !== 'string' || !Array.isArray(item.models)) {
+    if (
+      !isRecord(item)
+      || !isAgentId(item.id)
+      || typeof item.label !== 'string'
+      || typeof item.supported !== 'boolean'
+      || !Array.isArray(item.models)
+    ) {
       return [];
     }
     const models = item.models.flatMap((model) => {
@@ -51,7 +57,7 @@ export function readAgentModelCatalog(data: unknown): AgentModelCatalogEntry[] {
     return [{
       agentId: item.id,
       label: item.label,
-      supported: typeof item.supported === 'boolean' ? item.supported : true,
+      supported: item.supported,
       models,
     }];
   });

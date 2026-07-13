@@ -29,8 +29,8 @@ const TEST_AGENT_AVAILABILITY = [
 ] satisfies NonNullable<React.ComponentProps<typeof ChatPaneBase>['agentAvailability']>;
 
 const TEST_AGENT_MODEL_CATALOG = [
-  { agentId: 'codex', label: 'Codex', models: [] },
-  { agentId: 'claude-code', label: 'Claude Code', models: [] },
+  { agentId: 'codex', label: 'Codex', supported: true, models: [] },
+  { agentId: 'claude-code', label: 'Claude Code', supported: true, models: [] },
 ];
 
 function ChatPane(props: React.ComponentProps<typeof ChatPaneBase>): React.ReactElement {
@@ -994,6 +994,7 @@ describe('ChatPane', () => {
       {
         agentId: 'tutti-agent',
         label: 'Tutti Agent',
+        supported: true,
         models: [{ id: 'default', label: 'Default' }],
       },
     ];

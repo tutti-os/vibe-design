@@ -22,8 +22,8 @@ const TEST_AGENT_AVAILABILITY = [
 ] satisfies NonNullable<React.ComponentProps<typeof ChatComposerBase>['agentAvailability']>;
 
 const TEST_AGENT_MODEL_CATALOG = [
-  { agentId: 'codex', label: 'Codex', models: [] },
-  { agentId: 'claude-code', label: 'Claude Code', models: [] },
+  { agentId: 'codex', label: 'Codex', supported: true, models: [] },
+  { agentId: 'claude-code', label: 'Claude Code', supported: true, models: [] },
 ];
 
 function ChatComposer(props: React.ComponentProps<typeof ChatComposerBase>): React.ReactElement {
@@ -176,7 +176,7 @@ describe('ChatComposer', () => {
           { id: 'tutti-agent', label: 'Tutti Agent', supported: true, authState: 'ok' },
         ]}
         agentModelCatalog={[
-          { agentId: 'codex', label: 'Codex', models: [{ id: 'default', label: 'Default' }] },
+          { agentId: 'codex', label: 'Codex', supported: true, models: [{ id: 'default', label: 'Default' }] },
         ]}
         context={{
           search: async () => ({ items: [] }),
@@ -351,6 +351,7 @@ describe('ChatComposer', () => {
           {
             agentId: 'codex',
             label: 'Codex',
+            supported: true,
             models: [
               { id: 'default', label: 'Default' },
               {
@@ -417,11 +418,13 @@ describe('ChatComposer', () => {
           {
             agentId: 'codex',
             label: 'Codex',
+            supported: true,
             models: [{ id: 'default', label: 'Default' }],
           },
           {
             agentId: 'claude-code',
             label: 'Claude Code',
+            supported: true,
             models: [
               { id: 'default', label: 'Default' },
               {
@@ -711,6 +714,7 @@ describe('ChatComposer', () => {
           {
             agentId: 'codex',
             label: 'Codex',
+            supported: true,
             models: [
               { id: 'default', label: 'Default' },
               { id: 'gpt-5.5', label: 'GPT-5.5' },
@@ -719,6 +723,7 @@ describe('ChatComposer', () => {
           {
             agentId: 'claude-code',
             label: 'Claude Code',
+            supported: true,
             models: [{ id: 'claude:opus', label: 'Opus' }],
           },
         ]}
@@ -780,6 +785,7 @@ describe('ChatComposer', () => {
           {
             agentId: 'codex',
             label: 'Codex',
+            supported: true,
             models: [
               { id: 'default', label: 'Default' },
               { id: 'codex:gpt-5.4', label: 'GPT-5.4' },

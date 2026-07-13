@@ -1510,13 +1510,23 @@ describe('createServer', () => {
           return [{
             id: 'codex',
             label: 'Codex',
+            supported: true,
+            authState: 'ok',
+            models: [{ id: 'default', label: 'Default' }],
+          }, {
+            id: 'claude-code',
+            label: 'Claude Code',
+            supported: false,
+            authState: 'missing',
             models: [{ id: 'default', label: 'Default' }],
           }];
         },
       }),
     );
 
-    expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200);
+    const dashboardResponse = await fetch(`http://127.0.0.1:${port}/`);
+    expect(dashboardResponse.status).toBe(200);
+    expect(await dashboardResponse.text()).toContain('"supported":false');
     expect((await fetch(`http://127.0.0.1:${port}/index.html`)).status).toBe(200);
     expect(detectContexts).toHaveLength(2);
     expect(detectContexts[0]?.refresh).not.toBe(true);

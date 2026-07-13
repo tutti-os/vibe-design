@@ -24,8 +24,8 @@ import type { ProjectEditorInitialData } from './project-editor-data';
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const TEST_AGENT_MODEL_CATALOG = [
-  { agentId: 'codex', label: 'Codex', models: [{ id: 'default', label: 'Default (CLI config)' }] },
-  { agentId: 'claude-code', label: 'Claude Code', models: [{ id: 'default', label: 'Default' }] },
+  { agentId: 'codex', label: 'Codex', supported: true, models: [{ id: 'default', label: 'Default (CLI config)' }] },
+  { agentId: 'claude-code', label: 'Claude Code', supported: true, models: [{ id: 'default', label: 'Default' }] },
 ];
 
 function createVibeDesignFlow(options: VibeDesignFlowOptions = {}) {
@@ -1827,11 +1827,13 @@ describe('VibeDesignApp', () => {
             {
               id: 'codex',
               label: 'Codex',
+              supported: true,
               models: [{ id: 'default', label: 'Default' }],
             },
             {
               id: 'claude-code',
               label: 'Claude Code',
+              supported: true,
               models: [
                 { id: 'default', label: 'Default' },
                 {
@@ -2089,6 +2091,7 @@ describe('VibeDesignApp', () => {
           agents: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
             id: entry.agentId,
             label: entry.label,
+            supported: entry.supported,
             models: entry.models,
           })),
         });
@@ -2536,6 +2539,7 @@ describe('VibeDesignApp', () => {
           agents: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
             id: entry.agentId,
             label: entry.label,
+            supported: entry.supported,
             models: entry.models,
           })),
         });

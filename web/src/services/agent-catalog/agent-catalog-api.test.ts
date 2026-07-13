@@ -42,4 +42,14 @@ describe('agent catalog API', () => {
       models: [{ id: 'default', label: 'Default', description: 'CLI default' }],
     }]);
   });
+
+  it('rejects catalog entries without an explicit support state', () => {
+    expect(readAgentModelCatalog({
+      agents: [{
+        id: 'opencode',
+        label: 'OpenCode',
+        models: [],
+      }],
+    })).toEqual([]);
+  });
 });
