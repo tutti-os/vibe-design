@@ -17,9 +17,9 @@ import type { CanvasCommentAttachment } from '../types';
 Element.prototype.scrollIntoView = vi.fn();
 
 const TEST_AGENT_AVAILABILITY = [
-  { id: 'codex', label: 'Codex', available: true },
-  { id: 'claude-code', label: 'Claude Code', available: true },
-];
+  { id: 'codex', label: 'Codex', supported: true, authState: 'ok' },
+  { id: 'claude-code', label: 'Claude Code', supported: true, authState: 'ok' },
+] satisfies NonNullable<React.ComponentProps<typeof ChatComposerBase>['agentAvailability']>;
 
 const TEST_AGENT_MODEL_CATALOG = [
   { agentId: 'codex', label: 'Codex', models: [] },
@@ -172,8 +172,8 @@ describe('ChatComposer', () => {
       <ChatComposer
         streaming={false}
         agentAvailability={[
-          { id: 'codex', label: 'Codex', available: true },
-          { id: 'tutti-agent', label: 'Tutti Agent', available: true },
+          { id: 'codex', label: 'Codex', supported: true, authState: 'ok' },
+          { id: 'tutti-agent', label: 'Tutti Agent', supported: true, authState: 'ok' },
         ]}
         agentModelCatalog={[
           { agentId: 'codex', label: 'Codex', models: [{ id: 'default', label: 'Default' }] },
@@ -203,7 +203,7 @@ describe('ChatComposer', () => {
       <ChatComposer
         streaming={false}
         draft="Use hidden provider"
-        agentAvailability={[{ id: 'codex', label: 'Codex', available: true }]}
+        agentAvailability={[{ id: 'codex', label: 'Codex', supported: true, authState: 'ok' }]}
         agentModelCatalog={[]}
         context={{
           search: async () => ({ items: [] }),
@@ -485,8 +485,8 @@ describe('ChatComposer', () => {
       <ChatComposer
         streaming={false}
         agentAvailability={[
-          { id: 'codex', label: 'Codex', available: true },
-          { id: 'claude-code', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not installed.' },
+          { id: 'codex', label: 'Codex', supported: true, authState: 'ok' },
+          { id: 'claude-code', label: 'Claude Code', supported: false, authState: 'unknown', unavailableReason: 'Claude Code is not installed.' },
         ]}
         context={{
           search: async () => ({ items: [] }),
@@ -530,8 +530,8 @@ describe('ChatComposer', () => {
       <ChatComposer
         streaming={false}
         agentAvailability={[
-          { id: 'codex', label: 'Codex', available: true },
-          { id: 'claude-code', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not installed.' },
+          { id: 'codex', label: 'Codex', supported: true, authState: 'ok' },
+          { id: 'claude-code', label: 'Claude Code', supported: false, authState: 'unknown', unavailableReason: 'Claude Code is not installed.' },
         ]}
         context={{
           search: async () => ({ items: [] }),
@@ -571,13 +571,12 @@ describe('ChatComposer', () => {
       <ChatComposer
         streaming={false}
         agentAvailability={[
-          { id: 'codex', label: 'Codex', available: true },
+          { id: 'codex', label: 'Codex', supported: true, authState: 'ok' },
           {
             id: 'claude-code',
             label: 'Claude Code',
-            available: false,
+            supported: false,
             authState: 'missing',
-            supported: true,
             unavailableReason: 'Claude Code is not authenticated for this app.',
           },
         ]}

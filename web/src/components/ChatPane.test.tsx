@@ -24,9 +24,9 @@ const transformWrapperProps = vi.hoisted(() => ({
 }));
 
 const TEST_AGENT_AVAILABILITY = [
-  { id: 'codex', label: 'Codex', available: true },
-  { id: 'claude-code', label: 'Claude Code', available: true },
-];
+  { id: 'codex', label: 'Codex', supported: true, authState: 'ok' },
+  { id: 'claude-code', label: 'Claude Code', supported: true, authState: 'ok' },
+] satisfies NonNullable<React.ComponentProps<typeof ChatPaneBase>['agentAvailability']>;
 
 const TEST_AGENT_MODEL_CATALOG = [
   { agentId: 'codex', label: 'Codex', models: [] },
@@ -612,8 +612,8 @@ describe('ChatPane', () => {
         contextSearch={async () => ({ items: [] })}
         contextSelect={vi.fn()}
         agentAvailability={[
-          { id: 'codex', label: 'Codex', available: true },
-          { id: 'claude-code', label: 'Claude Code', available: true },
+          { id: 'codex', label: 'Codex', supported: true, authState: 'ok' },
+          { id: 'claude-code', label: 'Claude Code', supported: true, authState: 'ok' },
         ]}
         onSend={vi.fn()}
         onStop={vi.fn()}

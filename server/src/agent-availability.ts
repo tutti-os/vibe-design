@@ -1,35 +1,20 @@
-import type { DetectContext } from '@tutti-os/agent-acp-kit';
-import { resolveTuttiAgentProviderCatalog } from '@tutti-os/agent-acp-kit/tutti';
-import { localAgentRuntime } from './local-agent-runtime.js';
+import type { AgentProviderSnapshot } from './agent-provider-snapshot.js';
 
 export interface AgentAvailability {
   id: string;
   label: string;
-  available: boolean;
-  authState?: 'ok' | 'missing' | 'expired' | 'unknown';
-  supported?: boolean;
+  supported: boolean;
+  authState: 'ok' | 'missing' | 'expired' | 'unknown';
   unavailableReason?: string;
-  version?: string;
 }
 
-export type DetectAgentAvailability = (context?: DetectContext) => Promise<AgentAvailability[]>;
-
-export async function detectLocalAgentAvailability(context?: DetectContext): Promise<AgentAvailability[]> {
-  const catalog = await resolveTuttiAgentProviderCatalog({
-    runtime: localAgentRuntime,
-    detectContext: context,
-    cwd: process.env.TUTTI_WORKSPACE_ROOT?.trim() || undefined,
-    includeComposerModels: false,
-  });
-
-  return catalog.providers.map((entry) => ({
-    id: entry.provider,
-    label: entry.displayName,
-    available: entry.available && entry.authState !== 'missing' && entry.authState !== 'expired',
+export function projectAgentAvailability(providers: readonly AgentProviderSnapshot[]): AgentAvailability[] {
+  return providers.map((entry) => ({
+    id: entry.id,
+    label: entry.label,
+    supported: entry.supported,
     authState: entry.authState,
-    supported: !/not supported/i.test(entry.reason ?? ''),
     ...(entry.reason ? { unavailableReason: entry.reason } : {}),
-    version: entry.version,
   }));
 }
 
@@ -42,11 +27,12 @@ export function findUnavailableAgent(
     return {
       id: agentId,
       label: agentId,
-      available: false,
+      supported: false,
+      authState: 'unknown',
       unavailableReason: `${agentId} is not available from Tutti.`,
     };
   }
-  return agent.available ? null : agent;
+  return agent.supported ? null : agent;
 }
 
 /** Default provider when callers omit an explicit agent id. */
@@ -69,7 +55,7 @@ function findFallbackAgent(
       ? 'codex'
       : null;
   return fallbackProvider
-    ? agents.find((candidate) => candidate.id === fallbackProvider && candidate.available) ?? null
+    ? agents.find((candidate) => candidate.id === fallbackProvider && candidate.supported) ?? null
     : null;
 }
 
@@ -82,7 +68,7 @@ export function resolvePreSessionFallback(
   requestedProvider: string,
 ): AgentFallback | null {
   const requested = agents.find((candidate) => candidate.id === requestedProvider) ?? null;
-  if (!requested || requested.available) {
+  if (!requested || requested.supported) {
     return null;
   }
 

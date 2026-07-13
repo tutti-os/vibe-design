@@ -2537,7 +2537,8 @@ describe('VibeDesignApp', () => {
           agentAvailability: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
             id: entry.agentId,
             label: entry.label,
-            available: true,
+            supported: true,
+            authState: 'ok',
           })),
         });
       }
@@ -2552,7 +2553,8 @@ describe('VibeDesignApp', () => {
         agentAvailability: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
           id: entry.agentId,
           label: entry.label,
-          available: true,
+          supported: true,
+          authState: 'ok',
         })),
         conversations: [{ id: 'conversation-1', title: 'Project', createdAt: 1, updatedAt: 1 }],
         activeConversationId: 'conversation-1',

@@ -4,11 +4,9 @@ import type { ChatConversationSummary, ChatTimelineMessage } from './services/ch
 export interface ProjectEditorAgentAvailability {
   id: string;
   label: string;
-  available: boolean;
-  authState?: 'ok' | 'missing' | 'expired' | 'unknown';
-  supported?: boolean;
+  supported: boolean;
+  authState: 'ok' | 'missing' | 'expired' | 'unknown';
   unavailableReason?: string;
-  version?: string;
 }
 
 export interface ProjectEditorInitialProject {

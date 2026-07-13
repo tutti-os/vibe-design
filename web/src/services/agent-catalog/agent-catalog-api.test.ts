@@ -14,8 +14,7 @@ describe('agent catalog API', () => {
       agentAvailability: [{
         id: 'cursor',
         label: 'Cursor',
-        available: false,
-        supported: true,
+        supported: false,
         authState: 'missing',
       }],
     }), { status: 200 })));
@@ -23,8 +22,7 @@ describe('agent catalog API', () => {
     await expect(fetchAgentAvailability()).resolves.toEqual([{
       id: 'cursor',
       label: 'Cursor',
-      available: false,
-      supported: true,
+      supported: false,
       authState: 'missing',
     }]);
   });
