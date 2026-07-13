@@ -14,8 +14,7 @@ describe('agent catalog API', () => {
       agentAvailability: [{
         id: 'cursor',
         label: 'Cursor',
-        available: false,
-        supported: true,
+        supported: false,
         authState: 'missing',
       }],
     }), { status: 200 })));
@@ -23,8 +22,7 @@ describe('agent catalog API', () => {
     await expect(fetchAgentAvailability()).resolves.toEqual([{
       id: 'cursor',
       label: 'Cursor',
-      available: false,
-      supported: true,
+      supported: false,
       authState: 'missing',
     }]);
   });
@@ -34,12 +32,24 @@ describe('agent catalog API', () => {
       agents: [{
         id: 'opencode',
         label: 'OpenCode',
+        supported: false,
         models: [{ id: 'default', label: 'Default', description: 'CLI default' }],
       }],
     })).toEqual([{
       agentId: 'opencode',
       label: 'OpenCode',
+      supported: false,
       models: [{ id: 'default', label: 'Default', description: 'CLI default' }],
     }]);
+  });
+
+  it('rejects catalog entries without an explicit support state', () => {
+    expect(readAgentModelCatalog({
+      agents: [{
+        id: 'opencode',
+        label: 'OpenCode',
+        models: [],
+      }],
+    })).toEqual([]);
   });
 });

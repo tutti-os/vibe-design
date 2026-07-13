@@ -22,20 +22,22 @@ import { renderPage } from '@vibe-design/web/render-page';
 import { DEFAULT_AGENT_ID } from './agents.js';
 import {
   agentDetectionFailureReason,
-  detectLocalAgentAvailability,
   findUnavailableAgent,
   PRIMARY_AGENT_ID,
+  projectAgentAvailability,
   resolvePreSessionFallback,
   resolveRunFailureFallback,
   type AgentAvailability,
   type AgentFallback,
-  type DetectAgentAvailability,
 } from './agent-availability.js';
 import {
-  detectLocalAgentModelCatalog,
-  type AgentModelCatalogEntry,
-  type DetectAgentModelCatalog,
+  projectAgentModelCatalog,
 } from './agent-model-catalog.js';
+import {
+  createAgentProviderSnapshotDetector,
+  detectLocalAgentProviders,
+  type DetectAgentProviders,
+} from './agent-provider-snapshot.js';
 import { createSseErrorPayload, createSseResponse } from './http/sse.js';
 import { startAgentRun, type StartAgentRunInput } from './agent-launcher.js';
 import { materializeProjectArtifactsFromEvents } from './artifact-materializer.js';
@@ -97,8 +99,7 @@ export interface CreateServerOptions {
   userDesignSystemsRoot?: string;
   builtInDesignSystemsRoot?: string;
   startAgentRun?: (input: StartAgentRunInput) => Promise<void> | void;
-  detectAgentAvailability?: DetectAgentAvailability;
-  detectAgentModelCatalog?: DetectAgentModelCatalog;
+  detectAgentProviders?: DetectAgentProviders;
   installClaudeCode?: () => Promise<void>;
   openApp?: (input: CliOpenAppInput) => Promise<void> | void;
 }
@@ -147,10 +148,15 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   const userDataDir = process.env.TUTTI_APP_DATA_DIR ?? runtimeDir;
   const projectsDir = join(runtimeDir, 'projects');
   const runsLogDir = join(runtimeDir, 'runs');
-  const detectAgentAvailability = options.detectAgentAvailability ?? detectLocalAgentAvailability;
-  const detectAgentModelCatalog = options.detectAgentModelCatalog ?? detectLocalAgentModelCatalog;
-  const cachedAgentAvailability = createCachedAgentAvailabilityDetector(detectAgentAvailability);
-  const cachedAgentModelCatalog = createCachedAgentModelCatalogDetector(detectAgentModelCatalog);
+  const providerSnapshots = createAgentProviderSnapshotDetector(
+    options.detectAgentProviders ?? detectLocalAgentProviders,
+  );
+  const detectAgentAvailability = async (context?: DetectContext): Promise<AgentAvailability[]> => (
+    projectAgentAvailability(await providerSnapshots.detect(context))
+  );
+  const detectAgentModelCatalog = async (context?: DetectContext) => (
+    projectAgentModelCatalog(await providerSnapshots.detect(context))
+  );
   const installClaudeCode = options.installClaudeCode ?? (async () => {
     const result = await installAgentProvider('claude-code');
     if (result.status === 'failed') {
@@ -522,7 +528,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     // Pre-session fallback: if we can already tell the requested provider (codex) is unavailable
     // and Claude Code is ready, switch before creating the run instead of failing the call.
     let fallback = resolvePreSessionFallback(
-      await cachedAgentAvailability.detect(detectContext),
+      await detectAgentAvailability(detectContext).catch(() => []),
       requestedProvider,
     );
 
@@ -578,7 +584,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     // conversation, since the original conversation is now locked to codex.
     if (!fallback && first.value.status === 'failed') {
       const inSession = resolveRunFailureFallback(
-        await cachedAgentAvailability.detect(detectContext),
+        await detectAgentAvailability(detectContext).catch(() => []),
         first.value.provider ?? requestedProvider,
         { errorCode: first.value.errorCode, error: first.value.error },
       );
@@ -918,14 +924,12 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
 
   app.get('/api/agents/models', async (req: Request, res: Response): Promise<void> => {
     const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
-    const modelCatalog = await cachedAgentModelCatalog.detect(
-      { ...detectContext, refresh: true },
-      { refresh: true },
-    );
+    const modelCatalog = await detectAgentModelCatalog({ ...detectContext, refresh: true }).catch(() => []);
     res.json({
       agents: modelCatalog.map((agent) => ({
         id: agent.id,
         label: agent.label,
+        supported: agent.supported,
         models: agent.models.map((model) => ({
           id: model.id,
           label: model.label,
@@ -938,18 +942,15 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   app.get('/api/agents/availability', async (req: Request, res: Response): Promise<void> => {
     const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
     res.json({
-      agentAvailability: await cachedAgentAvailability.detect(
-        { ...detectContext, refresh: true },
-        { refresh: true },
-      ),
+      agentAvailability: await detectAgentAvailability({ ...detectContext, refresh: true }).catch(() => []),
     });
   });
 
   app.post('/api/agents/claude/install', async (req: Request, res: Response): Promise<void> => {
     const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
-    const currentAvailability = await cachedAgentAvailability.detect(detectContext);
+    const currentAvailability = await detectAgentAvailability(detectContext).catch(() => []);
     const currentClaude = currentAvailability.find((agent) => agent.id === 'claude-code');
-    if (currentClaude?.available) {
+    if (currentClaude?.supported) {
       res.status(200).json({ agentAvailability: currentAvailability });
       return;
     }
@@ -967,10 +968,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     }
 
     res.status(200).json({
-      agentAvailability: await cachedAgentAvailability.detect(
-        { ...detectContext, refresh: true },
-        { refresh: true },
-      ),
+      agentAvailability: await detectAgentAvailability({ ...detectContext, refresh: true }).catch(() => []),
     });
   });
 
@@ -1057,8 +1055,13 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   app.get(['/', '/index.html'], async (req: Request, res: Response) => {
     const recentProjects = await listProjectSummaries(projectsDir, 20);
     const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
-    const agentModelCatalog = (await cachedAgentModelCatalog.detect(detectContext))
-      .map((entry) => ({ agentId: entry.id, label: entry.label, models: entry.models }));
+    const agentModelCatalog = (await detectAgentModelCatalog(detectContext).catch(() => []))
+      .map((entry) => ({
+        agentId: entry.id,
+        label: entry.label,
+        supported: entry.supported,
+        models: entry.models,
+      }));
     sendNoStore(res);
     res.type('html').send(renderPage({ route: { kind: 'dashboard' }, recentProjects, agentModelCatalog }));
   });
@@ -1074,9 +1077,9 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const projectEditor = await createProjectEditorInitialData(
       projectsDir,
       project,
-      await cachedAgentAvailability.detect(
+      await detectAgentAvailability(
         createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir }),
-      ),
+      ).catch(() => []),
       runs,
     );
     sendNoStore(res);
@@ -1165,102 +1168,6 @@ async function createProjectEditorInitialData(
     messages: (messages ?? []).map((message) => messageForClient(message, runs)),
     agentAvailability,
   };
-}
-
-interface CachedAgentDetectOptions {
-  refresh?: boolean;
-}
-
-function createCachedAgentAvailabilityDetector(detectAgentAvailability: DetectAgentAvailability): {
-  detect: (context?: DetectContext, options?: CachedAgentDetectOptions) => Promise<AgentAvailability[]>;
-} {
-  let cached: AgentAvailability[] | null = null;
-  let inFlight: Promise<AgentAvailability[]> | null = null;
-
-  return {
-    async detect(context?: DetectContext, options: CachedAgentDetectOptions = {}): Promise<AgentAvailability[]> {
-      const isManagedRequest = Boolean(context?.managedAgentInvocation);
-      if (isManagedRequest) {
-        return detectAgentAvailability(context).catch(() => []);
-      }
-
-      if (!options.refresh) {
-        if (cached) return cached;
-        if (inFlight) return inFlight;
-      }
-
-      const detection = detectAgentAvailability(context)
-        .then((next) => {
-          if (hasTransientAvailabilityFailure(next)) {
-            return cached ?? next;
-          }
-          cached = next;
-          return next;
-        })
-        .catch(() => cached ?? [])
-        .finally(() => {
-          if (inFlight === detection) {
-            inFlight = null;
-          }
-        });
-
-      if (!options.refresh) {
-        inFlight = detection;
-      }
-      return detection;
-    },
-  };
-}
-
-function createCachedAgentModelCatalogDetector(detectAgentModelCatalog: DetectAgentModelCatalog): {
-  detect: (context?: DetectContext, options?: CachedAgentDetectOptions) => Promise<AgentModelCatalogEntry[]>;
-} {
-  let cached: AgentModelCatalogEntry[] | null = null;
-  let inFlight: Promise<AgentModelCatalogEntry[]> | null = null;
-
-  return {
-    async detect(context?: DetectContext, options: CachedAgentDetectOptions = {}): Promise<AgentModelCatalogEntry[]> {
-      const isManagedRequest = Boolean(context?.managedAgentInvocation);
-      if (isManagedRequest) {
-        return detectAgentModelCatalog(context).catch(() => []);
-      }
-
-      if (!options.refresh && cached) return cached;
-      if (!options.refresh && inFlight) return inFlight;
-
-      const detection = detectAgentModelCatalog(context)
-        .then((next) => {
-          cached = next;
-          return next;
-        })
-        .catch(() => [])
-        .finally(() => {
-          if (inFlight === detection) {
-            inFlight = null;
-          }
-        });
-
-      if (!options.refresh) inFlight = detection;
-      return detection;
-    },
-  };
-}
-
-function hasTransientAvailabilityFailure(agentAvailability: AgentAvailability[]): boolean {
-  return agentAvailability.some((agent) => {
-    if (agent.available) return false;
-    const reason = agent.unavailableReason?.toLowerCase() ?? '';
-    return [
-      'context canceled',
-      'context cancelled',
-      'signal: killed',
-      'request aborted',
-      'operation aborted',
-      'econnreset',
-      'socket hang up',
-      'connection reset',
-    ].some((needle) => reason.includes(needle));
-  });
 }
 
 function conversationSummaryForClient(conversation: {

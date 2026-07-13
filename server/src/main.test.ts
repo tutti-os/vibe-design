@@ -33,16 +33,16 @@ type TestCreateServer = (options?: {
   runtimeDir?: string;
   builtInDesignSystemsRoot?: string;
   userDesignSystemsRoot?: string;
-  detectAgentAvailability?: (context?: DetectContext) => Promise<Array<{
+  detectAgentProviders?: (context?: DetectContext) => Promise<Array<{
     id: string;
     label: string;
-    available: boolean;
+    supported?: boolean;
+    authState?: 'ok' | 'missing' | 'expired' | 'unknown';
     unavailableReason?: string;
-  }>>;
-  detectAgentModelCatalog?: (context?: DetectContext) => Promise<Array<{
-    id: string;
-    label: string;
-    models: Array<{ id: string; label: string; description?: string }>;
+    reason?: string;
+    models?: Array<{ id: string; label: string; description?: string }>;
+    defaultModelId?: string;
+    isDefault?: true;
   }>>;
   installClaudeCode?: () => Promise<void>;
   openApp?: (input: { detectContext?: DetectContext; route: string; projectId?: string }) => Promise<void> | void;
@@ -56,13 +56,26 @@ type TestCreateServer = (options?: {
 }) => Server;
 
 function createTestServer(options?: Parameters<TestCreateServer>[0]): Server {
-  return (createServer as TestCreateServer)({
-    detectAgentAvailability: async () => [
-      { id: 'codex', label: 'Codex', available: true },
-      { id: 'claude', label: 'Claude Code', available: true },
-    ],
+  const defaultDetectAgentProviders: NonNullable<Parameters<TestCreateServer>[0]>['detectAgentProviders'] = async () => [
+    { id: 'codex', label: 'Codex', supported: true },
+    { id: 'claude', label: 'Claude Code', supported: true },
+  ];
+  const detectAgentProviders = options?.detectAgentProviders ?? defaultDetectAgentProviders;
+  return createServer({
     startAgentRun: () => {},
     ...options,
+    detectAgentProviders: async (context) => (await detectAgentProviders(context)).map((provider) => ({
+      id: provider.id,
+      label: provider.label,
+      supported: provider.supported ?? true,
+      authState: provider.authState ?? (provider.supported === false ? 'unknown' : 'ok'),
+      models: provider.models ?? [],
+      ...(provider.defaultModelId ? { defaultModelId: provider.defaultModelId } : {}),
+      ...(provider.isDefault ? { isDefault: true as const } : {}),
+      ...(provider.reason || provider.unavailableReason
+        ? { reason: provider.reason ?? provider.unavailableReason }
+        : {}),
+    })),
   });
 }
 
@@ -330,9 +343,9 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: runtimeRoot,
-        detectAgentAvailability: async () => [
-          { id: 'codex', label: 'Codex', available: true },
-          { id: 'claude', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not installed.' },
+        detectAgentProviders: async () => [
+          { id: 'codex', label: 'Codex', supported: true },
+          { id: 'claude', label: 'Claude Code', supported: false, unavailableReason: 'Claude Code is not installed.' },
         ],
       }),
     );
@@ -344,8 +357,8 @@ describe('createServer', () => {
     expect(readInitialDataFromHtml(html)).toMatchObject({
       projectEditor: {
         agentAvailability: [
-          { id: 'codex', label: 'Codex', available: true },
-          { id: 'claude', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not installed.' },
+          { id: 'codex', label: 'Codex', supported: true },
+          { id: 'claude', label: 'Claude Code', supported: false, unavailableReason: 'Claude Code is not installed.' },
         ],
       },
     });
@@ -369,11 +382,11 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: runtimeRoot,
-        detectAgentAvailability: async (context) => {
+        detectAgentProviders: async (context) => {
           observedContexts.push(context);
           return [
-            { id: 'codex', label: 'Codex', available: true },
-            { id: 'claude', label: 'Claude Code', available: true },
+            { id: 'codex', label: 'Codex', supported: true },
+            { id: 'claude', label: 'Claude Code', supported: true },
           ];
         },
       }),
@@ -412,22 +425,22 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: runtimeRoot,
-        detectAgentAvailability: async () => {
+        detectAgentProviders: async () => {
           detectCalls += 1;
           if (detectCalls > 1) {
             return [
               {
                 id: 'codex',
                 label: 'Codex',
-                available: false,
+                supported: false,
                 unavailableReason: 'Unable to run codex --version: context canceled',
               },
-              { id: 'claude', label: 'Claude Code', available: true },
+              { id: 'claude', label: 'Claude Code', supported: true },
             ];
           }
           return [
-            { id: 'codex', label: 'Codex', available: true },
-            { id: 'claude', label: 'Claude Code', available: true },
+            { id: 'codex', label: 'Codex', supported: true },
+            { id: 'claude', label: 'Claude Code', supported: true },
           ];
         },
       }),
@@ -449,10 +462,10 @@ describe('createServer', () => {
           {
             id: 'codex',
             label: 'Codex',
-            available: false,
+            supported: false,
             unavailableReason: 'Unable to run codex --version: context canceled',
           },
-          { id: 'claude', label: 'Claude Code', available: true },
+          { id: 'claude', label: 'Claude Code', supported: true },
         ],
       },
     });
@@ -462,7 +475,7 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: await createRuntimeDir(),
-        detectAgentModelCatalog: async () => [
+        detectAgentProviders: async () => [
           {
             id: 'claude',
             label: 'Claude Code',
@@ -491,6 +504,7 @@ describe('createServer', () => {
         {
           id: 'claude',
           label: 'Claude Code',
+          supported: true,
           models: [
             { id: 'default', label: 'Default (recommended)' },
             { id: 'opus[1m]', label: 'Opus 4.7 (1M context)', description: 'Detected by Claude.' },
@@ -499,6 +513,7 @@ describe('createServer', () => {
         {
           id: 'codex',
           label: 'Codex',
+          supported: true,
           models: [
             { id: 'default', label: 'Default (CLI config)' },
             { id: 'gpt-5.5', label: 'GPT-5.5', description: 'Detected by Codex.' },
@@ -508,13 +523,63 @@ describe('createServer', () => {
     });
   });
 
+  it('coalesces concurrent model and availability refreshes into one provider detection', async () => {
+    let resolveDetection!: (providers: Array<{
+      id: string;
+      label: string;
+      supported: boolean;
+      authState: 'ok';
+      models: Array<{ id: string; label: string }>;
+    }>) => void;
+    const detection = new Promise<Parameters<typeof resolveDetection>[0]>((resolve) => {
+      resolveDetection = resolve;
+    });
+    let detectCalls = 0;
+    let resolveBothRequests!: () => void;
+    const bothRequests = new Promise<void>((resolve) => {
+      resolveBothRequests = resolve;
+    });
+    let observedRequestCount = 0;
+    const candidate = createTestServer({
+      runtimeDir: await createRuntimeDir(),
+      detectAgentProviders: async () => {
+        detectCalls += 1;
+        return detection;
+      },
+    });
+    candidate.on('request', (request) => {
+      if (request.url === '/api/agents/models' || request.url === '/api/agents/availability') {
+        observedRequestCount += 1;
+        if (observedRequestCount === 2) resolveBothRequests();
+      }
+    });
+    const port = await listenOnRandomPort(candidate);
+
+    const modelsResponse = fetch(`http://127.0.0.1:${port}/api/agents/models`);
+    const availabilityResponse = fetch(`http://127.0.0.1:${port}/api/agents/availability`);
+    await bothRequests;
+
+    expect(detectCalls).toBe(1);
+    resolveDetection([{
+      id: 'codex',
+      label: 'Codex',
+      supported: true,
+      authState: 'ok',
+      models: [{ id: 'default', label: 'Default' }],
+    }]);
+
+    expect((await modelsResponse).status).toBe(200);
+    expect((await availabilityResponse).status).toBe(200);
+    expect(detectCalls).toBe(1);
+  });
+
   it('passes an explicit managed agent credential header to model catalog detection without leaking it', async () => {
     const observedContexts: Array<DetectContext | undefined> = [];
     const runtimeRoot = await createRuntimeDir();
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: runtimeRoot,
-        detectAgentModelCatalog: async (context) => {
+        detectAgentProviders: async (context) => {
           observedContexts.push(context);
           return [
             {
@@ -546,7 +611,7 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: await createRuntimeDir(),
-        detectAgentModelCatalog: async () => {
+        detectAgentProviders: async () => {
           detectCalls += 1;
           return [
             {
@@ -660,17 +725,17 @@ describe('createServer', () => {
         installClaudeCode: async () => {
           installCalls.push('claude');
         },
-        detectAgentAvailability: async (context) => {
+        detectAgentProviders: async (context) => {
           detectContexts.push(context);
           detectCalls += 1;
           return detectCalls === 1
             ? [
-                { id: 'codex', label: 'Codex', available: true },
-                { id: 'claude-code', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not installed.' },
+                { id: 'codex', label: 'Codex', supported: true },
+                { id: 'claude-code', label: 'Claude Code', supported: false, unavailableReason: 'Claude Code is not installed.' },
               ]
             : [
-                { id: 'codex', label: 'Codex', available: true },
-                { id: 'claude-code', label: 'Claude Code', available: true },
+                { id: 'codex', label: 'Codex', supported: true },
+                { id: 'claude-code', label: 'Claude Code', supported: true },
               ];
         },
       }),
@@ -685,8 +750,8 @@ describe('createServer', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       agentAvailability: [
-        { id: 'codex', label: 'Codex', available: true },
-        { id: 'claude-code', label: 'Claude Code', available: true },
+        { id: 'codex', label: 'Codex', supported: true },
+        { id: 'claude-code', label: 'Claude Code', supported: true },
       ],
     });
     expect(installCalls).toEqual(['claude']);
@@ -1028,11 +1093,11 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: testRuntimeDir,
-        detectAgentAvailability: async (context) => {
+        detectAgentProviders: async (context) => {
           observedContexts.push(context);
           return [
-            { id: 'codex', label: 'Codex', available: true },
-            { id: 'claude', label: 'Claude Code', available: true },
+            { id: 'codex', label: 'Codex', supported: true },
+            { id: 'claude', label: 'Claude Code', supported: true },
           ];
         },
         startAgentRun: async ({ run, runs, detectContext, managedAgentRunContext }) => {
@@ -1099,8 +1164,8 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: await createRuntimeDir(),
-        detectAgentAvailability: async () => [
-          { id: 'gemini', label: 'Gemini', available: true },
+        detectAgentProviders: async () => [
+          { id: 'gemini', label: 'Gemini', supported: true },
         ],
         startAgentRun: ({ runs, run, detectContext, managedAgentRunContext: runContext }) => {
           startedContext = detectContext;
@@ -1260,9 +1325,9 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: await createRuntimeDir(),
-        detectAgentAvailability: async () => [
-          { id: 'codex', label: 'Codex', available: false, unavailableReason: 'Codex is not authenticated.' },
-          { id: 'claude-code', label: 'Claude Code', available: true },
+        detectAgentProviders: async () => [
+          { id: 'codex', label: 'Codex', supported: false, unavailableReason: 'Codex is not authenticated.' },
+          { id: 'claude-code', label: 'Claude Code', supported: true },
         ],
         startAgentRun: ({ run, runs, request }) => {
           startedAgents.push((request.agentId as string | undefined) ?? null);
@@ -1298,9 +1363,9 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: await createRuntimeDir(),
-        detectAgentAvailability: async () => [
-          { id: 'codex', label: 'Codex', available: true },
-          { id: 'claude-code', label: 'Claude Code', available: true },
+        detectAgentProviders: async () => [
+          { id: 'codex', label: 'Codex', supported: true },
+          { id: 'claude-code', label: 'Claude Code', supported: true },
         ],
         startAgentRun: ({ run, runs, request }) => {
           const agentId = (request.agentId as string | undefined) ?? null;
@@ -1344,9 +1409,9 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: await createRuntimeDir(),
-        detectAgentAvailability: async () => [
-          { id: 'codex', label: 'Codex', available: true },
-          { id: 'claude-code', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not installed.' },
+        detectAgentProviders: async () => [
+          { id: 'codex', label: 'Codex', supported: true },
+          { id: 'claude-code', label: 'Claude Code', supported: false, unavailableReason: 'Claude Code is not installed.' },
         ],
         startAgentRun: ({ run, runs, request }) => {
           startedAgents.push((request.agentId as string | undefined) ?? null);
@@ -1378,9 +1443,9 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: await createRuntimeDir(),
-        detectAgentAvailability: async () => [
-          { id: 'codex', label: 'Codex', available: true },
-          { id: 'claude', label: 'Claude Code', available: true },
+        detectAgentProviders: async () => [
+          { id: 'codex', label: 'Codex', supported: true },
+          { id: 'claude', label: 'Claude Code', supported: true },
         ],
         startAgentRun: ({ run, runs, request }) => {
           startedAgents.push((request.agentId as string | undefined) ?? null);
@@ -1435,30 +1500,41 @@ describe('createServer', () => {
     expect(html).toContain('What will you prototype today?');
   });
 
-  it('reuses dashboard model detection while the models API explicitly refreshes it', async () => {
+  it('relies on runtime caching for dashboard detection and explicitly refreshes the models API', async () => {
     const detectContexts: Array<DetectContext | undefined> = [];
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: await createRuntimeDir(),
-        detectAgentModelCatalog: async (context) => {
+        detectAgentProviders: async (context) => {
           detectContexts.push(context);
           return [{
             id: 'codex',
             label: 'Codex',
+            supported: true,
+            authState: 'ok',
+            models: [{ id: 'default', label: 'Default' }],
+          }, {
+            id: 'claude-code',
+            label: 'Claude Code',
+            supported: false,
+            authState: 'missing',
             models: [{ id: 'default', label: 'Default' }],
           }];
         },
       }),
     );
 
-    expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(200);
+    const dashboardResponse = await fetch(`http://127.0.0.1:${port}/`);
+    expect(dashboardResponse.status).toBe(200);
+    expect(await dashboardResponse.text()).toContain('"supported":false');
     expect((await fetch(`http://127.0.0.1:${port}/index.html`)).status).toBe(200);
-    expect(detectContexts).toHaveLength(1);
+    expect(detectContexts).toHaveLength(2);
     expect(detectContexts[0]?.refresh).not.toBe(true);
+    expect(detectContexts[1]?.refresh).not.toBe(true);
 
     expect((await fetch(`http://127.0.0.1:${port}/api/agents/models`)).status).toBe(200);
-    expect(detectContexts).toHaveLength(2);
-    expect(detectContexts[1]?.refresh).toBe(true);
+    expect(detectContexts).toHaveLength(3);
+    expect(detectContexts[2]?.refresh).toBe(true);
   });
 
   it('serves the project editor page under /project/:projectId', async () => {
@@ -2115,11 +2191,11 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: runtimeRoot,
-        detectAgentAvailability: async (context) => {
+        detectAgentProviders: async (context) => {
           observedContexts.push(context);
           return [
-            { id: 'codex', label: 'Codex', available: true },
-            { id: 'claude', label: 'Claude Code', available: true },
+            { id: 'codex', label: 'Codex', supported: true },
+            { id: 'claude', label: 'Claude Code', supported: true },
           ];
         },
         startAgentRun: ({ run, request, detectContext, managedAgentRunContext }) => {
@@ -2180,10 +2256,10 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: runtimeRoot,
-        detectAgentAvailability: async (context) => {
+        detectAgentProviders: async (context) => {
           observedContexts.push(context);
           return [
-            { id: 'codex', label: 'Codex', available: true },
+            { id: 'codex', label: 'Codex', supported: true },
           ];
         },
         startAgentRun: ({ run, request, detectContext, managedAgentRunContext }) => {
@@ -2272,10 +2348,10 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: runtimeRoot,
-        detectAgentAvailability: async (context) => {
+        detectAgentProviders: async (context) => {
           observedContexts.push(context);
           return [
-            { id: 'codex', label: 'Codex', available: true },
+            { id: 'codex', label: 'Codex', supported: true },
           ];
         },
         startAgentRun: ({ run, runs, request, detectContext, managedAgentRunContext }) => {
@@ -2380,11 +2456,11 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: await createRuntimeDir(),
-        detectAgentAvailability: async (context) => {
+        detectAgentProviders: async (context) => {
           detectContexts.push(context);
           return [
-          { id: 'codex', label: 'Codex', available: true },
-          { id: 'claude-code', label: 'Claude Code', available: false, unavailableReason: 'Claude Code is not installed.' },
+          { id: 'codex', label: 'Codex', supported: true },
+          { id: 'claude-code', label: 'Claude Code', supported: false, unavailableReason: 'Claude Code is not installed.' },
           ];
         },
         startAgentRun: ({ request }) => {
@@ -2419,7 +2495,7 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: await createRuntimeDir(),
-        detectAgentAvailability: async () => {
+        detectAgentProviders: async () => {
           throw new Error('Tutti provider catalog timed out.');
         },
         startAgentRun: ({ request }) => {
@@ -2457,8 +2533,8 @@ describe('createServer', () => {
     const port = await listenOnRandomPort(
       createTestServer({
         runtimeDir: await createRuntimeDir(),
-        detectAgentAvailability: async () => [
-          { id: 'codex', label: 'Codex', available: true },
+        detectAgentProviders: async () => [
+          { id: 'codex', label: 'Codex', supported: true },
         ],
         startAgentRun: ({ request }) => {
           startedRequests.push(request);

@@ -24,8 +24,8 @@ import type { ProjectEditorInitialData } from './project-editor-data';
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const TEST_AGENT_MODEL_CATALOG = [
-  { agentId: 'codex', label: 'Codex', models: [{ id: 'default', label: 'Default (CLI config)' }] },
-  { agentId: 'claude-code', label: 'Claude Code', models: [{ id: 'default', label: 'Default' }] },
+  { agentId: 'codex', label: 'Codex', supported: true, models: [{ id: 'default', label: 'Default (CLI config)' }] },
+  { agentId: 'claude-code', label: 'Claude Code', supported: true, models: [{ id: 'default', label: 'Default' }] },
 ];
 
 function createVibeDesignFlow(options: VibeDesignFlowOptions = {}) {
@@ -1827,11 +1827,13 @@ describe('VibeDesignApp', () => {
             {
               id: 'codex',
               label: 'Codex',
+              supported: true,
               models: [{ id: 'default', label: 'Default' }],
             },
             {
               id: 'claude-code',
               label: 'Claude Code',
+              supported: true,
               models: [
                 { id: 'default', label: 'Default' },
                 {
@@ -1925,6 +1927,13 @@ describe('VibeDesignApp', () => {
             {
               id: 'tutti-agent',
               label: 'Tutti Agent',
+              supported: true,
+              models: [{ id: 'default', label: 'Default' }],
+            },
+            {
+              id: 'claude-code',
+              label: 'Claude Code',
+              supported: false,
               models: [{ id: 'default', label: 'Default' }],
             },
           ],
@@ -1945,6 +1954,7 @@ describe('VibeDesignApp', () => {
       await waitFor(() => {
         expect(getByLabelText(container, 'Model').textContent).toContain('Tutti Agent');
       });
+      expect(container.textContent).not.toContain('Claude Code');
       expect(fetch).toHaveBeenCalledWith('/api/agents/models');
     } finally {
       cleanup(root, container);
@@ -2081,6 +2091,7 @@ describe('VibeDesignApp', () => {
           agents: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
             id: entry.agentId,
             label: entry.label,
+            supported: entry.supported,
             models: entry.models,
           })),
         });
@@ -2528,6 +2539,7 @@ describe('VibeDesignApp', () => {
           agents: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
             id: entry.agentId,
             label: entry.label,
+            supported: entry.supported,
             models: entry.models,
           })),
         });
@@ -2537,7 +2549,8 @@ describe('VibeDesignApp', () => {
           agentAvailability: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
             id: entry.agentId,
             label: entry.label,
-            available: true,
+            supported: true,
+            authState: 'ok',
           })),
         });
       }
@@ -2552,7 +2565,8 @@ describe('VibeDesignApp', () => {
         agentAvailability: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
           id: entry.agentId,
           label: entry.label,
-          available: true,
+          supported: true,
+          authState: 'ok',
         })),
         conversations: [{ id: 'conversation-1', title: 'Project', createdAt: 1, updatedAt: 1 }],
         activeConversationId: 'conversation-1',

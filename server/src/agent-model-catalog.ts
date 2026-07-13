@@ -1,38 +1,21 @@
-import {
-  createDefaultLocalAgentRuntime,
-  type DetectContext,
-} from '@tutti-os/agent-acp-kit';
-import { resolveTuttiAgentProviderCatalog } from '@tutti-os/agent-acp-kit/tutti';
 import type { ModelSummary } from './agents.js';
+import type { AgentProviderSnapshot } from './agent-provider-snapshot.js';
 
 export interface AgentModelCatalogEntry {
   id: string;
   label: string;
+  supported: boolean;
   models: ModelSummary[];
 }
 
-export type DetectAgentModelCatalog = (context?: DetectContext) => Promise<AgentModelCatalogEntry[]>;
-
-const agentModelRuntime = createDefaultLocalAgentRuntime();
-
-export async function detectLocalAgentModelCatalog(context?: DetectContext): Promise<AgentModelCatalogEntry[]> {
-  const catalog = await resolveTuttiAgentProviderCatalog({
-    runtime: agentModelRuntime,
-    detectContext: context,
-    cwd: process.env.TUTTI_WORKSPACE_ROOT?.trim() || undefined,
-    includeComposerModels: true,
-  });
-
-  return catalog.providers
+export function projectAgentModelCatalog(providers: readonly AgentProviderSnapshot[]): AgentModelCatalogEntry[] {
+  return providers
     .map((entry) => ({
-      id: entry.provider,
-      label: entry.displayName,
+      id: entry.id,
+      label: entry.label,
+      supported: entry.supported,
       models: sanitizeModelOptions(
-        entry.models.map((model) => ({
-          id: model.id,
-          label: model.label,
-          ...(model.description ? { description: model.description } : {}),
-        })),
+        entry.models,
       ),
     }));
 }

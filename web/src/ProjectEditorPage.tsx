@@ -224,7 +224,7 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
     const nextAvailability = await installClaudeCodeAgent();
     setAgentAvailability(nextAvailability);
     const installedAgent = nextAvailability.find((agent) => agent.id === agentId);
-    if (!installedAgent?.available) {
+    if (!installedAgent?.supported) {
       throw new Error(installedAgent?.unavailableReason ?? 'Claude Code installation could not be verified.');
     }
   }, []);

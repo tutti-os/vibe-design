@@ -1,9 +1,8 @@
 export interface AgentAvailability {
   id: string;
   label: string;
-  available: boolean;
-  authState?: 'ok' | 'missing' | 'expired' | 'unknown';
-  supported?: boolean;
+  supported: boolean;
+  authState: 'ok' | 'missing' | 'expired' | 'unknown';
   unavailableReason?: string;
 }
 
@@ -16,5 +15,6 @@ export interface AgentModelOption {
 export interface AgentModelCatalogEntry {
   agentId: string;
   label: string;
+  supported: boolean;
   models: AgentModelOption[];
 }

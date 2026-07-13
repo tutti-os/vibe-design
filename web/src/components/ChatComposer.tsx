@@ -857,16 +857,14 @@ function availabilityForProvider(
 
 function unavailableReasonForAvailability(agent: ChatComposerAgentAvailability | null): string | null {
   if (!agent) return 'This provider is not available from Tutti.';
-  return !agent.available ? agent.unavailableReason ?? `${agent.label} is unavailable.` : null;
+  return !agent.supported ? agent.unavailableReason ?? `${agent.label} is unavailable.` : null;
 }
 
 function canInstallUnavailableAgent(agent: ChatComposerAgentAvailability | null): boolean {
-  if (!agent || agent.available) return false;
-  if (agent.supported === false) return false;
-  if (agent.supported === true) return false;
+  if (!agent || agent.supported) return false;
 
-  return agent.authState === undefined &&
-    /not installed|not available on PATH/i.test(agent.unavailableReason ?? '');
+  return (agent.authState === 'missing' || agent.authState === 'unknown') &&
+    /not installed|not detected|not available on PATH|not found on PATH/i.test(agent.unavailableReason ?? '');
 }
 
 function readSendErrorMessage(error: unknown, fallback: string): string {

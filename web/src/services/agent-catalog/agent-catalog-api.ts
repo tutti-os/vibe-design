@@ -35,7 +35,13 @@ export function readAgentModelCatalog(data: unknown): AgentModelCatalogEntry[] {
   const value = isRecord(data) ? data.agents : null;
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
-    if (!isRecord(item) || !isAgentId(item.id) || typeof item.label !== 'string' || !Array.isArray(item.models)) {
+    if (
+      !isRecord(item)
+      || !isAgentId(item.id)
+      || typeof item.label !== 'string'
+      || typeof item.supported !== 'boolean'
+      || !Array.isArray(item.models)
+    ) {
       return [];
     }
     const models = item.models.flatMap((model) => {
@@ -48,7 +54,12 @@ export function readAgentModelCatalog(data: unknown): AgentModelCatalogEntry[] {
           : {}),
       }];
     });
-    return [{ agentId: item.id, label: item.label, models }];
+    return [{
+      agentId: item.id,
+      label: item.label,
+      supported: item.supported,
+      models,
+    }];
   });
 }
 
@@ -56,13 +67,18 @@ export function readAgentAvailability(data: unknown): AgentAvailability[] {
   const value = isRecord(data) ? data.agentAvailability : null;
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
-    if (!isRecord(item) || typeof item.id !== 'string' || typeof item.label !== 'string') return [];
+    if (
+      !isRecord(item)
+      || typeof item.id !== 'string'
+      || typeof item.label !== 'string'
+      || typeof item.supported !== 'boolean'
+      || !isAgentAuthState(item.authState)
+    ) return [];
     return [{
       id: item.id,
       label: item.label,
-      available: item.available === true,
-      ...(isAgentAuthState(item.authState) ? { authState: item.authState } : {}),
-      ...(typeof item.supported === 'boolean' ? { supported: item.supported } : {}),
+      supported: item.supported,
+      authState: item.authState,
       ...(typeof item.unavailableReason === 'string' ? { unavailableReason: item.unavailableReason } : {}),
     }];
   });
@@ -72,7 +88,7 @@ function isAgentId(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function isAgentAuthState(value: unknown): value is NonNullable<AgentAvailability['authState']> {
+function isAgentAuthState(value: unknown): value is AgentAvailability['authState'] {
   return value === 'ok' || value === 'missing' || value === 'expired' || value === 'unknown';
 }
 
