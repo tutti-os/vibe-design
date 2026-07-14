@@ -71,6 +71,15 @@ function argVal(args, name) {
   return null;
 }
 
+export function readOptionalAgentTargetIdArg(args) {
+  const value = argVal(args, '--agent-id');
+  if (value === null) return undefined;
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error('--agent-id requires a non-empty exact Agent Target id.');
+  }
+  return value.trim();
+}
+
 function countOps(entries) {
   let count = 0;
   for (const entry of entries || []) count += Array.isArray(entry.ops) ? entry.ops.length : 0;
@@ -1230,7 +1239,7 @@ async function main() {
   const result = await commitManualEdits({
     cwd: process.cwd(),
     pageUrl: argVal(args, '--page-url'),
-    agentTargetId: argVal(args, '--agent-id') || undefined,
+    agentTargetId: readOptionalAgentTargetIdArg(args),
     runner: argVal(args, '--runner') || undefined,
     timeoutMs: Number(process.env.IMPECCABLE_LIVE_COPY_AGENT_TIMEOUT_MS || 120000),
   });

@@ -594,6 +594,7 @@ export const en = {
     resizeChatPanel: 'Resize chat panel',
   },
   questionForm: {
+    agentUnavailable: 'This question cannot be answered because its agent is unavailable.',
     answered: 'Answered',
     answersLocked: 'Answers are locked for this turn.',
     answersRecorded: 'Your choices are recorded',

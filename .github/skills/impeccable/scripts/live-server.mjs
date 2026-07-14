@@ -43,6 +43,7 @@ import {
 } from './live-manual-edits-buffer.mjs';
 import { buildManualEditEvidence } from './live-manual-edit-evidence.mjs';
 import { commitManualEdits } from './live-commit-manual-edits.mjs';
+import { chooseCopyEditAgent } from './live-copy-edit-agent.mjs';
 import {
   applyDeferredSvelteComponentAccepts,
   removeAllSvelteComponentSessions,
@@ -1650,8 +1651,28 @@ function createRequestHandler({ detectScript, sessionPath, livePath }) {
             || process.env.IMPECCABLE_LIVE_COPY_AGENT
             || 'agent'
           ).trim().toLowerCase();
-          const useChatRoute = requestedMode === 'chat';
-          if (useChatRoute) {
+          const supportedModes = new Set(['agent', 'chat', 'mock', '0', 'false', 'off', 'none']);
+          if (!supportedModes.has(requestedMode)) {
+            throw new Error(`Unsupported live copy-edit runner mode: ${requestedMode}. Use agent with IMPECCABLE_LIVE_COPY_AGENT_ID, chat, or mock.`);
+          }
+          const selectedRunner = chooseCopyEditAgent({
+            env: process.env,
+            chatAvailable: chatAgentLikelyActive,
+          });
+          if (!selectedRunner) {
+            routedRunner = 'disabled';
+            result = {
+              applied: [],
+              failed: [],
+              files: [],
+              cleared: 0,
+              count: pendingCount,
+              pageUrl,
+              reason: ['0', 'false', 'off', 'none'].includes(requestedMode)
+                ? 'manual_edit_runner_disabled'
+                : 'manual_edit_runner_unavailable',
+            };
+          } else if (selectedRunner === 'chat') {
             routedRunner = 'chat';
             const timeoutMs = Number(process.env.IMPECCABLE_LIVE_COPY_AGENT_TIMEOUT_MS || 120000);
             result = await commitManualEdits({
@@ -1668,10 +1689,7 @@ function createRequestHandler({ detectScript, sessionPath, livePath }) {
             });
           } else {
             const timeoutMs = Number(process.env.IMPECCABLE_LIVE_COPY_AGENT_TIMEOUT_MS || 120000);
-            if (!['agent', 'mock'].includes(requestedMode)) {
-              throw new Error(`Unsupported live copy-edit runner mode: ${requestedMode}. Use agent with IMPECCABLE_LIVE_COPY_AGENT_ID, chat, or mock.`);
-            }
-            const runner = requestedMode === 'mock' ? 'mock' : 'agent';
+            const runner = selectedRunner;
             routedRunner = runner;
             result = await commitManualEdits({
               cwd: process.cwd(),

@@ -49,6 +49,14 @@ beforeEach(() => {
   delete process.env.VIBE_WORKSPACE_ROOT;
 });
 
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
 afterEach(() => {
   restoreOptionalEnv('TUTTI_CLI', originalTuttiCli);
   restoreOptionalEnv('TUTTI_APP_ID', originalTuttiAppId);
@@ -134,7 +142,7 @@ async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   });
 }
 
-describe('startAgentRun', () => {
+describe('startAgentRun', { timeout: 10_000 }, () => {
   it('runs Codex through the ACP kit runtime and maps kit events into existing run events', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     try {
@@ -1383,6 +1391,83 @@ describe('startAgentRun', () => {
         code: 'AGENT_UNAVAILABLE',
         message: 'Writer went offline.',
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not launch when cancellation wins while exact-target preflight is pending', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-cancel-preflight-'));
+    try {
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(root, 'projects');
+      await mkdir(builtInSkillsRoot, { recursive: true });
+      await mkdir(userSkillsRoot, { recursive: true });
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({ projectId: 'project-1', agentTargetId: 'team:writer', provider: 'codex' });
+      const runtime = createRecordingRuntime();
+      const composer = deferred<{
+        schemaVersion: 2;
+        source: 'standalone';
+        agentTargetId: string;
+        providerId: string;
+        effectiveSettings: Record<string, unknown>;
+        modelConfig: { configurable: boolean; currentValue: string; defaultValue: string; options: [] };
+        permissionConfig: { configurable: boolean; defaultValue: string; modes: [] };
+        reasoningConfig: { configurable: boolean; currentValue: string; defaultValue: string; options: [] };
+        speedConfig: { configurable: boolean; currentValue: string; defaultValue: string; options: [] };
+      }>();
+      const composerLoadStarted = deferred<void>();
+      const emptyConfig = { configurable: false, currentValue: '', defaultValue: '', options: [] as [] };
+      const starting = startAgentRunWithDependencies({
+        run,
+        runs,
+        request: { projectId: 'project-1', prompt: 'Write.', agentTargetId: 'team:writer', provider: 'codex' },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+        loadAgentCatalog: async () => ({
+          schemaVersion: 1,
+          source: 'standalone',
+          cliContract: 'agent-id',
+          defaultAgentTargetId: 'team:writer',
+          agents: [{
+            agentTargetId: 'team:writer', providerId: 'codex', displayName: 'Writer', runtimeSupported: true,
+            availability: { status: 'available', reasonCode: '', detail: '' },
+          }],
+        }),
+        loadAgentComposerOptions: () => {
+          composerLoadStarted.resolve(undefined);
+          return composer.promise;
+        },
+        resolveAgentSkillBundle: async () => ({
+          source: 'standalone', agentTargetId: 'team:writer', providerId: 'codex', skills: [], skillManifest: [],
+        }),
+      });
+
+      await composerLoadStarted.promise;
+      runs.cancel(run);
+      composer.resolve({
+        schemaVersion: 2,
+        source: 'standalone',
+        agentTargetId: 'team:writer',
+        providerId: 'codex',
+        effectiveSettings: {},
+        modelConfig: emptyConfig,
+        permissionConfig: { configurable: false, defaultValue: '', modes: [] },
+        reasoningConfig: emptyConfig,
+        speedConfig: emptyConfig,
+      });
+      await starting;
+
+      expect(run.status).toBe('canceled');
+      expect(runtime.inputs).toEqual([]);
+      expect(run.events.some((event) => event.event === 'start')).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

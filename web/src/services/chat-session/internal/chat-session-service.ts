@@ -226,6 +226,7 @@ export class ChatSessionService implements IChatSessionService {
     if (this.sendingQueuedTurnNext) return;
     this.sendingQueuedTurnNext = true;
     let turnToRestore: QueuedPreparedTurn | undefined;
+    let restoredAfterFailure = false;
     try {
       let queueIndex = this.queuedTurns.findIndex((turn) => turn.queueId === queueId);
       if (queueIndex === -1) return;
@@ -260,12 +261,13 @@ export class ChatSessionService implements IChatSessionService {
         // The selected turn was already removed for sending. Restore only that
         // exact turn; never substitute a different queue entry after awaits.
         this.queuedTurns.unshift(turnToRestore);
+        restoredAfterFailure = true;
         this.persistQueuedTurns();
         this.notify();
       }
     } finally {
       this.sendingQueuedTurnNext = false;
-      this.drainQueue();
+      if (!restoredAfterFailure) this.drainQueue();
     }
   }
 

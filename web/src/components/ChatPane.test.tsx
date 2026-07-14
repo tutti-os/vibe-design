@@ -1004,7 +1004,14 @@ describe('ChatPane', () => {
       phase: 'idle',
       activeConversationId: 'conversation-1',
       activeConversationTitle: 'Build a product page',
-      conversations: [{ id: 'conversation-1', title: 'Build a product page', provider: 'tutti-agent', createdAt: 1, updatedAt: 1 }],
+      conversations: [{
+        id: 'conversation-1',
+        title: 'Build a product page',
+        agentTargetId: 'tutti-agent',
+        provider: 'tutti-agent',
+        createdAt: 1,
+        updatedAt: 1,
+      }],
       pinnedTodoInput: null,
       messages: [
         {

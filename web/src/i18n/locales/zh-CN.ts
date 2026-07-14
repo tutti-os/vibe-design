@@ -596,6 +596,7 @@ export const zhCN = {
     resizeChatPanel: '调整聊天面板宽度',
   },
   questionForm: {
+    agentUnavailable: '该问题所属的 Agent 当前不可用，暂时无法回答。',
     answered: '已回答',
     answersLocked: '本轮回答已锁定。',
     answersRecorded: '已记录你的选择',

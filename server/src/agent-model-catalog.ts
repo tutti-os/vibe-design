@@ -1,5 +1,6 @@
 import type { ModelSummary } from './agents.js';
 import type { AgentProviderSnapshot } from './agent-provider-snapshot.js';
+import { assertValidCatalogDefault, resolveSnapshotIdentity } from './agent-availability.js';
 
 export interface AgentModelCatalogEntry {
   agentTargetId: string;
@@ -7,10 +8,12 @@ export interface AgentModelCatalogEntry {
   label: string;
   supported: boolean;
   isDefault?: true;
+  defaultModelId?: string;
   models: ModelSummary[];
 }
 
 export function projectAgentModelCatalog(providers: readonly AgentProviderSnapshot[]): AgentModelCatalogEntry[] {
+  assertValidCatalogDefault(providers);
   return providers
     .flatMap((entry) => {
       const identity = resolveSnapshotIdentity(providers, entry);
@@ -20,31 +23,10 @@ export function projectAgentModelCatalog(providers: readonly AgentProviderSnapsh
         label: entry.label,
         supported: entry.supported,
         ...(entry.isDefault ? { isDefault: true as const } : {}),
+        ...(entry.defaultModelId?.trim() ? { defaultModelId: entry.defaultModelId.trim() } : {}),
         models: sanitizeModelOptions(entry.models),
       }];
     });
-}
-
-function resolveSnapshotIdentity(
-  catalog: readonly AgentProviderSnapshot[],
-  entry: AgentProviderSnapshot,
-): Pick<AgentModelCatalogEntry, 'agentTargetId' | 'providerId'> | null {
-  const providerId = (entry.providerId ?? entry.id)?.trim();
-  if (!providerId) return null;
-  const exactTargetId = entry.agentTargetId?.trim();
-  if (exactTargetId) return { agentTargetId: exactTargetId, providerId };
-  const normalizedProviderId = normalizeLegacyProviderId(providerId);
-  const matches = catalog.filter((candidate) => (
-    normalizeLegacyProviderId(candidate.providerId ?? candidate.id) === normalizedProviderId
-  ));
-  return matches.length === 1
-    ? { agentTargetId: `local:${providerId}`, providerId }
-    : null;
-}
-
-function normalizeLegacyProviderId(providerId: string | undefined): string {
-  const normalized = providerId?.trim() ?? '';
-  return normalized === 'claude' ? 'claude-code' : normalized;
 }
 
 function sanitizeModelOptions(models: readonly ModelSummary[] | undefined): ModelSummary[] {

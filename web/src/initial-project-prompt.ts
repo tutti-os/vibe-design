@@ -106,14 +106,14 @@ export function stashInitialProjectAgent(
 
 export function consumeInitialProjectAgent(
   projectId: string,
-  catalog: readonly { agentTargetId: string; providerId?: string }[] = [],
+  catalog: readonly { agentTargetId: string; providerId?: string; supported?: boolean }[] = [],
 ): InitialProjectAgentSelection | null {
   return consumeInitialProjectAgentHandoff(projectId, catalog).selection;
 }
 
 export function consumeInitialProjectAgentHandoff(
   projectId: string,
-  catalog: readonly { agentTargetId: string; providerId?: string }[] = [],
+  catalog: readonly { agentTargetId: string; providerId?: string; supported?: boolean }[] = [],
 ): InitialProjectAgentHandoff {
   if (typeof window === 'undefined') {
     return { selection: null };
@@ -136,11 +136,12 @@ export function consumeInitialProjectAgentHandoff(
       ? { agentTargetId, ...(model ? { model } : {}) }
       : null;
     if (storedSelection) {
-      const exact = catalog.find((entry) => entry.agentTargetId === agentTargetId);
+      const supportedCatalog = catalog.filter((entry) => entry.supported !== false);
+      const exact = supportedCatalog.find((entry) => entry.agentTargetId === agentTargetId);
       if (exact) {
         return { selection: { ...storedSelection, agentTargetId: exact.agentTargetId } };
       }
-      const migratedTargetId = resolveLegacyProviderAgentTargetId(catalog, agentTargetId);
+      const migratedTargetId = resolveLegacyProviderAgentTargetId(supportedCatalog, agentTargetId);
       if (migratedTargetId) {
         return { selection: { ...storedSelection, agentTargetId: migratedTargetId } };
       }
@@ -153,7 +154,10 @@ export function consumeInitialProjectAgentHandoff(
     const legacyProviderId = 'agentId' in parsed && typeof parsed.agentId === 'string'
       ? parsed.agentId.trim()
       : '';
-    const migratedTargetId = resolveLegacyProviderAgentTargetId(catalog, legacyProviderId);
+    const migratedTargetId = resolveLegacyProviderAgentTargetId(
+      catalog.filter((entry) => entry.supported !== false),
+      legacyProviderId,
+    );
     if (legacyProviderId && migratedTargetId) {
       return {
         selection: { agentTargetId: migratedTargetId, ...(model ? { model } : {}) },

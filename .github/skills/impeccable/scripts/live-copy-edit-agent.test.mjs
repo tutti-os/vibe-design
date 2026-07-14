@@ -9,6 +9,7 @@ import {
   runCopyEditBatchAgent,
   selectCopyEditAgentTarget,
 } from './live-copy-edit-agent.mjs';
+import { readOptionalAgentTargetIdArg } from './live-commit-manual-edits.mjs';
 
 const CATALOG = {
   schemaVersion: 1,
@@ -60,6 +61,13 @@ test('does not reinterpret retired provider runner modes as Agent Target ids', (
   assert.equal(chooseCopyEditAgent({ env: { IMPECCABLE_LIVE_COPY_AGENT: 'auto' } }), null);
   assert.equal(chooseCopyEditAgent({ env: { IMPECCABLE_LIVE_COPY_AGENT: 'codex' } }), null);
   assert.equal(chooseCopyEditAgent({ env: { IMPECCABLE_LIVE_COPY_AGENT: 'claude' } }), null);
+});
+
+test('rejects blank exact Agent Target CLI arguments instead of using the default', () => {
+  assert.equal(readOptionalAgentTargetIdArg([]), undefined);
+  assert.equal(readOptionalAgentTargetIdArg(['--agent-id=team:writer']), 'team:writer');
+  assert.throws(() => readOptionalAgentTargetIdArg(['--agent-id']), /requires a non-empty/);
+  assert.throws(() => readOptionalAgentTargetIdArg(['--agent-id=   ']), /requires a non-empty/);
 });
 
 test('discovers, starts, and verifies one exact Agent Target', async (t) => {

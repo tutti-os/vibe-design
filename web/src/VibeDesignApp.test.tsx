@@ -2183,6 +2183,63 @@ describe('VibeDesignApp', () => {
     }
   });
 
+  it('restores the consumed initial handoff when sending the first turn rejects', async () => {
+    const projectId = 'project-rejected-handoff';
+    sessionStorage.setItem(pendingInitialPromptKey(projectId), '请继续完成这个项目');
+    sessionStorage.setItem(
+      `vibe-design:initial-project-agent:${projectId}`,
+      JSON.stringify({ agentTargetId: 'team:writer', model: 'deep' }),
+    );
+    sessionStorage.setItem(
+      `vibe-design:initial-project-skills:${projectId}`,
+      JSON.stringify(['skill-1']),
+    );
+    const sendTurn = vi.fn<(input: SendTurnInput) => Promise<void>>(async () => {
+      throw new Error('send rejected');
+    });
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const flow = createVibeDesignFlow({
+      route: { kind: 'project', projectId },
+      projectEditor: {
+        project: { id: projectId, tabsState: { tabs: [], activeTabKey: null } },
+        files: [],
+        conversations: [{ id: 'conversation-1', title: 'New conversation', createdAt: 1, updatedAt: 1 }],
+        activeConversationId: 'conversation-1',
+        messages: [],
+      },
+      agentModelCatalog: [{
+        agentTargetId: 'team:writer',
+        providerId: 'codex',
+        label: 'Writer',
+        supported: true,
+        defaultModelId: 'deep',
+        models: [{ id: 'deep', label: 'Deep' }],
+      }],
+      contextPickerService: new ContextPickerService({
+        listSkills: async () => [{ id: 'skill-1', name: 'Hero Builder', description: 'Build hero sections' }],
+        listDesignFiles: async () => [],
+      }),
+      chatSessionService: createTestChatSessionService(sendTurn),
+    });
+
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+      await waitFor(() => {
+        expect(sessionStorage.getItem(pendingInitialPromptKey(projectId))).toBe('请继续完成这个项目');
+      });
+      expect(JSON.parse(sessionStorage.getItem(`vibe-design:initial-project-agent:${projectId}`) ?? '{}'))
+        .toEqual({ agentTargetId: 'team:writer', model: 'deep' });
+      expect(JSON.parse(sessionStorage.getItem(`vibe-design:initial-project-skills:${projectId}`) ?? '[]'))
+        .toEqual(['skill-1']);
+    } finally {
+      consoleError.mockRestore();
+      sessionStorage.clear();
+      cleanup(root, container);
+    }
+  });
+
   it('starts a new project from its persisted prompt when the dashboard handoff is unavailable', async () => {
     const sendTurn = vi.fn<(input: SendTurnInput) => Promise<void>>(async () => undefined);
     const flow = createVibeDesignFlow({

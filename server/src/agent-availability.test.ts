@@ -95,4 +95,19 @@ describe('projectAgentAvailability', () => {
       { id: 'codex', label: 'Legacy Codex', supported: true, authState: 'ok', models: [] },
     ])).toHaveLength(2);
   });
+
+  it('fails closed when the catalog default row has no unambiguous exact identity', () => {
+    expect(() => projectAgentAvailability([
+      { agentTargetId: 'team:writer', providerId: 'codex', label: 'Writer', supported: true, authState: 'ok', models: [] },
+      { agentTargetId: 'team:reviewer', providerId: 'codex', label: 'Reviewer', supported: true, authState: 'ok', models: [] },
+      { id: 'codex', label: 'Legacy default', supported: true, authState: 'ok', models: [], isDefault: true },
+    ])).toThrow('catalog default is ambiguous or malformed');
+  });
+
+  it('fails closed when multiple rows claim to be the catalog default', () => {
+    expect(() => projectAgentAvailability([
+      { agentTargetId: 'team:writer', providerId: 'codex', label: 'Writer', supported: true, authState: 'ok', models: [], isDefault: true },
+      { agentTargetId: 'team:reviewer', providerId: 'codex', label: 'Reviewer', supported: true, authState: 'ok', models: [], isDefault: true },
+    ])).toThrow('catalog default is ambiguous or malformed');
+  });
 });

@@ -67,7 +67,7 @@ node .github/skills/impeccable/scripts/live-poll.mjs --stream   # stays running;
 
 Stream keeps one process alive and waits for `--reply` ack before polling again. Use it only when the current harness reads incremental stdout reliably and quickly. Default to one-shot unless you have measured otherwise.
 
-When Apply copy edits uses a subprocess agent, it discovers the current Agent Target catalog with `tutti --json agent list`, keeps the catalog's exact ids distinct even when targets share one provider, and launches the selected exact id. Set `IMPECCABLE_LIVE_COPY_AGENT_ID=<exact-agent-id>` to override the catalog default. If the chosen target is absent or unavailable, Apply fails closed and asks you to inspect the list; it does not guess from a provider name. `IMPECCABLE_LIVE_COPY_AGENT_MODE=chat` keeps Apply in the active Impeccable chat, while `mock` is reserved for tests.
+When Apply copy edits uses a subprocess agent, it discovers the current Agent Target catalog with `tutti --json agent list`, keeps the catalog's exact ids distinct even when targets share one provider, and launches the selected exact id. Set `IMPECCABLE_LIVE_COPY_AGENT_ID=<exact-agent-id>` to override the catalog default. If the chosen target is absent, Apply fails closed and asks you to inspect the list; if it is unavailable, Apply fails closed with the availability detail. It does not guess from a provider name. `IMPECCABLE_LIVE_COPY_AGENT_MODE=chat` keeps Apply in the active Impeccable chat, while `mock` is reserved for tests.
 
 ## Recovery commands
 

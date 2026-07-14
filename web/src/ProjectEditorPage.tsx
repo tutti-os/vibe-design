@@ -595,7 +595,7 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
             projectId={projectId}
             persistedPrompt={initialData?.project.prompt ?? null}
             hasExistingMessages={timelineSnapshot.messages.length > 0}
-            onSendTurn={(draft, selection) => void session.sendTurn({
+            onSendTurn={(draft, selection) => session.sendTurn({
               draft,
               files: [],
               ...(selection ?? {}),
@@ -1187,7 +1187,7 @@ function InitialProjectPromptStarter({
   projectId: string;
   persistedPrompt: string | null;
   hasExistingMessages: boolean;
-  onSendTurn: (draft: string, selection: InitialProjectAgentSelection | null) => void;
+  onSendTurn: (draft: string, selection: InitialProjectAgentSelection | null) => Promise<void>;
 }) {
   const context = useService(IContextPickerService);
   const agentCatalog = useService(IAgentCatalogService);
@@ -1211,6 +1211,7 @@ function InitialProjectPromptStarter({
 
     let cancelled = false;
     let sent = false;
+    let sending = false;
     let restored = false;
     let consumedAgentHandoff: InitialProjectAgentHandoff | null = null;
     const restoreHandoff = () => {
@@ -1252,16 +1253,19 @@ function InitialProjectPromptStarter({
           restoreHandoff();
           return;
         }
-        onSendTurn(prompt, consumedAgentHandoff.selection);
+        sending = true;
+        await onSendTurn(prompt, consumedAgentHandoff.selection);
         sent = true;
+        sending = false;
       } catch {
+        sending = false;
         restoreHandoff();
       }
     })();
 
     return () => {
       cancelled = true;
-      if (!sent) {
+      if (!sent && !sending) {
         restoreHandoff();
         startedRef.current = false;
       }

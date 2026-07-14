@@ -42,7 +42,7 @@ import type {
   MessageBlock,
 } from '../services/chat-timeline/chat-timeline-types';
 import type { QueuedTurnPreview } from '../services/chat-session/chat-session-types';
-import { resolveLegacyProviderAgentTargetId } from '../services/agent-catalog/agent-catalog-types';
+import { resolveConversationAgentSelection } from '../services/agent-catalog/agent-catalog-types';
 import type {
   ContextPickerSnapshot,
   ContextSearchResultItem,
@@ -196,29 +196,23 @@ export function ChatPane({
   const activeConversation = visibleSnapshot.conversations.find(
     (conversation) => conversation.id === visibleSnapshot.activeConversationId,
   );
-  const summaryAgentTargetId = activeConversation?.agentTargetId?.trim() || null;
-  const legacyConversationProviderId = !summaryAgentTargetId
-    ? activeConversation?.provider?.trim() || null
+  const {
+    selectedAgentTargetId,
+    unresolvedAgentTargetLock,
+  } = resolveConversationAgentSelection({
+    catalog: agentModelCatalog,
+    conversationAgentTargetId: activeConversation?.agentTargetId,
+    legacyConversationProviderId: activeConversation?.provider,
+    fallbackAgentTargetId: activeConversationAgentTargetId,
+  });
+  const selectedCatalogAgent = selectedAgentTargetId
+    ? agentModelCatalog.find((entry) => entry.agentTargetId === selectedAgentTargetId)
     : null;
-  const migratedConversationTargetId = legacyConversationProviderId
-    ? resolveLegacyProviderAgentTargetId(agentModelCatalog, legacyConversationProviderId)
-    : null;
-  const unresolvedAgentTargetLock = Boolean(
-    legacyConversationProviderId && !migratedConversationTargetId,
-  );
-  const lockedConversationTargetId = summaryAgentTargetId
-    ?? migratedConversationTargetId
-    ?? activeConversationAgentTargetId;
-  const selectedAgentTargetId = lockedConversationTargetId
-    ?? (unresolvedAgentTargetLock
-      ? null
-      : agentModelCatalog.find((entry) => entry.isDefault && entry.supported)?.agentTargetId
-        ?? agentModelCatalog.find((entry) => entry.supported)?.agentTargetId
-        ?? null);
   const selectedAgentSupported = Boolean(
-    selectedAgentTargetId
+    selectedCatalogAgent?.supported
     && agentAvailability.find((entry) => entry.agentTargetId === selectedAgentTargetId)?.supported,
   );
+  const toolQuestionSubmissionUnavailable = !selectedAgentTargetId || !selectedAgentSupported;
   const activeConversationAgentLabel = selectedAgentTargetId
     ? agentModelCatalog.find((entry) => entry.agentTargetId === selectedAgentTargetId)?.label ?? selectedAgentTargetId
     : t('chat.composer.modelProvider');
@@ -558,6 +552,7 @@ export function ChatPane({
                     projectId={projectId}
                     onOpenImagePreview={openImagePreview}
                     onAnswerToolQuestion={onAnswerToolQuestion}
+                    toolQuestionSubmissionUnavailable={toolQuestionSubmissionUnavailable}
                     {...(selectedAgentTargetId && selectedAgentSupported
                       ? {
                           onSubmitToolQuestionFallback: (content: string) => onSend({
@@ -613,7 +608,7 @@ export function ChatPane({
           commentAttachments={commentAttachments}
           agentAvailability={agentAvailability}
           agentModelCatalog={agentModelCatalog}
-          lockedAgentTargetId={lockedConversationTargetId}
+          lockedAgentTargetId={selectedAgentTargetId}
           unresolvedAgentTargetLock={unresolvedAgentTargetLock}
           lockedModel={activeConversationModel}
           activeDesignSystem={activeDesignSystem}
@@ -1128,6 +1123,7 @@ function TimelineMessage({
   projectId,
   onOpenImagePreview,
   onAnswerToolQuestion,
+  toolQuestionSubmissionUnavailable,
   onSubmitToolQuestionFallback,
   onOpenAttachment,
   onOpenGeneratedFile,
@@ -1140,6 +1136,7 @@ function TimelineMessage({
   projectId?: string | null;
   onOpenImagePreview(preview: ImagePreviewState): void;
   onAnswerToolQuestion(toolUseId: string, content: string): void | Promise<void>;
+  toolQuestionSubmissionUnavailable: boolean;
   onSubmitToolQuestionFallback?: (content: string) => void | Promise<void>;
   onOpenAttachment?: (attachment: ChatAttachment) => void;
   onOpenGeneratedFile?: (file: GeneratedFileEntry) => void;
@@ -1165,6 +1162,7 @@ function TimelineMessage({
           streaming={streaming}
           nextUserContent={nextUserContent}
           onAnswerToolQuestion={onAnswerToolQuestion}
+          toolQuestionSubmissionUnavailable={toolQuestionSubmissionUnavailable}
           onSubmitToolQuestionFallback={onSubmitToolQuestionFallback}
           onOpenGeneratedFile={onOpenGeneratedFile}
           onOpenFileOp={onOpenFileOp}

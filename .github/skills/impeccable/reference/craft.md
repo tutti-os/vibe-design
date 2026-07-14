@@ -17,7 +17,7 @@ Craft has **multiple user gates**, not one. When the current agent has native im
 
 You must stop at every gate. **Shape confirmation alone is NOT a green light to start coding.** It is the green light to begin image-generation.md Step A. Compressing gates 2 through 4 because the shape brief felt complete is the dominant failure mode of this flow.
 
-When the harness lacks native image generation, gates 2-4 collapse into the brief itself, and shape confirmation does advance straight to code.
+When the current agent lacks native image generation, gates 2-4 collapse into the brief itself, and shape confirmation does advance straight to code.
 
 ## Step 0: Project Foundation
 
@@ -70,7 +70,7 @@ Then add references based on the brief's needs:
 
 If the current agent has **native image generation**, this step is mandatory. **Stop and load [image-generation.md](image-generation.md)**. It covers palette generation, mock exploration, the approval loop, mock-fidelity inventory, and asset slicing via the `impeccable_asset_producer` subagent. Follow Steps A-F in that file, then return here for Step 4.
 
-If the harness lacks native image generation, **state in one line that the visual-direction-by-generation step is being skipped because the harness lacks native image generation, then proceed**. The one-line announcement is required; it forces a conscious decision instead of letting the step quietly evaporate. The brief is your only visual reference. Implement directly from it, treating any named anchor references and the brief's "Design Direction" as the contract.
+If the current agent lacks native image generation, **state in one line that the visual-direction-by-generation step is being skipped because the current agent lacks that capability, then proceed**. The one-line announcement is required; it forces a conscious decision instead of letting the step quietly evaporate. The brief is your only visual reference. Implement directly from it, treating any named anchor references and the brief's "Design Direction" as the contract.
 
 Whether you generated mocks or not: don't replace required imagery with generic cards, bullets, emoji, fake metrics, decorative CSS panels, or filler copy. Image-led briefs (restaurants, hotels, magazines, photography, hobbyist communities, food, travel, fashion, product) need real or sourced imagery in the build, not CSS scenery.
 

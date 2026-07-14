@@ -165,11 +165,88 @@ describe('detectLocalAgentProviders', () => {
       const invocations = (await readFile(invocationLog, 'utf8'))
         .trim()
         .split('\n')
-        .map((line) => JSON.parse(line) as { cwd: string });
-      expect(invocations.length).toBeGreaterThan(0);
+        .map((line) => JSON.parse(line) as { args: string[]; cwd: string });
+      expect(invocations).toHaveLength(3);
+      expect(invocations.filter((invocation) => invocation.args.includes('list'))).toHaveLength(1);
       expect(invocations.every((invocation) => invocation.cwd === canonicalWorkspaceCwd)).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('isolates composer failures to the affected exact target', async () => {
+    const emptyConfig = { configurable: false, currentValue: '', defaultValue: '', options: [] };
+    const runtime = {
+      detect: vi.fn(async () => [{
+        provider: 'codex', displayName: 'Codex', supported: true, authState: 'ok', models: [],
+      }]),
+      listProviders: () => [{ id: 'codex', displayName: 'Codex' }],
+      cancel: vi.fn(async () => undefined),
+      run: vi.fn(),
+    };
+    const loadComposerOptions = vi.fn(async (input: { agentTargetId?: string }) => {
+      if (input.agentTargetId === 'team:reviewer') throw new Error('invalid reviewer metadata');
+      return {
+        schemaVersion: 2 as const,
+        source: 'standalone' as const,
+        agentTargetId: 'team:writer',
+        providerId: 'codex',
+        effectiveSettings: {},
+        modelConfig: { ...emptyConfig, configurable: true, currentValue: 'deep', defaultValue: 'deep', options: [{ id: 'deep', value: 'deep', label: 'Deep' }] },
+        permissionConfig: { configurable: false, defaultValue: '', modes: [] },
+        reasoningConfig: emptyConfig,
+        speedConfig: emptyConfig,
+      };
+    });
+
+    await expect(detectLocalAgentProviders(
+      { cwd: '/workspace/project' },
+      runtime as never,
+      {
+        loadCatalog: vi.fn(async () => ({
+          schemaVersion: 1 as const,
+          source: 'standalone' as const,
+          cliContract: 'agent-id' as const,
+          defaultAgentTargetId: 'team:writer',
+          agents: [
+            { agentTargetId: 'team:writer', providerId: 'codex', displayName: 'Writer', runtimeSupported: true, availability: { status: 'available' as const, reasonCode: '', detail: '' } },
+            { agentTargetId: 'team:reviewer', providerId: 'codex', displayName: 'Reviewer', runtimeSupported: true, availability: { status: 'available' as const, reasonCode: '', detail: '' } },
+          ],
+        })),
+        loadComposerOptions: loadComposerOptions as never,
+      },
+    )).resolves.toEqual([
+      expect.objectContaining({ agentTargetId: 'team:writer', supported: true, defaultModelId: 'deep' }),
+      expect.objectContaining({
+        agentTargetId: 'team:reviewer',
+        supported: false,
+        reason: expect.stringContaining('invalid reviewer metadata'),
+      }),
+    ]);
+  });
+
+  it('uses VIBE_WORKSPACE_ROOT when no explicit catalog cwd is present', async () => {
+    const previous = process.env.VIBE_WORKSPACE_ROOT;
+    process.env.VIBE_WORKSPACE_ROOT = '/workspace/from-vibe';
+    try {
+      const runtime = {
+        detect: vi.fn(async () => []),
+        listProviders: () => [],
+        cancel: vi.fn(async () => undefined),
+        run: vi.fn(),
+      };
+      const loadCatalog = vi.fn(async (input: { cwd?: string }) => ({
+        schemaVersion: 1 as const,
+        source: 'standalone' as const,
+        cliContract: 'agent-id' as const,
+        defaultAgentTargetId: '',
+        agents: [],
+      }));
+      await detectLocalAgentProviders(undefined, runtime as never, { loadCatalog: loadCatalog as never });
+      expect(loadCatalog).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/workspace/from-vibe' }));
+    } finally {
+      if (previous === undefined) delete process.env.VIBE_WORKSPACE_ROOT;
+      else process.env.VIBE_WORKSPACE_ROOT = previous;
     }
   });
 });

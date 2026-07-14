@@ -31,6 +31,7 @@ export function QuestionFormCard({
   requireAllAnswers = false,
   formatSubmitContent = formatQuestionFormAnswers,
   submitErrorMessage,
+  submissionUnavailable = false,
 }: {
   form: QuestionFormDefinition;
   interactive: boolean;
@@ -40,6 +41,7 @@ export function QuestionFormCard({
   requireAllAnswers?: boolean;
   formatSubmitContent?: (form: QuestionFormDefinition, answers: QuestionFormAnswers) => string;
   submitErrorMessage?: string;
+  submissionUnavailable?: boolean;
 }) {
   const { t } = useTranslation();
   const submittedAnswers = React.useMemo(
@@ -59,7 +61,7 @@ export function QuestionFormCard({
   const isAnswered = answered || submitted || submittedAnswers !== null;
   // Skipped = the user moved on (sent another message / re-entered later) without answering this question.
   const isSkipped = !isAnswered && hasFollowingMessage;
-  const locked = !interactive || !onSubmit || isAnswered || isSkipped;
+  const locked = submissionUnavailable || !interactive || !onSubmit || isAnswered || isSkipped;
   const currentAnswers = submittedAnswers ?? answers;
   const formTitle = form.title === 'Quick brief' ? t('questionForm.quickBrief') : form.title;
   const ready = requireAllAnswers
@@ -109,7 +111,7 @@ export function QuestionFormCard({
             <GuideIcon size={16} />
             <span>{formTitle}</span>
           </CardTitle>
-          {locked ? (
+          {isAnswered || isSkipped ? (
             <Badge variant="secondary">
               {isSkipped ? t('questionForm.skipped') : t('questionForm.answered')}
             </Badge>
@@ -137,6 +139,8 @@ export function QuestionFormCard({
         <span className="tool-card__meta">
           {isSkipped
             ? t('questionForm.skippedHint')
+            : submissionUnavailable
+              ? t('questionForm.agentUnavailable')
             : locked
               ? t('questionForm.answersLocked')
               : t('questionForm.submitHint')}

@@ -49,4 +49,20 @@ describe('projectAgentModelCatalog', () => {
       expect.objectContaining({ agentTargetId: 'team:reviewer', models: [{ id: 'reviewer', label: 'Reviewer model' }] }),
     ]);
   });
+
+  it('preserves the target-specific default model', () => {
+    expect(projectAgentModelCatalog([
+      {
+        agentTargetId: 'team:writer',
+        providerId: 'codex',
+        label: 'Writer',
+        supported: true,
+        authState: 'ok',
+        models: [{ id: 'fast', label: 'Fast' }, { id: 'deep', label: 'Deep' }],
+        defaultModelId: 'deep',
+      },
+    ])).toEqual([
+      expect.objectContaining({ defaultModelId: 'deep' }),
+    ]);
+  });
 });

@@ -928,6 +928,25 @@ describe('ChatSessionService', () => {
     expect(service.getSnapshot().queuedTurns.map((turn) => turn.content)).toEqual(['Second turn']);
   });
 
+  it('restores a manually selected queued turn without automatically retrying it after send failure', async () => {
+    const { service, run } = createService();
+
+    await service.sendTurn({ draft: 'First turn', files: [] });
+    await service.sendTurn({ draft: 'Second turn', files: [] });
+    await service.sendTurn({ draft: 'Third turn', files: [] });
+    const thirdQueuedTurn = service.getSnapshot().queuedTurns[1];
+    run.createRun.mockRejectedValueOnce(new Error('launch failed'));
+
+    await service.sendQueuedTurnNext(thirdQueuedTurn!.id);
+    await flushQueuedTurn();
+
+    expect(run.createRun).toHaveBeenCalledTimes(2);
+    expect(service.getSnapshot().queuedTurns.map((turn) => turn.content)).toEqual([
+      'Third turn',
+      'Second turn',
+    ]);
+  });
+
   it('does not drain an older queued turn while sending a selected queued turn after stop completes', async () => {
     const { service, run } = createService();
 

@@ -59,6 +59,28 @@ describe('agent catalog API', () => {
     }]);
   });
 
+  it('rejects duplicate legacy provider rows instead of inventing the same exact target twice', () => {
+    expect(() => readAgentModelCatalog({
+      agents: [
+        { id: 'codex', label: 'Codex A', supported: true, models: [] },
+        { id: 'codex', label: 'Codex B', supported: true, models: [] },
+      ],
+    })).toThrow('Legacy agent provider codex is ambiguous');
+  });
+
+  it('preserves the target default model', () => {
+    expect(readAgentModelCatalog({
+      agents: [{
+        agentTargetId: 'team:writer',
+        providerId: 'codex',
+        label: 'Writer',
+        supported: true,
+        defaultModelId: 'deep',
+        models: [{ id: 'fast', label: 'Fast' }, { id: 'deep', label: 'Deep' }],
+      }],
+    })[0]?.defaultModelId).toBe('deep');
+  });
+
   it('does not map a legacy row over an ambiguous exact provider catalog', () => {
     expect(() => readAgentModelCatalog({
       agents: [

@@ -11,6 +11,7 @@ export interface AgentAvailability {
 }
 
 export function projectAgentAvailability(providers: readonly AgentProviderSnapshot[]): AgentAvailability[] {
+  assertValidCatalogDefault(providers);
   return providers.flatMap((entry) => {
     const identity = resolveSnapshotIdentity(providers, entry);
     if (!identity) return [];
@@ -57,7 +58,7 @@ export function resolveAvailableAgentTarget(
   return match;
 }
 
-function resolveSnapshotIdentity(
+export function resolveSnapshotIdentity(
   catalog: readonly AgentProviderSnapshot[],
   entry: AgentProviderSnapshot,
 ): Pick<AgentAvailability, 'agentTargetId' | 'providerId'> | null {
@@ -93,9 +94,17 @@ export function legacyProviderIdsMatch(left: string, right: string): boolean {
   return normalizeLegacyProviderId(left) === normalizeLegacyProviderId(right);
 }
 
-function normalizeLegacyProviderId(providerId: string): string {
+export function normalizeLegacyProviderId(providerId: string): string {
   const normalized = providerId.trim();
   return normalized === 'claude' ? 'claude-code' : normalized;
+}
+
+export function assertValidCatalogDefault(providers: readonly AgentProviderSnapshot[]): void {
+  const defaults = providers.filter((entry) => entry.isDefault);
+  if (defaults.length === 0) return;
+  if (defaults.length !== 1 || !resolveSnapshotIdentity(providers, defaults[0]!)) {
+    throw new Error('The Tutti agent catalog default is ambiguous or malformed.');
+  }
 }
 
 export function agentDetectionFailureReason(error: unknown): string {

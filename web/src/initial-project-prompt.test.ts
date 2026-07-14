@@ -70,6 +70,18 @@ describe('initial project agent handoff', () => {
     ])).toBeNull();
   });
 
+  it('does not send an exact handoff to a target that is currently unsupported', () => {
+    stashInitialProjectAgent('project-1', { agentTargetId: 'team:writer', model: 'deep' });
+
+    expect(consumeInitialProjectAgentHandoff('project-1', [
+      { agentTargetId: 'team:writer', providerId: 'codex', supported: false },
+    ])).toEqual({
+      selection: null,
+      unresolvedLegacyProviderId: 'team:writer',
+      unresolvedSelection: { agentTargetId: 'team:writer', model: 'deep' },
+    });
+  });
+
   it('preserves the historical claude alias during a unique catalog migration', () => {
     sessionStorage.setItem(
       'vibe-design:initial-project-agent:project-1',

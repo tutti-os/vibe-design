@@ -201,6 +201,9 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       ...skillSelection,
     }),
   ]);
+  if (run.cancelRequested || runs.isTerminal(run.status)) {
+    return;
+  }
   if (!legacyProviderSelection && (
     composerOptions.providerId !== provider
     || composerOptions.agentTargetId !== agentTargetId

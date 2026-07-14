@@ -364,7 +364,11 @@ function ProjectCreator({
     const sameTargetModel = modelOptions.find(
       (model) => model.agentTargetId === selectedModel.agentTargetId,
     );
-    if (sameTargetModel) setSelectedModel(sameTargetModel);
+    if (sameTargetModel) {
+      setSelectedModel(sameTargetModel);
+      return;
+    }
+    if (modelOptions.length === 0) setSelectedModel(null);
   }, [modelOptions, selectedModel]);
 
   async function createProject(event: React.FormEvent<HTMLFormElement>): Promise<void> {
@@ -601,7 +605,10 @@ function dashboardModelOptionsFromCatalog(
     .sort((left, right) => Number(Boolean(right.isDefault)) - Number(Boolean(left.isDefault)))
     .filter((entry) => entry.supported).flatMap((entry) => {
     const provider = entry.agentTargetId;
-    return entry.models.map((model) => ({
+    const models = [...entry.models].sort((left, right) => (
+      Number(right.id === entry.defaultModelId) - Number(left.id === entry.defaultModelId)
+    ));
+    return models.map((model) => ({
       key: `${provider}:${model.id}`,
       provider,
       iconProvider: entry.providerId ?? '',

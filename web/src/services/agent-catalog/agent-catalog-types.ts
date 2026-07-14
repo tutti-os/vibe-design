@@ -20,7 +20,36 @@ export interface AgentModelCatalogEntry {
   label: string;
   supported: boolean;
   isDefault?: true;
+  defaultModelId?: string;
   models: AgentModelOption[];
+}
+
+export interface ConversationAgentSelection {
+  selectedAgentTargetId: string | null;
+  unresolvedAgentTargetLock: boolean;
+}
+
+export function resolveConversationAgentSelection(input: {
+  catalog: readonly AgentModelCatalogEntry[];
+  conversationAgentTargetId?: string | null;
+  legacyConversationProviderId?: string | null;
+  fallbackAgentTargetId?: string | null;
+}): ConversationAgentSelection {
+  const exactTargetId = input.conversationAgentTargetId?.trim() || null;
+  const legacyProviderId = !exactTargetId ? input.legacyConversationProviderId?.trim() || null : null;
+  const migratedTargetId = legacyProviderId
+    ? resolveLegacyProviderAgentTargetId(input.catalog, legacyProviderId)
+    : null;
+  const unresolvedAgentTargetLock = Boolean(legacyProviderId && !migratedTargetId);
+  const selectedAgentTargetId = unresolvedAgentTargetLock
+    ? null
+    : exactTargetId
+      ?? migratedTargetId
+      ?? input.fallbackAgentTargetId?.trim()
+      ?? (input.catalog.find((entry) => entry.isDefault && entry.supported)?.agentTargetId
+        ?? input.catalog.find((entry) => entry.supported)?.agentTargetId
+        ?? null);
+  return { selectedAgentTargetId, unresolvedAgentTargetLock };
 }
 
 export function resolveLegacyProviderAgentTargetId(

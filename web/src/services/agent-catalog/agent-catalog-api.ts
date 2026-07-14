@@ -4,6 +4,7 @@ import type {
 } from './agent-catalog-types';
 import {
   isLegacyProviderAgentTargetAmbiguous,
+  normalizeLegacyProviderId,
   resolveLegacyProviderAgentTargetId,
 } from './agent-catalog-types';
 
@@ -40,6 +41,15 @@ export function readAgentModelCatalog(data: unknown): AgentModelCatalogEntry[] {
       || !Array.isArray(item.models)
     ) return [];
     const providerId = item.id.trim();
+    const providerMatches = parsedItems.filter(({ item: candidate, exact: candidateExact }) => {
+      const candidateProviderId = candidateExact?.providerId
+        ?? (isRecord(candidate) && isAgentId(candidate.id) ? candidate.id.trim() : null);
+      return candidateProviderId
+        && normalizeLegacyProviderId(candidateProviderId) === normalizeLegacyProviderId(providerId);
+    });
+    if (providerMatches.length !== 1) {
+      throw new Error(`Legacy agent provider ${providerId} is ambiguous in the current agent catalog.`);
+    }
     const mappedTargetId = resolveLegacyProviderAgentTargetId(exactEntries, providerId);
     if (!mappedTargetId && isLegacyProviderAgentTargetAmbiguous(exactEntries, providerId)) {
       throw new Error(`Legacy agent provider ${providerId} is ambiguous in the current agent catalog.`);
@@ -51,6 +61,9 @@ export function readAgentModelCatalog(data: unknown): AgentModelCatalogEntry[] {
       label: item.label,
       supported: item.supported,
       ...(item.isDefault === true ? { isDefault: true as const } : {}),
+      ...(typeof item.defaultModelId === 'string' && item.defaultModelId.trim()
+        ? { defaultModelId: item.defaultModelId.trim() }
+        : {}),
       models: readModels(item.models),
     }];
   });
@@ -73,6 +86,9 @@ function parseExactModelCatalogEntry(item: unknown): AgentModelCatalogEntry | nu
       label: item.label,
       supported: item.supported,
       ...(item.isDefault === true ? { isDefault: true as const } : {}),
+      ...(typeof item.defaultModelId === 'string' && item.defaultModelId.trim()
+        ? { defaultModelId: item.defaultModelId.trim() }
+        : {}),
       models: readModels(item.models),
     };
 }

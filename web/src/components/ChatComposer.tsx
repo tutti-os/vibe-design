@@ -790,8 +790,7 @@ function normalizeLockedComposerModel(
 }
 
 function normalizeComposerIconProvider(providerId: string | undefined): string {
-  const normalized = providerId?.trim() ?? '';
-  return normalized === 'claude' ? 'claude-code' : normalized;
+  return normalizeLegacyProviderId(providerId);
 }
 
 function modelOptionsForProvider(
@@ -814,7 +813,11 @@ function selectedModelForProvider(
     return current;
   }
 
-  return options.find((model) => model.id === 'default')?.id ?? options[0]?.id ?? null;
+  const defaultModelId = catalog.find((entry) => entry.agentTargetId === provider)?.defaultModelId;
+  return options.find((model) => model.id === defaultModelId)?.id
+    ?? options.find((model) => model.id === 'default')?.id
+    ?? options[0]?.id
+    ?? null;
 }
 
 function unavailableReasonForProvider(

@@ -22,6 +22,7 @@ export interface AssistantMessageProps {
   nextUserContent?: string;
   onAnswerToolQuestion?: (toolUseId: string, content: string) => void | Promise<void>;
   onSubmitToolQuestionFallback?: (content: string) => void | Promise<void>;
+  toolQuestionSubmissionUnavailable?: boolean;
   onOpenGeneratedFile?: (file: GeneratedFileEntry) => void;
   onOpenFileOp?: (op: FileOpEntry) => void;
 }
@@ -33,6 +34,7 @@ export function AssistantMessage({
   nextUserContent,
   onAnswerToolQuestion,
   onSubmitToolQuestionFallback,
+  toolQuestionSubmissionUnavailable = false,
   onOpenGeneratedFile,
   onOpenFileOp,
 }: AssistantMessageProps) {
@@ -51,6 +53,7 @@ export function AssistantMessage({
             nextUserContent={nextUserContent}
             onAnswerToolQuestion={onAnswerToolQuestion}
             onSubmitToolQuestionFallback={onSubmitToolQuestionFallback}
+            toolQuestionSubmissionUnavailable={toolQuestionSubmissionUnavailable}
             onOpenGeneratedFile={onOpenGeneratedFile}
             onOpenFileOp={onOpenFileOp}
           />
@@ -98,6 +101,7 @@ function AssistantBlock({
   nextUserContent,
   onAnswerToolQuestion,
   onSubmitToolQuestionFallback,
+  toolQuestionSubmissionUnavailable,
   onOpenGeneratedFile,
   onOpenFileOp,
 }: {
@@ -106,6 +110,7 @@ function AssistantBlock({
   nextUserContent?: string;
   onAnswerToolQuestion?: (toolUseId: string, content: string) => void | Promise<void>;
   onSubmitToolQuestionFallback?: (content: string) => void | Promise<void>;
+  toolQuestionSubmissionUnavailable: boolean;
   onOpenGeneratedFile?: (file: GeneratedFileEntry) => void;
   onOpenFileOp?: (op: FileOpEntry) => void;
 }) {
@@ -160,6 +165,7 @@ function AssistantBlock({
         nextUserContent={nextUserContent}
         onAnswer={onAnswerToolQuestion}
         onFallbackAnswer={onSubmitToolQuestionFallback}
+        submissionUnavailable={toolQuestionSubmissionUnavailable}
       />
     );
   }
@@ -170,6 +176,7 @@ function AssistantBlock({
         interactive={!streaming}
         nextUserContent={nextUserContent}
         onSubmit={onSubmitToolQuestionFallback}
+        submissionUnavailable={toolQuestionSubmissionUnavailable}
       />
     );
   }
