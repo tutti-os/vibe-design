@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -114,9 +114,13 @@ describe('detectLocalAgentProviders', () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-provider-snapshot-'));
     try {
       const cliPath = join(root, 'tutti-cli.mjs');
+      const invocationLog = join(root, 'cli-invocations.jsonl');
+      const workspaceCwd = join(root, 'workspace');
       await writeFile(cliPath, [
         '#!/usr/bin/env node',
+        'import { appendFileSync } from "node:fs";',
         'const args = process.argv.slice(2);',
+        `appendFileSync(${JSON.stringify(invocationLog)}, JSON.stringify({ args, cwd: process.cwd() }) + "\\n");`,
         'if (args.includes("list")) {',
         '  process.stdout.write(JSON.stringify({ schemaVersion: 1, defaultAgentTargetId: "team:writer", agents: [',
         '    { id: "team:writer", provider: "codex", name: "Writer", availability: { status: "available", reasonCode: "", detail: "" } },',
@@ -132,6 +136,7 @@ describe('detectLocalAgentProviders', () => {
         '}',
       ].join('\n'));
       await chmod(cliPath, 0o755);
+      await mkdir(workspaceCwd, { recursive: true });
       process.env.TUTTI_CLI = cliPath;
 
       const detect = vi.fn(async () => [{
@@ -144,7 +149,7 @@ describe('detectLocalAgentProviders', () => {
         run: vi.fn(),
       };
 
-      await expect(detectLocalAgentProviders(undefined, runtime as never)).resolves.toEqual([
+      await expect(detectLocalAgentProviders({ cwd: workspaceCwd }, runtime as never)).resolves.toEqual([
         expect.objectContaining({
           agentTargetId: 'team:writer', providerId: 'codex', isDefault: true,
           models: [{ id: 'writer-model', label: 'writer-model' }], defaultModelId: 'writer-model',
@@ -155,6 +160,14 @@ describe('detectLocalAgentProviders', () => {
         }),
       ]);
       expect(detect).toHaveBeenCalledTimes(1);
+      expect(detect).toHaveBeenCalledWith({ cwd: workspaceCwd });
+      const canonicalWorkspaceCwd = await realpath(workspaceCwd);
+      const invocations = (await readFile(invocationLog, 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { cwd: string });
+      expect(invocations.length).toBeGreaterThan(0);
+      expect(invocations.every((invocation) => invocation.cwd === canonicalWorkspaceCwd)).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

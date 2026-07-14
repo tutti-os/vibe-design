@@ -1668,7 +1668,7 @@ function createRequestHandler({ detectScript, sessionPath, livePath }) {
             });
           } else {
             const timeoutMs = Number(process.env.IMPECCABLE_LIVE_COPY_AGENT_TIMEOUT_MS || 120000);
-            if (!['agent', 'auto', 'mock'].includes(requestedMode)) {
+            if (!['agent', 'mock'].includes(requestedMode)) {
               throw new Error(`Unsupported live copy-edit runner mode: ${requestedMode}. Use agent with IMPECCABLE_LIVE_COPY_AGENT_ID, chat, or mock.`);
             }
             const runner = requestedMode === 'mock' ? 'mock' : 'agent';

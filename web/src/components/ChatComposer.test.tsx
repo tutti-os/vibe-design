@@ -303,6 +303,57 @@ describe('ChatComposer', () => {
     }
   });
 
+  it('preserves a selected exact target when a catalog refresh removes it', async () => {
+    const onSend = vi.fn();
+    const context = {
+      search: async () => ({ items: [] }),
+      selectResult: vi.fn(),
+      snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+    };
+    const availability = [
+      { agentTargetId: 'team:alpha', providerId: 'codex', label: 'Alpha', supported: true, authState: 'ok' as const },
+      { agentTargetId: 'team:beta', providerId: 'codex', label: 'Beta', supported: true, authState: 'ok' as const },
+    ];
+    const catalog = [
+      { agentTargetId: 'team:alpha', providerId: 'codex', label: 'Alpha', supported: true, isDefault: true as const, models: [] },
+      { agentTargetId: 'team:beta', providerId: 'codex', label: 'Beta', supported: true, models: [] },
+    ];
+    const renderComposer = (
+      nextAvailability: typeof availability,
+      nextCatalog: typeof catalog,
+    ) => (
+      <ChatComposer
+        streaming={false}
+        draft="Keep beta"
+        agentAvailability={nextAvailability}
+        agentModelCatalog={nextCatalog}
+        context={context}
+        onSend={onSend}
+        onStop={vi.fn()}
+      />
+    );
+    const { container, root } = renderComponent(renderComposer(availability, catalog));
+
+    try {
+      await openModelMenu(container);
+      await act(async () => menuItemByName('Beta').click());
+      expect(getByLabelText(container, 'Agent and model').textContent).toContain('Beta');
+
+      await act(async () => root.render(renderComposer(
+        availability.slice(0, 1),
+        catalog.slice(0, 1),
+      )));
+
+      expect(getByLabelText(container, 'Agent and model').textContent).toContain('team:beta');
+      expect(getByLabelText(container, 'Agent and model').textContent).not.toContain('Alpha');
+      expect((getByLabelText(container, 'Send message') as HTMLButtonElement).disabled).toBe(true);
+      await act(async () => getByLabelText(container, 'Send message').click());
+      expect(onSend).not.toHaveBeenCalled();
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('does not send when availability has a provider omitted from the catalog', async () => {
     const onSend = vi.fn();
     const { container, root } = renderComponent(

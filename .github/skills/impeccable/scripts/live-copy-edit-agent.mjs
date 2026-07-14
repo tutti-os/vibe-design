@@ -146,8 +146,9 @@ export async function runCopyEditBatchAgent(batch, opts = {}) {
     cwd,
     timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
   }));
-  const sessionId = readNonEmptyString(started.agentSessionId ?? started.sessionId);
-  const startedAgentTargetId = readNonEmptyString(started.agentTargetId);
+  const startedSession = isRecord(started.session) ? started.session : started;
+  const sessionId = readNonEmptyString(startedSession.agentSessionId ?? startedSession.sessionId);
+  const startedAgentTargetId = readNonEmptyString(startedSession.agentTargetId);
   if (!sessionId || startedAgentTargetId !== target.agentTargetId) {
     throw new Error('Tutti started a session without the selected exact Agent Target identity.');
   }
@@ -480,7 +481,7 @@ export function chooseCopyEditAgent({
   if (mode === '0' || mode === 'false' || mode === 'off' || mode === 'none') return null;
   if (mode === 'mock') return 'mock';
   if (mode === 'chat') return chatAvailable() ? 'chat' : null;
-  if (mode === 'agent' || mode === 'auto') return 'agent';
+  if (mode === 'agent') return 'agent';
   return null;
 }
 
@@ -518,6 +519,10 @@ function unwrapCliValue(payload) {
 
 function readNonEmptyString(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function isRecord(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function latestAgentResultText(payload) {

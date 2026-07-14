@@ -205,6 +205,105 @@ describe('startAgentRun', () => {
     }
   });
 
+  it('uses one standalone cwd and detect context for catalog, composer, skills, and runtime', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-context-'));
+    try {
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(root, 'projects');
+      const agentCwd = join(projectsDir, 'project-1');
+      await mkdir(builtInSkillsRoot, { recursive: true });
+      await mkdir(userSkillsRoot, { recursive: true });
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({
+        projectId: 'project-1',
+        agentTargetId: 'team:writer',
+        provider: 'codex',
+      });
+      const runtime = createRecordingRuntime();
+      const catalogInputs: unknown[] = [];
+      const composerInputs: unknown[] = [];
+      const skillInputs: unknown[] = [];
+      const emptyConfig = { configurable: false, currentValue: '', defaultValue: '', options: [] };
+
+      await startAgentRunWithDependencies({
+        run,
+        runs,
+        request: {
+          projectId: 'project-1',
+          agentTargetId: 'team:writer',
+          provider: 'codex',
+          prompt: 'Keep context aligned.',
+        },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+        loadAgentCatalog: async (input) => {
+          catalogInputs.push(input);
+          return {
+            schemaVersion: 1,
+            source: 'standalone',
+            cliContract: 'agent-id',
+            defaultAgentTargetId: 'team:writer',
+            agents: [{
+              agentTargetId: 'team:writer',
+              providerId: 'codex',
+              displayName: 'Writer',
+              availability: { status: 'available', reasonCode: '', detail: '' },
+              runtimeSupported: true,
+            }],
+          };
+        },
+        loadAgentComposerOptions: async (input) => {
+          composerInputs.push(input);
+          return {
+            schemaVersion: 2,
+            source: 'standalone',
+            agentTargetId: 'team:writer',
+            providerId: 'codex',
+            effectiveSettings: {},
+            modelConfig: emptyConfig,
+            permissionConfig: { configurable: false, defaultValue: '', modes: [] },
+            reasoningConfig: emptyConfig,
+            speedConfig: emptyConfig,
+          };
+        },
+        resolveAgentSkillBundle: async (input) => {
+          skillInputs.push(input);
+          return {
+            source: 'standalone',
+            agentTargetId: 'team:writer',
+            providerId: 'codex',
+            skills: [],
+            skillManifest: [],
+          };
+        },
+      });
+
+      expect(catalogInputs).toEqual([expect.objectContaining({
+        cwd: agentCwd,
+        detectContext: expect.objectContaining({ cwd: agentCwd, refresh: true }),
+      })]);
+      expect(composerInputs).toEqual([expect.objectContaining({
+        cwd: agentCwd,
+        agentTargetId: 'team:writer',
+        detectContext: expect.objectContaining({ cwd: agentCwd, refresh: true }),
+      })]);
+      expect(skillInputs).toEqual([expect.objectContaining({
+        cwd: agentCwd,
+        agentTargetId: 'team:writer',
+        detectContext: expect.objectContaining({ cwd: agentCwd, refresh: true }),
+      })]);
+      expect(runtime.inputs[0]?.cwd).toBe(agentCwd);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('keeps exact target B through composer, skills, resume, and provider runtime when two targets share one provider', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     try {

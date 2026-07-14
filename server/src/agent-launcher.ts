@@ -153,8 +153,11 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   const skillSelection = legacyProviderSelection
     ? { provider }
     : { agentTargetId };
-  const catalogDetectContext = {
+  const catalogDetectContext: DetectContext = {
     ...(input.detectContext ?? {}),
+    ...(!input.detectContext?.cwd && !input.detectContext?.managedAgentInvocation
+      ? { cwd: agentCwd }
+      : {}),
     refresh: true,
   };
   const catalogEnv = legacyProviderSelection ? { ...process.env, TUTTI_CLI: '' } : undefined;

@@ -28,14 +28,16 @@ export async function detectLocalAgentProviders(
   context?: DetectContext,
   runtime: typeof localAgentRuntime = localAgentRuntime,
 ): Promise<AgentProviderSnapshot[]> {
-  const providers = await runtime.detect(context);
+  const cwd = resolveAgentCatalogCwd(context);
+  const detectContext = context?.cwd === cwd ? context : { ...context, cwd };
+  const providers = await runtime.detect(detectContext);
   const snapshotRuntime: typeof localAgentRuntime = {
     cancel: (runId) => runtime.cancel(runId),
     detect: async () => providers,
     listProviders: () => runtime.listProviders(),
     run: (input) => runtime.run(input),
   };
-  const catalog = await loadTuttiAgentCatalog({ runtime: snapshotRuntime, detectContext: context });
+  const catalog = await loadTuttiAgentCatalog({ runtime: snapshotRuntime, cwd, detectContext });
   const byProvider = new Map(providers.map((provider) => [provider.provider, provider]));
   return Promise.all(catalog.agents.map(async (agent) => {
     const provider = byProvider.get(agent.providerId);
@@ -44,7 +46,8 @@ export async function detectLocalAgentProviders(
       ? await loadTuttiAgentComposerOptions({
           runtime: snapshotRuntime,
           agentTargetId: agent.agentTargetId,
-          detectContext: context,
+          cwd,
+          detectContext,
         })
       : null;
     return {
@@ -65,6 +68,14 @@ export async function detectLocalAgentProviders(
       ...(agent.availability.detail ? { reason: agent.availability.detail } : {}),
     };
   }));
+}
+
+function resolveAgentCatalogCwd(context?: DetectContext): string {
+  return context?.cwd?.trim()
+    || context?.managedAgentInvocation?.cwd?.trim()
+    || context?.env?.TUTTI_WORKSPACE_ROOT?.trim()
+    || process.env.TUTTI_WORKSPACE_ROOT?.trim()
+    || process.cwd();
 }
 
 export function createAgentProviderSnapshotDetector(detectProviders: DetectAgentProviders): {

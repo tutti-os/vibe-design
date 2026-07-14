@@ -57,7 +57,7 @@ test('fails closed when the requested or default target is unavailable', () => {
 
 test('does not reinterpret retired provider runner modes as Agent Target ids', () => {
   assert.equal(chooseCopyEditAgent({ env: { IMPECCABLE_LIVE_COPY_AGENT_MODE: 'agent' } }), 'agent');
-  assert.equal(chooseCopyEditAgent({ env: { IMPECCABLE_LIVE_COPY_AGENT: 'auto' } }), 'agent');
+  assert.equal(chooseCopyEditAgent({ env: { IMPECCABLE_LIVE_COPY_AGENT: 'auto' } }), null);
   assert.equal(chooseCopyEditAgent({ env: { IMPECCABLE_LIVE_COPY_AGENT: 'codex' } }), null);
   assert.equal(chooseCopyEditAgent({ env: { IMPECCABLE_LIVE_COPY_AGENT: 'claude' } }), null);
 });
@@ -71,7 +71,12 @@ test('discovers, starts, and verifies one exact Agent Target', async (t) => {
     const command = args.slice(1, 3).join(' ');
     if (command === 'agent list') return { value: CATALOG };
     if (command === 'agent start') {
-      return { value: { agentSessionId: 'session-1', agentTargetId: 'team:writer' } };
+      return {
+        value: {
+          launchRequested: false,
+          session: { agentSessionId: 'session-1', agentTargetId: 'team:writer' },
+        },
+      };
     }
     if (command === 'agent wait') return { value: { timedOut: false, messages: [] } };
     if (command === 'agent session-summary') {
@@ -123,7 +128,10 @@ test('rejects a session that reports a different Agent Target identity', async (
     const command = args.slice(1, 3).join(' ');
     if (command === 'agent list') return CATALOG;
     if (command === 'agent start') {
-      return { agentSessionId: 'session-1', agentTargetId: 'team:reviewer' };
+      return {
+        launchRequested: false,
+        session: { agentSessionId: 'session-1', agentTargetId: 'team:reviewer' },
+      };
     }
     throw new Error(`Unexpected command: ${args.join(' ')}`);
   };

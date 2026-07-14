@@ -245,16 +245,21 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
 
     useEffect(() => {
       if (providerLocked) return;
+      // Once the user has chosen an exact target, preserve that identity across
+      // catalog refreshes. A missing or newly unavailable target must disable
+      // send until the user explicitly selects another target.
+      if (modelProvider) return;
       if (activeModelProviders.length === 0) return;
-      const currentIsKnown = activeModelProviderIds.has(modelProvider);
-      const currentUnavailable = unavailableReasonForProvider(modelProvider, agentAvailability);
-      if (currentIsKnown && !currentUnavailable) return;
-      const preferred = activeModelProviders.find((provider) => !unavailableReasonForProvider(provider.value, agentAvailability))
+      const defaultTargetId = agentModelCatalog.find((entry) => entry.isDefault)?.agentTargetId;
+      const preferred = activeModelProviders.find(
+        (provider) => provider.value === defaultTargetId
+          && !unavailableReasonForProvider(provider.value, agentAvailability),
+      ) ?? activeModelProviders.find((provider) => !unavailableReasonForProvider(provider.value, agentAvailability))
         ?? activeModelProviders[0];
       if (preferred && preferred.value !== modelProvider) {
         setModelProvider(preferred.value);
       }
-    }, [activeModelProviderIds, activeModelProviders, agentAvailability, modelProvider, providerLocked]);
+    }, [activeModelProviders, agentAvailability, agentModelCatalog, modelProvider, providerLocked]);
 
     useEffect(() => {
       const label = modelProviders.find((provider) => provider.value === modelProvider)?.label ?? modelProvider;
