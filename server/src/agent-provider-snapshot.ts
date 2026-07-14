@@ -167,13 +167,7 @@ export function createAgentProviderSnapshotDetector(detectProviders: DetectAgent
 
 function providerSnapshotKey(context?: DetectContext): string {
   const managed = context?.managedAgentInvocation;
-  const workspace = managed?.cwd
-    ?? context?.cwd
-    ?? context?.env?.TSH_WORKSPACE_ID
-    ?? context?.env?.TUTTI_WORKSPACE_ROOT
-    ?? process.env.TSH_WORKSPACE_ID
-    ?? process.env.TUTTI_WORKSPACE_ROOT
-    ?? 'standalone';
+  const workspace = resolveAgentCatalogCwd(context);
   const credentialFingerprint = managed?.credential
     ? createHash('sha256').update(managed.credential).digest('hex')
     : 'none';

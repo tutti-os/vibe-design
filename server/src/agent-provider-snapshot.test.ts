@@ -72,6 +72,31 @@ describe('createAgentProviderSnapshotDetector', () => {
     expect(detect).toHaveBeenCalledTimes(4);
   });
 
+  it('separates explicit catalog workspaces even when the managed invocation cwd is shared', async () => {
+    const pending = deferred<AgentProviderSnapshot[]>();
+    const detect = vi.fn(() => pending.promise);
+    const snapshots = createAgentProviderSnapshotDetector(detect);
+    const managedAgentInvocation = { cwd: '/workspace/managed', credential: 'secret-one' };
+
+    const first = snapshots.detect({
+      cwd: '/workspace/one',
+      managedAgentInvocation,
+    });
+    const second = snapshots.detect({
+      cwd: '/workspace/two',
+      managedAgentInvocation,
+    });
+
+    await Promise.resolve();
+    expect(first).not.toBe(second);
+    expect(detect).toHaveBeenCalledTimes(2);
+    pending.resolve(PROVIDERS);
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      PROVIDERS,
+      PROVIDERS,
+    ]);
+  });
+
   it('separates in-flight detections whose effective environments differ', async () => {
     const pending = deferred<AgentProviderSnapshot[]>();
     const detect = vi.fn(() => pending.promise);
