@@ -1059,6 +1059,7 @@ async function createProjectEditorInitialData(
 function conversationSummaryForClient(conversation: {
   id: string;
   title: string | null;
+  agentTargetId?: string | null;
   provider?: string | null;
   model?: string | null;
   createdAt: number;
@@ -1067,6 +1068,7 @@ function conversationSummaryForClient(conversation: {
   return {
     id: conversation.id,
     title: conversation.title ?? 'New conversation',
+    agentTargetId: conversation.agentTargetId ?? null,
     provider: conversation.provider ?? null,
     model: conversation.model ?? null,
     createdAt: conversation.createdAt,

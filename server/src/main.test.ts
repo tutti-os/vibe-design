@@ -1458,8 +1458,7 @@ describe('createServer', () => {
       prompt: 'Build with codex',
     });
 
-    // Re-targeting the same conversation with Claude Code would collide with the codex lock; the
-    // call transparently runs in a fresh conversation instead of failing.
+    // Re-targeting the same conversation with Claude Code is rejected by the exact-target lock.
     const started = await postCli(port, 'session-start', {
       'project-id': projectId,
       'conversation-id': codexConversationId,

@@ -34,6 +34,7 @@ import type {
   AgentModelCatalogEntry as ChatComposerAgentModelCatalogEntry,
   AgentModelOption as ChatComposerModelOption,
 } from '../services/agent-catalog/agent-catalog-types';
+import { normalizeLegacyProviderId } from '../services/agent-catalog/agent-catalog-types';
 import { useTranslation } from '../i18n';
 import { DesignSystemPickerDialog } from './DesignSystemPickerDialog';
 import {
@@ -73,6 +74,7 @@ export interface ChatComposerProps {
   agentAvailability?: ChatComposerAgentAvailability[];
   agentModelCatalog?: ChatComposerAgentModelCatalogEntry[];
   lockedAgentTargetId?: AgentTargetId | null;
+  unresolvedAgentTargetLock?: boolean;
   lockedModel?: string | null;
   onOpenDesignSystemPicker?(): void | Promise<void>;
   onSelectDesignSystem?(designSystemId: string | null): void | Promise<void>;
@@ -123,6 +125,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     agentAvailability = [],
     agentModelCatalog = [],
     lockedAgentTargetId = null,
+    unresolvedAgentTargetLock = false,
     lockedModel = null,
     onOpenDesignSystemPicker,
     onSelectDesignSystem,
@@ -136,7 +139,9 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     const [files, setFiles] = useState<File[]>([]);
     const [uploadedAttachments, setUploadedAttachments] = useState<ChatAttachment[]>([]);
     const [modelProvider, setModelProvider] = useState<string>(() => (
-      lockedAgentTargetId?.trim()
+      unresolvedAgentTargetLock
+      ? ''
+      : lockedAgentTargetId?.trim()
       || agentModelCatalog.find((entry) => entry.isDefault && entry.supported)?.agentTargetId
       || agentModelCatalog.find((entry) => entry.supported)?.agentTargetId
       || ''
@@ -156,7 +161,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     const activeModelProviders = useMemo<ModelProviderEntry[]>(() => {
       return agentModelCatalog.map((entry) => ({
         value: entry.agentTargetId,
-        providerId: entry.providerId ?? '',
+        providerId: normalizeComposerIconProvider(entry.providerId),
         label: entry.label,
       }));
     }, [agentModelCatalog]);
@@ -166,7 +171,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       [activeModelProviders],
     );
     const lockedModelProvider = lockedAgentTargetId?.trim() || null;
-    const providerLocked = lockedModelProvider !== null;
+    const providerLocked = lockedModelProvider !== null || unresolvedAgentTargetLock;
     const selectedProviderUnavailableReason = unavailableReasonForProvider(modelProvider, agentAvailability);
     const selectedModelOptions = modelOptionsForProvider(modelProvider, agentModelCatalog);
     const selectedModel = selectedModelForProvider(modelProvider, selectedModelsByProvider, agentModelCatalog);
@@ -189,6 +194,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     const canSend =
       hasSendableInput &&
       !sendPending &&
+      !unresolvedAgentTargetLock &&
       activeModelProviderIds.has(modelProvider) &&
       !selectedProviderUnavailableReason;
 
@@ -212,10 +218,14 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     );
 
     useEffect(() => {
+      if (unresolvedAgentTargetLock) {
+        setModelProvider('');
+        return;
+      }
       if (lockedModelProvider) {
         setModelProvider(lockedModelProvider);
       }
-    }, [lockedModelProvider]);
+    }, [lockedModelProvider, unresolvedAgentTargetLock]);
 
     useEffect(() => {
       if (!lockedModelProvider || !lockedModel) return;
@@ -758,13 +768,25 @@ function normalizeLockedComposerModel(
   if (options.some((option) => option.id === model)) {
     return model;
   }
-  if (model.startsWith(`${provider}:`)) {
-    const stripped = model.slice(provider.length + 1);
+  const modelProviderId = catalog.find((entry) => entry.agentTargetId === provider)?.providerId?.trim()
+    || provider;
+  const separatorIndex = model.indexOf(':');
+  const prefixedProviderId = separatorIndex > 0 ? model.slice(0, separatorIndex) : '';
+  if (
+    prefixedProviderId
+    && normalizeLegacyProviderId(prefixedProviderId) === normalizeLegacyProviderId(modelProviderId)
+  ) {
+    const stripped = model.slice(separatorIndex + 1);
     if (options.some((option) => option.id === stripped)) {
       return stripped;
     }
   }
   return model;
+}
+
+function normalizeComposerIconProvider(providerId: string | undefined): string {
+  const normalized = providerId?.trim() ?? '';
+  return normalized === 'claude' ? 'claude-code' : normalized;
 }
 
 function modelOptionsForProvider(

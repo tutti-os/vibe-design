@@ -1043,6 +1043,12 @@ describe('ChatPane', () => {
       <ChatPane
         snapshot={snapshot}
         agentModelCatalog={agentModelCatalog}
+        agentAvailability={[{
+          agentTargetId: 'tutti-agent',
+          label: 'Tutti Agent',
+          supported: true,
+          authState: 'ok',
+        }]}
         activeConversationAgentTargetId="tutti-agent"
         contextSnapshot={{ selectedSkills: [], selectedDesignFiles: [] }}
         contextSearch={async () => ({ items: [] })}

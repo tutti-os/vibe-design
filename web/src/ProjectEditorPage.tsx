@@ -17,7 +17,10 @@ import {
   consumeInitialProjectAgentHandoff,
   consumeInitialProjectPrompt,
   consumeInitialProjectSkills,
+  stashInitialProjectAgent,
   stashInitialProjectPrompt,
+  stashInitialProjectSkills,
+  type InitialProjectAgentHandoff,
   type InitialProjectAgentSelection,
 } from './initial-project-prompt';
 import { useServiceSnapshot } from './hooks/use-service-snapshot';
@@ -1202,27 +1205,67 @@ function InitialProjectPromptStarter({
     // conversation already has messages (reload or revisit), clear the stale
     // handoff without replaying so we never double-send the first turn.
     if (!prompt || hasExistingMessages) {
+      consumeInitialProjectAgentHandoff(projectId);
       return;
     }
 
+    let cancelled = false;
+    let sent = false;
+    let restored = false;
+    let consumedAgentHandoff: InitialProjectAgentHandoff | null = null;
+    const restoreHandoff = () => {
+      if (sent || restored) return;
+      restored = true;
+      stashInitialProjectPrompt(projectId, prompt);
+      stashInitialProjectSkills(projectId, skillIds);
+      const selection = consumedAgentHandoff?.unresolvedSelection
+        ?? consumedAgentHandoff?.selection;
+      if (selection) stashInitialProjectAgent(projectId, selection);
+    };
+
     void (async () => {
-      const catalog = await agentCatalog.ensureLoaded();
-      const agentHandoff = consumeInitialProjectAgentHandoff(projectId, catalog);
-      if (agentHandoff.unresolvedLegacyProviderId) {
-        stashInitialProjectPrompt(projectId, prompt);
-        return;
-      }
-      // Re-apply the skills picked on the dashboard so the project's first run
-      // includes them (the project owns a fresh context picker instance).
-      for (const skillId of skillIds) {
-        try {
-          await context.selectSkill(skillId);
-        } catch {
-          // Best-effort: a skill that no longer exists is simply skipped.
+      try {
+        const catalog = await agentCatalog.ensureLoaded();
+        if (cancelled) {
+          restoreHandoff();
+          return;
         }
+        consumedAgentHandoff = consumeInitialProjectAgentHandoff(projectId, catalog);
+        if (cancelled || consumedAgentHandoff.unresolvedLegacyProviderId) {
+          restoreHandoff();
+          return;
+        }
+        // Re-apply the skills picked on the dashboard so the project's first run
+        // includes them (the project owns a fresh context picker instance).
+        for (const skillId of skillIds) {
+          try {
+            await context.selectSkill(skillId);
+          } catch {
+            // Best-effort: a skill that no longer exists is simply skipped.
+          }
+          if (cancelled) {
+            restoreHandoff();
+            return;
+          }
+        }
+        if (cancelled) {
+          restoreHandoff();
+          return;
+        }
+        onSendTurn(prompt, consumedAgentHandoff.selection);
+        sent = true;
+      } catch {
+        restoreHandoff();
       }
-      onSendTurn(prompt, agentHandoff.selection);
     })();
+
+    return () => {
+      cancelled = true;
+      if (!sent) {
+        restoreHandoff();
+        startedRef.current = false;
+      }
+    };
   }, [projectId, persistedPrompt, hasExistingMessages, onSendTurn, context, agentCatalog]);
 
   return null;

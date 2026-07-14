@@ -2,7 +2,10 @@ import type {
   AgentAvailability,
   AgentModelCatalogEntry,
 } from './agent-catalog-types';
-import { resolveLegacyProviderAgentTargetId } from './agent-catalog-types';
+import {
+  isLegacyProviderAgentTargetAmbiguous,
+  resolveLegacyProviderAgentTargetId,
+} from './agent-catalog-types';
 
 export async function fetchAgentModelCatalog(): Promise<AgentModelCatalogEntry[]> {
   const response = await fetch('/api/agents/models');
@@ -25,10 +28,10 @@ export async function fetchAgentAvailability(): Promise<AgentAvailability[]> {
 export function readAgentModelCatalog(data: unknown): AgentModelCatalogEntry[] {
   const value = isRecord(data) ? data.agents : null;
   if (!Array.isArray(value)) return [];
-  const exactEntries = value.flatMap((item) => parseExactModelCatalogEntry(item));
-  return value.flatMap((item) => {
-    const exact = parseExactModelCatalogEntry(item);
-    if (exact.length > 0) return exact;
+  const parsedItems = value.map((item) => ({ item, exact: parseExactModelCatalogEntry(item) }));
+  const exactEntries = parsedItems.flatMap(({ exact }) => exact ? [exact] : []);
+  return parsedItems.flatMap(({ item, exact }) => {
+    if (exact) return [exact];
     if (
       !isRecord(item)
       || !isAgentId(item.id)
@@ -38,7 +41,7 @@ export function readAgentModelCatalog(data: unknown): AgentModelCatalogEntry[] {
     ) return [];
     const providerId = item.id.trim();
     const mappedTargetId = resolveLegacyProviderAgentTargetId(exactEntries, providerId);
-    if (!mappedTargetId && exactEntries.some((entry) => entry.providerId === providerId)) {
+    if (!mappedTargetId && isLegacyProviderAgentTargetAmbiguous(exactEntries, providerId)) {
       throw new Error(`Legacy agent provider ${providerId} is ambiguous in the current agent catalog.`);
     }
     const agentTargetId = mappedTargetId ?? `local:${providerId}`;
@@ -53,7 +56,7 @@ export function readAgentModelCatalog(data: unknown): AgentModelCatalogEntry[] {
   });
 }
 
-function parseExactModelCatalogEntry(item: unknown): AgentModelCatalogEntry[] {
+function parseExactModelCatalogEntry(item: unknown): AgentModelCatalogEntry | null {
     if (
       !isRecord(item)
       || !isAgentId(item.agentTargetId)
@@ -62,16 +65,16 @@ function parseExactModelCatalogEntry(item: unknown): AgentModelCatalogEntry[] {
       || typeof item.supported !== 'boolean'
       || !Array.isArray(item.models)
     ) {
-      return [];
+      return null;
     }
-    return [{
-      agentTargetId: item.agentTargetId,
-      providerId: item.providerId,
+    return {
+      agentTargetId: item.agentTargetId.trim(),
+      providerId: item.providerId.trim(),
       label: item.label,
       supported: item.supported,
       ...(item.isDefault === true ? { isDefault: true as const } : {}),
       models: readModels(item.models),
-    }];
+    };
 }
 
 export function readAgentAvailability(

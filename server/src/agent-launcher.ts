@@ -7,7 +7,11 @@ import {
   type DetectContext,
   type ManagedAgentRunContext,
 } from '@tutti-os/agent-acp-kit';
-import { loadTuttiAgentComposerOptions } from '@tutti-os/agent-acp-kit/tutti';
+import {
+  loadTuttiAgentCatalog,
+  loadTuttiAgentComposerOptions,
+} from '@tutti-os/agent-acp-kit/tutti';
+import { legacyProviderIdsMatch } from './agent-availability.js';
 import { type AgentRegistry } from './agents.js';
 import {
   createFileOutputProtocolParser,
@@ -69,6 +73,11 @@ export interface StartAgentRunInput {
   agentRuntime?: LocalAgentRuntime;
   detectContext?: DetectContext;
   managedAgentRunContext?: ManagedAgentRunContext;
+  loadAgentCatalog?: (
+    input: Parameters<typeof loadTuttiAgentCatalog>[0],
+  ) => ReturnType<typeof loadTuttiAgentCatalog>;
+  loadAgentComposerOptions?: typeof loadTuttiAgentComposerOptions;
+  resolveAgentSkillBundle?: typeof resolveTuttiAgentSkillBundle;
 }
 
 const defaultAgentRuntime: LocalAgentRuntime = localAgentRuntime;
@@ -144,20 +153,48 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   const skillSelection = legacyProviderSelection
     ? { provider }
     : { agentTargetId };
+  const catalogDetectContext = {
+    ...(input.detectContext ?? {}),
+    refresh: true,
+  };
+  const catalogEnv = legacyProviderSelection ? { ...process.env, TUTTI_CLI: '' } : undefined;
+  const refreshedCatalog = await (input.loadAgentCatalog ?? loadTuttiAgentCatalog)({
+    runtime: localAgentRuntime,
+    cwd: workspaceCwd,
+    detectContext: catalogDetectContext,
+    ...(catalogEnv ? { env: catalogEnv } : {}),
+  });
+  const matchingCatalogAgents = legacyProviderSelection
+    ? refreshedCatalog.agents.filter((candidate) => legacyProviderIdsMatch(candidate.providerId, provider))
+    : refreshedCatalog.agents.filter((candidate) => candidate.agentTargetId === agentTargetId);
+  const refreshedAgent = matchingCatalogAgents.length === 1 ? matchingCatalogAgents[0] : undefined;
+  if (
+    !refreshedAgent
+    || refreshedAgent.providerId !== provider
+    || !refreshedAgent.runtimeSupported
+    || refreshedAgent.availability.status !== 'available'
+  ) {
+    runs.fail(
+      run,
+      'AGENT_UNAVAILABLE',
+      refreshedAgent?.availability.detail || 'The selected agent target is unavailable in the current Tutti catalog.',
+    );
+    return;
+  }
   const [composerOptions, tuttiSkillBundle] = await Promise.all([
-    loadTuttiAgentComposerOptions({
+    (input.loadAgentComposerOptions ?? loadTuttiAgentComposerOptions)({
       runtime: localAgentRuntime,
       ...composerSelection,
-      ...(legacyProviderSelection ? { env: { ...process.env, TUTTI_CLI: '' } } : {}),
+      ...(catalogEnv ? { env: catalogEnv } : {}),
       cwd: workspaceCwd,
-      detectContext: input.detectContext,
+      detectContext: catalogDetectContext,
       model: requestedModel,
       reasoningEffort: readString(request.reasoning) ?? undefined,
     }),
-    resolveTuttiAgentSkillBundle({
+    (input.resolveAgentSkillBundle ?? resolveTuttiAgentSkillBundle)({
       agentSessionId: run.id,
       cwd: workspaceCwd,
-      detectContext: input.detectContext,
+      detectContext: catalogDetectContext,
       ...skillSelection,
     }),
   ]);

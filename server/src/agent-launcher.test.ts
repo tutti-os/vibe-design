@@ -1,10 +1,11 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  startAgentRun,
+  startAgentRun as startAgentRunWithDependencies,
   type LocalAgentRuntime,
+  type StartAgentRunInput,
 } from './agent-launcher.js';
 import { createAgentRegistry, type RuntimeAgentDef } from './agents.js';
 import { createConversation, upsertConversationMessage } from './conversations.js';
@@ -82,6 +83,55 @@ function createRecordingRuntime(
       }
     },
   };
+}
+
+async function startAgentRun(input: StartAgentRunInput): Promise<void> {
+  if (process.env.TUTTI_CLI?.trim()) {
+    return startAgentRunWithDependencies(input);
+  }
+  const requestTargetId = typeof input.request.agentTargetId === 'string'
+    ? input.request.agentTargetId.trim()
+    : '';
+  const agentTargetId = requestTargetId || input.run.agentTargetId || '';
+  const requestProvider = typeof input.request.provider === 'string'
+    ? input.request.provider.trim()
+    : '';
+  const providerId = requestProvider || input.run.provider || '';
+  const emptyConfig = { configurable: false, currentValue: '', defaultValue: '', options: [] };
+  return startAgentRunWithDependencies({
+    loadAgentCatalog: async () => ({
+      schemaVersion: 1,
+      source: 'standalone',
+      cliContract: 'agent-id',
+      defaultAgentTargetId: agentTargetId,
+      agents: [{
+        agentTargetId,
+        providerId,
+        displayName: providerId,
+        availability: { status: 'available', reasonCode: '', detail: '' },
+        runtimeSupported: true,
+      }],
+    }),
+    loadAgentComposerOptions: async () => ({
+      schemaVersion: 2,
+      source: 'standalone',
+      agentTargetId,
+      providerId,
+      effectiveSettings: {},
+      modelConfig: emptyConfig,
+      permissionConfig: { configurable: false, defaultValue: '', modes: [] },
+      reasoningConfig: emptyConfig,
+      speedConfig: emptyConfig,
+    }),
+    resolveAgentSkillBundle: async () => ({
+      source: 'standalone',
+      agentTargetId,
+      providerId,
+      skills: [],
+      skillManifest: [],
+    }),
+    ...input,
+  });
 }
 
 describe('startAgentRun', () => {
@@ -162,11 +212,16 @@ describe('startAgentRun', () => {
       const userSkillsRoot = join(root, 'user-skills');
       const projectsDir = join(root, 'projects');
       const cliPath = join(root, 'tutti-cli.mjs');
+      const workspaceCwd = join(root, 'workspace-context');
+      const cliInvocationLog = join(root, 'tutti-cli-invocations.jsonl');
       await mkdir(builtInSkillsRoot, { recursive: true });
       await mkdir(userSkillsRoot, { recursive: true });
+      await mkdir(workspaceCwd, { recursive: true });
       await writeFile(cliPath, [
         '#!/usr/bin/env node',
+        'import { appendFileSync } from "node:fs";',
         'const args = process.argv.slice(2);',
+        `appendFileSync(${JSON.stringify(cliInvocationLog)}, JSON.stringify({ args, cwd: process.cwd() }) + "\\n");`,
         'const config = { configurable: false, currentValue: "", defaultValue: "", options: [] };',
         'if (args.includes("list")) process.stdout.write(JSON.stringify({',
         '  schemaVersion: 1, defaultAgentTargetId: "team:a", agents: [',
@@ -187,6 +242,7 @@ describe('startAgentRun', () => {
       ].join('\n'));
       await chmod(cliPath, 0o755);
       process.env.TUTTI_CLI = cliPath;
+      process.env.TUTTI_WORKSPACE_ROOT = workspaceCwd;
 
       const runs = createChatRunService({
         createSseResponse: createNoopSseResponse,
@@ -218,6 +274,20 @@ describe('startAgentRun', () => {
         agentTargetId: 'team:b',
         provider: 'codex',
       });
+      const cliInvocations = (await readFile(cliInvocationLog, 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { args: string[]; cwd: string });
+      expect(cliInvocations.length).toBeGreaterThan(0);
+      const canonicalWorkspaceCwd = await realpath(workspaceCwd);
+      expect(cliInvocations.map((invocation) => ({
+        command: invocation.args.slice(1, 3).join(' '),
+        cwd: invocation.cwd,
+      }))).toEqual(cliInvocations.map((invocation) => ({
+        command: invocation.args.slice(1, 3).join(' '),
+        cwd: canonicalWorkspaceCwd,
+      })));
+      expect(runtime.inputs[0]?.cwd).toBe(join(projectsDir, 'project-1'));
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1163,6 +1233,56 @@ describe('startAgentRun', () => {
       expect(run.status).toBe('failed');
       expect(run.events.find((event) => event.event === 'error')?.data).toMatchObject({
         code: 'AGENT_UNAVAILABLE',
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rechecks exact target availability immediately before launch and fails closed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
+    try {
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(root, 'projects');
+      await mkdir(builtInSkillsRoot, { recursive: true });
+      await mkdir(userSkillsRoot, { recursive: true });
+
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({ projectId: 'project-1', agentTargetId: 'team:writer', provider: 'codex' });
+      const runtime = createRecordingRuntime();
+
+      await startAgentRun({
+        run,
+        runs,
+        request: { projectId: 'project-1', prompt: 'Write.', agentTargetId: 'team:writer', provider: 'codex' },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+        loadAgentCatalog: async () => ({
+          schemaVersion: 1,
+          source: 'tutti-cli',
+          cliContract: 'agent-id',
+          defaultAgentTargetId: 'team:writer',
+          agents: [{
+            agentTargetId: 'team:writer',
+            providerId: 'codex',
+            displayName: 'Writer',
+            runtimeSupported: true,
+            availability: { status: 'unavailable', reasonCode: 'offline', detail: 'Writer went offline.' },
+          }],
+        }),
+      });
+
+      expect(runtime.inputs).toEqual([]);
+      expect(run.status).toBe('failed');
+      expect(run.events.find((event) => event.event === 'error')?.data).toMatchObject({
+        code: 'AGENT_UNAVAILABLE',
+        message: 'Writer went offline.',
       });
     } finally {
       await rm(root, { recursive: true, force: true });

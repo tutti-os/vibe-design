@@ -44,7 +44,7 @@ Place comments on exact preview locations and send screenshot attachments to the
 
 ### 🤖 Local agent runtime
 
-The server reads the current Tutti Agent catalog, uses its default Agent Target, and surfaces availability problems in the UI. Provider ids remain runtime metadata and do not define user-visible agent identity.
+The server reads the current Tutti Agent catalog, executes the exact Agent Target selected for each conversation, and surfaces availability problems in the UI. The catalog default is selection metadata for new conversations only; provider ids remain runtime metadata and do not define user-visible agent identity.
 
 ### ⌨️ Agent-friendly CLI
 

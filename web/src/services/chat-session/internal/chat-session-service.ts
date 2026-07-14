@@ -62,7 +62,7 @@ export class ChatSessionService implements IChatSessionService {
     this.nextQueuedTurnId = nextQueuedTurnId(this.queuedTurns);
     this.resumeActiveRun();
     if (this.queuedTurns.length > 0) {
-      queueMicrotask(() => void this.migrateAndDrainQueue());
+      queueMicrotask(() => void this.migrateAndDrainQueue().catch(() => undefined));
     }
   }
 
@@ -115,7 +115,7 @@ export class ChatSessionService implements IChatSessionService {
     const prompt = expandSearchCommand(promptContent)?.prompt ?? promptContent;
     const timelineSnapshot = this.dependencies.timeline.getSnapshot();
     const conversationId = timelineSnapshot.activeConversationId;
-    const lockedAgentTargetId = readActiveConversationProvider(timelineSnapshot);
+    const lockedAgentTargetId = readActiveConversationAgentTargetId(timelineSnapshot);
     const rememberedModel = readActiveConversationModel(timelineSnapshot);
     return {
       content,
@@ -181,9 +181,15 @@ export class ChatSessionService implements IChatSessionService {
       }
       const targetToRemember = agentTargetId ?? turn.agentTargetId;
       const providerToRemember = provider
-        ?? readActiveConversationRuntimeProvider(this.dependencies.timeline.getSnapshot());
+        ?? readConversationRuntimeProvider(
+          this.dependencies.timeline.getSnapshot(),
+          turn.conversationId,
+        )
+        ?? this.dependencies.agentCatalog?.getSnapshot().catalog.find(
+          (entry) => entry.agentTargetId === targetToRemember,
+        )?.providerId;
       if (turn.conversationId && targetToRemember && providerToRemember) {
-        this.dependencies.timeline.setConversationProvider({
+        this.dependencies.timeline.setConversationAgent({
           conversationId: turn.conversationId,
           agentTargetId: targetToRemember,
           provider: providerToRemember,
@@ -217,37 +223,49 @@ export class ChatSessionService implements IChatSessionService {
   }
 
   async sendQueuedTurnNext(queueId: string): Promise<void> {
-    const queueIndex = this.queuedTurns.findIndex((turn) => turn.queueId === queueId);
-    if (queueIndex === -1) return;
-
-    const queuedTurn = this.queuedTurns[queueIndex];
-    if (queuedTurn?.legacyProviderId && !queuedTurn.agentTargetId) {
-      const catalog = await this.dependencies.agentCatalog?.ensureLoaded() ?? [];
-      const agentTargetId = resolveLegacyProviderAgentTargetId(catalog, queuedTurn.legacyProviderId);
-      if (!agentTargetId) return;
-      queuedTurn.agentTargetId = agentTargetId;
-      delete queuedTurn.legacyProviderId;
-    }
-
-    const [turn] = this.queuedTurns.splice(queueIndex, 1);
-    if (!turn) return;
-
-    this.persistQueuedTurns();
-    this.notify();
-
-    const activeRunId = this.dependencies.timeline.getSnapshot().activeRunId;
+    if (this.sendingQueuedTurnNext) return;
     this.sendingQueuedTurnNext = true;
+    let turnToRestore: QueuedPreparedTurn | undefined;
     try {
+      let queueIndex = this.queuedTurns.findIndex((turn) => turn.queueId === queueId);
+      if (queueIndex === -1) return;
+      const queuedTurn = this.queuedTurns[queueIndex];
+      if (queuedTurn?.legacyProviderId && !queuedTurn.agentTargetId) {
+        const catalog = await this.dependencies.agentCatalog?.ensureLoaded() ?? [];
+        queueIndex = this.queuedTurns.findIndex((turn) => turn.queueId === queueId);
+        const currentTurn = this.queuedTurns[queueIndex];
+        if (queueIndex === -1 || !currentTurn || currentTurn !== queuedTurn) return;
+        if (!currentTurn.agentTargetId) {
+          const agentTargetId = resolveLegacyProviderAgentTargetId(catalog, currentTurn.legacyProviderId ?? '');
+          if (!agentTargetId) return;
+          currentTurn.agentTargetId = agentTargetId;
+          delete currentTurn.legacyProviderId;
+        }
+      }
+
+      queueIndex = this.queuedTurns.findIndex((turn) => turn.queueId === queueId);
+      const [turn] = queueIndex >= 0 ? this.queuedTurns.splice(queueIndex, 1) : [];
+      if (!turn) return;
+      turnToRestore = turn;
+      this.persistQueuedTurns();
+      this.notify();
+
+      const activeRunId = this.dependencies.timeline.getSnapshot().activeRunId;
       if (activeRunId) {
         await this.dependencies.run.stopRun(activeRunId);
       }
       await this.startTurn(turn);
-    } catch (error) {
-      this.queuedTurns.unshift(turn);
-      this.persistQueuedTurns();
-      this.notify();
+    } catch {
+      if (turnToRestore && !this.queuedTurns.some((turn) => turn.queueId === queueId)) {
+        // The selected turn was already removed for sending. Restore only that
+        // exact turn; never substitute a different queue entry after awaits.
+        this.queuedTurns.unshift(turnToRestore);
+        this.persistQueuedTurns();
+        this.notify();
+      }
     } finally {
       this.sendingQueuedTurnNext = false;
+      this.drainQueue();
     }
   }
 
@@ -377,7 +395,7 @@ export class ChatSessionService implements IChatSessionService {
     }
 
     if (this.queuedTurns[0]?.legacyProviderId && !this.queuedTurns[0]?.agentTargetId) {
-      void this.migrateAndDrainQueue();
+      void this.migrateAndDrainQueue().catch(() => undefined);
       return;
     }
 
@@ -711,10 +729,10 @@ function readErrorMessage(error: Error): string {
   return error.message.trim().length > 0 ? error.message.trim() : 'Run stream failed.';
 }
 
-function readActiveConversationProvider(snapshot: ReturnType<IChatTimelineService['getSnapshot']>): string | undefined {
+function readActiveConversationAgentTargetId(snapshot: ReturnType<IChatTimelineService['getSnapshot']>): string | undefined {
   const activeConversation = snapshot.conversations.find((conversation) => conversation.id === snapshot.activeConversationId);
   const agentTargetId = activeConversation?.agentTargetId;
-  return typeof agentTargetId === 'string' && agentTargetId.trim().length > 0 ? agentTargetId : undefined;
+  return typeof agentTargetId === 'string' && agentTargetId.trim().length > 0 ? agentTargetId.trim() : undefined;
 }
 
 function readActiveConversationModel(snapshot: ReturnType<IChatTimelineService['getSnapshot']>): string | undefined {
@@ -723,14 +741,15 @@ function readActiveConversationModel(snapshot: ReturnType<IChatTimelineService['
   return typeof model === 'string' && model.trim().length > 0 ? model : undefined;
 }
 
-function readActiveConversationRuntimeProvider(
+function readConversationRuntimeProvider(
   snapshot: ReturnType<IChatTimelineService['getSnapshot']>,
+  conversationId: string | null,
 ): string | undefined {
   const activeConversation = snapshot.conversations.find(
-    (conversation) => conversation.id === snapshot.activeConversationId,
+    (conversation) => conversation.id === conversationId,
   );
   const provider = activeConversation?.provider;
-  return typeof provider === 'string' && provider.trim().length > 0 ? provider : undefined;
+  return typeof provider === 'string' && provider.trim().length > 0 ? provider.trim() : undefined;
 }
 
 function lastEventIdForRun(messages: ReturnType<IChatTimelineService['getSnapshot']>['messages'], runId: string): number | string | null {

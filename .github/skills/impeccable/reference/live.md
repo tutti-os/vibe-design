@@ -9,7 +9,7 @@ A running dev server with hot module replacement (Vite, Next.js, Bun, etc.), OR 
 Execute in order. No step skipped, no step reordered.
 
 1. `live.mjs`: boot.
-2. Open the app URL that serves `pageFile` (infer from `package.json`, docs, terminal output, or an open tab). Never use `serverPort`; it's the helper, not the app. **Cursor:** `browser_navigate` to that URL before polling; do not skip. **Other harnesses:** use the available browser tool; if the URL is uncertain, ask the user once.
+2. Open the app URL that serves `pageFile` (infer from `package.json`, docs, terminal output, or an open tab). Never use `serverPort`; it's the helper, not the app. Use the browser capability available to the current agent; if the URL is uncertain, ask the user once.
 3. Poll loop with the default long timeout (600000 ms). After every event or `--reply`, run `live-poll.mjs` again immediately. Never pass a short `--timeout=`.
 
 The global bar **Impeccable mark** dims and shows a pulsing amber dot when no agent is long-polling `/poll`. Hover the mark for the hint; restart `live-poll.mjs` to reconnect.
@@ -20,10 +20,9 @@ The global bar **Impeccable mark** dims and shows a pulsing amber dot when no ag
 8. On `exit`: run the cleanup at the bottom.
 
 Harness policy:
-- **Claude Code**: run the poll as a **background task** (no short timeout). The harness notifies you when it completes, so the main conversation stays free. Do not block the shell.
-- **Cursor**: run **one-shot** poll in a **background terminal** with notify on `"type":"(steer|generate|accept|discard|exit)"`. After each event the poll exits; handle it, `--reply`, then start `live-poll.mjs` again. Do **not** use `--stream` on Cursor: incremental stdout notify is slower in practice than exit-based notify (~5s vs sub-second in testing).
-- **Codex**: run the poll in the **foreground** (blocking shell; not a background task, not a subagent). Codex background exec sessions do not reliably surface poll stdout back into the conversation at the moment events arrive, so a "fire-and-forget" background poll will stall live mode.
-- **Other harnesses**: one-shot foreground unless you know stdout reliably returns to this session when a shell exits.
+- Use one-shot polling by default.
+- Run it in the foreground unless the current harness reliably notifies this conversation when a background shell exits.
+- After each event, handle it, send `--reply` when needed, then start `live-poll.mjs` again immediately.
 
 Chat is overhead. No recap, no tutorial output, no pasting PRODUCT / DESIGN bodies. Spend tokens on tools and edits; on failure, one or two short sentences.
 
@@ -58,7 +57,7 @@ LOOP:
   "exit"      → break → Cleanup
 ```
 
-**Stream mode (experimental, not for Cursor):**
+**Stream mode (experimental):**
 
 ```
 node .github/skills/impeccable/scripts/live-poll.mjs --stream   # stays running; one JSON line per event
@@ -66,7 +65,9 @@ node .github/skills/impeccable/scripts/live-poll.mjs --stream   # stays running;
   Repeat until "exit" line → Cleanup
 ```
 
-Stream keeps one process alive and waits for `--reply` ack before polling again. Useful only when the harness reads incremental stdout reliably and quickly. **Cursor is not one of those:** background pattern notify on a long-running shell was ~5s to pick up events vs sub-second for one-shot exit notify. Default to one-shot everywhere unless you have measured otherwise.
+Stream keeps one process alive and waits for `--reply` ack before polling again. Use it only when the current harness reads incremental stdout reliably and quickly. Default to one-shot unless you have measured otherwise.
+
+When Apply copy edits uses a subprocess agent, it discovers the current Agent Target catalog with `tutti --json agent list`, keeps the catalog's exact ids distinct even when targets share one provider, and launches the selected exact id. Set `IMPECCABLE_LIVE_COPY_AGENT_ID=<exact-agent-id>` to override the catalog default. If the chosen target is absent or unavailable, Apply fails closed and asks you to inspect the list; it does not guess from a provider name. `IMPECCABLE_LIVE_COPY_AGENT_MODE=chat` keeps Apply in the active Impeccable chat, while `mock` is reserved for tests.
 
 ## Recovery commands
 

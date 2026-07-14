@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveAvailableAgentTarget } from './agent-availability.js';
+import {
+  projectAgentAvailability,
+  resolveAvailableAgentTarget,
+} from './agent-availability.js';
 
 const agents = [
   {
@@ -26,6 +29,13 @@ describe('resolveAvailableAgentTarget', () => {
       agentTargetId: 'team:writer',
       providerId: 'codex',
     });
+  });
+
+  it('fails closed when the daemon-selected default target is unavailable', () => {
+    expect(() => resolveAvailableAgentTarget([
+      { ...agents[0]!, supported: false, unavailableReason: 'Writer is offline.' },
+      agents[1]!,
+    ], {})).toThrow('Writer is offline.');
   });
 
   it('fails closed for an ambiguous legacy provider', () => {
@@ -64,5 +74,25 @@ describe('resolveAvailableAgentTarget', () => {
         allowLegacyProviderFallbackForAgentTargetId: true,
       },
     )).toThrow('Multiple agent targets use legacy provider codex');
+  });
+});
+
+describe('projectAgentAvailability', () => {
+  it('preserves multiple exact targets that share one provider', () => {
+    expect(projectAgentAvailability([
+      { agentTargetId: 'team:writer', providerId: 'codex', label: 'Writer', supported: true, authState: 'ok', models: [] },
+      { agentTargetId: 'team:reviewer', providerId: 'codex', label: 'Reviewer', supported: true, authState: 'ok', models: [] },
+    ])).toEqual([
+      expect.objectContaining({ agentTargetId: 'team:writer', providerId: 'codex' }),
+      expect.objectContaining({ agentTargetId: 'team:reviewer', providerId: 'codex' }),
+    ]);
+  });
+
+  it('omits ambiguous legacy provider rows from a full exact-target catalog', () => {
+    expect(projectAgentAvailability([
+      { agentTargetId: 'team:writer', providerId: 'codex', label: 'Writer', supported: true, authState: 'ok', models: [] },
+      { agentTargetId: 'team:reviewer', providerId: 'codex', label: 'Reviewer', supported: true, authState: 'ok', models: [] },
+      { id: 'codex', label: 'Legacy Codex', supported: true, authState: 'ok', models: [] },
+    ])).toHaveLength(2);
   });
 });

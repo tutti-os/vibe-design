@@ -145,15 +145,21 @@ export function createChatRunService(options: CreateChatRunServiceOptions): Chat
   function create(meta: ChatRunCreateMeta = {}): ChatRun {
     const id = randomUUID();
     const now = Date.now();
+    const agentTargetId = readString(meta.agentTargetId);
+    const provider = readString(meta.provider);
+    const legacyAgentId = readString(meta.agentId);
+    if (agentTargetId && legacyAgentId) {
+      throw new Error('Provide exact agentTargetId metadata or deprecated agentId metadata, not both.');
+    }
     const run: ChatRun = {
       id,
       projectId: readString(meta.projectId),
       conversationId: readString(meta.conversationId),
       assistantMessageId: readString(meta.assistantMessageId),
       clientRequestId: readString(meta.clientRequestId),
-      agentTargetId: readString(meta.agentTargetId) ?? (readString(meta.agentId) ? `local:${readString(meta.agentId)}` : null),
-      provider: readString(meta.provider) ?? readString(meta.agentId),
-      agentId: readString(meta.agentId),
+      agentTargetId: agentTargetId ?? (!provider && legacyAgentId ? `local:${legacyAgentId}` : null),
+      provider: provider ?? legacyAgentId,
+      agentId: legacyAgentId,
       providerSessionId: readString(meta.providerSessionId),
       resumeToken: readString(meta.resumeToken),
       appliedPluginSnapshotId: readString(meta.appliedPluginSnapshotId),

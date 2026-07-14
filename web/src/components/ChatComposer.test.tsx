@@ -829,6 +829,110 @@ describe('ChatComposer', () => {
     }
   });
 
+  it('normalizes a locked model with the runtime provider prefix while keeping the exact target lock', async () => {
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        lockedAgentTargetId="team:writer"
+        lockedModel="codex:gpt-5.5"
+        agentAvailability={[
+          { agentTargetId: 'team:writer', providerId: 'codex', label: 'Writer', supported: true, authState: 'ok' },
+        ]}
+        agentModelCatalog={[
+          {
+            agentTargetId: 'team:writer',
+            providerId: 'codex',
+            label: 'Writer',
+            supported: true,
+            models: [{ id: 'gpt-5.5', label: 'GPT-5.5' }],
+          },
+        ]}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      await waitFor(() => {
+        expect(getByLabelText(container, 'Agent and model').textContent).toContain('GPT-5.5');
+      });
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('normalizes a locked model with the historical Claude provider prefix', async () => {
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        lockedAgentTargetId="team:claude"
+        lockedModel="claude:opus"
+        agentAvailability={[
+          { agentTargetId: 'team:claude', providerId: 'claude-code', label: 'Claude', supported: true, authState: 'ok' },
+        ]}
+        agentModelCatalog={[
+          {
+            agentTargetId: 'team:claude',
+            providerId: 'claude-code',
+            label: 'Claude',
+            supported: true,
+            models: [{ id: 'opus', label: 'Opus' }],
+          },
+        ]}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      await waitFor(() => {
+        expect(getByLabelText(container, 'Agent and model').textContent).toContain('Opus');
+      });
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('uses the Claude Code icon for the historical claude provider alias', () => {
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        lockedAgentTargetId="team:claude"
+        agentAvailability={[
+          { agentTargetId: 'team:claude', providerId: 'claude', label: 'Claude', supported: true, authState: 'ok' },
+        ]}
+        agentModelCatalog={[
+          { agentTargetId: 'team:claude', providerId: 'claude', label: 'Claude', supported: true, models: [] },
+        ]}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      expect(
+        getByLabelText(container, 'Agent and model').querySelector('[data-provider-icon="claude-code"]'),
+      ).toBeInstanceOf(HTMLImageElement);
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('explains why a Codex conversation cannot switch to Claude Code', () => {
     const { container, root } = renderComponent(
       <ChatComposer

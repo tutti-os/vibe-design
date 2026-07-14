@@ -71,7 +71,7 @@ export interface SetUserMessageTurnStatusInput {
   turnStatus: 'queued' | null;
 }
 
-export interface SetConversationProviderInput {
+export interface SetConversationAgentInput {
   conversationId: string;
   agentTargetId: string;
   provider: string;

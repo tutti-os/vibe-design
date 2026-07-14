@@ -351,15 +351,20 @@ function ProjectCreator({
     const catalogOptions = dashboardModelOptionsFromCatalog(agentModelCatalog);
     return catalogOptions;
   }, [agentModelCatalog]);
-  const canCreate = projectPrompt.trim().length > 0 && selectedModel !== null && !isCreating;
+  const selectedModelAvailable = selectedModel !== null
+    && modelOptions.some((model) => model.key === selectedModel.key);
+  const canCreate = projectPrompt.trim().length > 0 && selectedModelAvailable && !isCreating;
 
   React.useEffect(() => {
-    if (selectedModel && modelOptions.some((model) => model.key === selectedModel.key)) return;
-    setSelectedModel(
-      (selectedModel
-        ? modelOptions.find((model) => model.agentTargetId === selectedModel.agentTargetId)
-        : undefined) ?? modelOptions[0] ?? null,
+    if (!selectedModel) {
+      setSelectedModel(modelOptions[0] ?? null);
+      return;
+    }
+    if (modelOptions.some((model) => model.key === selectedModel.key)) return;
+    const sameTargetModel = modelOptions.find(
+      (model) => model.agentTargetId === selectedModel.agentTargetId,
     );
+    if (sameTargetModel) setSelectedModel(sameTargetModel);
   }, [modelOptions, selectedModel]);
 
   async function createProject(event: React.FormEvent<HTMLFormElement>): Promise<void> {
@@ -368,7 +373,7 @@ function ProjectCreator({
     const formPrompt = formData.get('prompt');
     const formProjectKind = formData.get('projectKind');
     const nextPrompt = typeof formPrompt === 'string' ? formPrompt.trim() : '';
-    if (!nextPrompt || !selectedModel || createProjectInFlightRef.current) {
+    if (!nextPrompt || !selectedModel || !selectedModelAvailable || createProjectInFlightRef.current) {
       return;
     }
 

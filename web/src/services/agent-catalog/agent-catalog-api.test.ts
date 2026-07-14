@@ -69,6 +69,16 @@ describe('agent catalog API', () => {
     })).toThrow('Legacy agent provider codex is ambiguous');
   });
 
+  it('treats claude and claude-code as the same provider for ambiguity checks', () => {
+    expect(() => readAgentModelCatalog({
+      agents: [
+        { agentTargetId: 'team:a', providerId: 'claude-code', label: 'A', supported: true, models: [] },
+        { agentTargetId: 'team:b', providerId: 'claude', label: 'B', supported: true, models: [] },
+        { id: 'claude', label: 'Legacy Claude', supported: true, models: [] },
+      ],
+    })).toThrow('Legacy agent provider claude is ambiguous');
+  });
+
   it('rejects catalog entries without an explicit support state', () => {
     expect(readAgentModelCatalog({
       agents: [{

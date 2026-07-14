@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto';
 
 import type { DetectContext } from '@tutti-os/agent-acp-kit';
-import { loadTuttiAgentCatalog } from '@tutti-os/agent-acp-kit/tutti';
+import {
+  loadTuttiAgentCatalog,
+  loadTuttiAgentComposerOptions,
+} from '@tutti-os/agent-acp-kit/tutti';
 import type { ModelSummary } from './agents.js';
 import { localAgentRuntime } from './local-agent-runtime.js';
 
@@ -21,34 +24,47 @@ export interface AgentProviderSnapshot {
 
 export type DetectAgentProviders = (context?: DetectContext) => Promise<AgentProviderSnapshot[]>;
 
-export async function detectLocalAgentProviders(context?: DetectContext): Promise<AgentProviderSnapshot[]> {
-  const [catalog, providers] = await Promise.all([
-    loadTuttiAgentCatalog({ runtime: localAgentRuntime, detectContext: context }),
-    localAgentRuntime.detect(context),
-  ]);
-  const byProvider = new Map(providers.map((provider) => [provider.provider, provider]));
-  return catalog.agents.map((agent) => {
-    const provider = byProvider.get(agent.providerId);
-    return {
-    agentTargetId: agent.agentTargetId,
-    providerId: agent.providerId,
-    label: agent.displayName,
-    supported: agent.runtimeSupported
-      && agent.availability.status === 'available'
-      && provider?.supported === true,
-    authState: provider?.authState ?? 'unknown',
-    models: (provider?.models ?? []).map((model) => ({
-      id: model.id,
-      label: model.label,
-      ...(model.description ? { description: model.description } : {}),
-    })),
-    ...(provider?.defaultModelId ? { defaultModelId: provider.defaultModelId } : {}),
-    ...(agent.agentTargetId === catalog.defaultAgentTargetId ? { isDefault: true as const } : {}),
-    ...(agent.availability.detail || provider?.reason
-      ? { reason: agent.availability.detail || provider?.reason }
-      : {}),
+export async function detectLocalAgentProviders(
+  context?: DetectContext,
+  runtime: typeof localAgentRuntime = localAgentRuntime,
+): Promise<AgentProviderSnapshot[]> {
+  const providers = await runtime.detect(context);
+  const snapshotRuntime: typeof localAgentRuntime = {
+    cancel: (runId) => runtime.cancel(runId),
+    detect: async () => providers,
+    listProviders: () => runtime.listProviders(),
+    run: (input) => runtime.run(input),
   };
-  });
+  const catalog = await loadTuttiAgentCatalog({ runtime: snapshotRuntime, detectContext: context });
+  const byProvider = new Map(providers.map((provider) => [provider.provider, provider]));
+  return Promise.all(catalog.agents.map(async (agent) => {
+    const provider = byProvider.get(agent.providerId);
+    const supported = agent.runtimeSupported && agent.availability.status === 'available';
+    const composer = supported
+      ? await loadTuttiAgentComposerOptions({
+          runtime: snapshotRuntime,
+          agentTargetId: agent.agentTargetId,
+          detectContext: context,
+        })
+      : null;
+    return {
+      agentTargetId: agent.agentTargetId,
+      providerId: agent.providerId,
+      label: agent.displayName,
+      supported,
+      authState: provider?.authState ?? 'unknown',
+      models: (composer?.modelConfig.options ?? []).map((model) => ({
+        id: model.value,
+        label: model.label,
+        ...(model.description ? { description: model.description } : {}),
+      })),
+      ...(composer?.modelConfig.defaultValue
+        ? { defaultModelId: composer.modelConfig.defaultValue }
+        : {}),
+      ...(agent.agentTargetId === catalog.defaultAgentTargetId ? { isDefault: true as const } : {}),
+      ...(agent.availability.detail ? { reason: agent.availability.detail } : {}),
+    };
+  }));
 }
 
 export function createAgentProviderSnapshotDetector(detectProviders: DetectAgentProviders): {

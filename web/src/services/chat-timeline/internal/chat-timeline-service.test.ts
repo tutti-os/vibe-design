@@ -89,19 +89,19 @@ describe('ChatTimelineService', () => {
       },
     });
 
-    timeline.setConversationProvider({
+    timeline.setConversationAgent({
       conversationId: 'conversation-1',
       agentTargetId: 'team:writer',
       provider: 'codex',
       model: 'codex:gpt-5.4',
     });
-    timeline.setConversationProvider({
+    timeline.setConversationAgent({
       conversationId: 'conversation-1',
       agentTargetId: 'team:reviewer',
       provider: 'claude',
       model: 'claude:opus',
     });
-    timeline.setConversationProvider({
+    timeline.setConversationAgent({
       conversationId: 'conversation-1',
       agentTargetId: 'team:writer',
       provider: 'codex',

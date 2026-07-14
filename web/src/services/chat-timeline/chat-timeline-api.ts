@@ -82,7 +82,7 @@ function readConversation(data: unknown): ChatConversationSummary | null {
     id: value.id,
     title: typeof value.title === 'string' && value.title.trim() ? value.title : 'New conversation',
     agentTargetId: typeof value.agentTargetId === 'string' && value.agentTargetId.trim()
-      ? value.agentTargetId
+      ? value.agentTargetId.trim()
       : null,
     provider: typeof value.provider === 'string' && value.provider.trim() ? value.provider : null,
     model: typeof value.model === 'string' && value.model.trim() ? value.model : null,

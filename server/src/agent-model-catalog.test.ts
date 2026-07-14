@@ -38,4 +38,15 @@ describe('projectAgentModelCatalog', () => {
       models: [{ id: 'opus', label: 'Opus' }],
     }]);
   });
+
+  it('keeps exact targets separate and omits an ambiguous legacy provider row', () => {
+    expect(projectAgentModelCatalog([
+      { agentTargetId: 'team:writer', providerId: 'codex', label: 'Writer', supported: true, authState: 'ok', models: [{ id: 'writer', label: 'Writer model' }] },
+      { agentTargetId: 'team:reviewer', providerId: 'codex', label: 'Reviewer', supported: true, authState: 'ok', models: [{ id: 'reviewer', label: 'Reviewer model' }] },
+      { id: 'codex', label: 'Legacy Codex', supported: true, authState: 'ok', models: [] },
+    ])).toEqual([
+      expect.objectContaining({ agentTargetId: 'team:writer', models: [{ id: 'writer', label: 'Writer model' }] }),
+      expect.objectContaining({ agentTargetId: 'team:reviewer', models: [{ id: 'reviewer', label: 'Reviewer model' }] }),
+    ]);
+  });
 });

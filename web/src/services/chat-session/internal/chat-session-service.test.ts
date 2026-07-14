@@ -138,7 +138,7 @@ describe('ChatSessionService', () => {
     await service.sendTurn({ draft: 'Use Claude for this', files: [], agentTargetId: 'claude' });
 
     expect(run.createRun).toHaveBeenCalledWith(expect.objectContaining({ agentTargetId: 'claude' }));
-    expect(timeline.setConversationProvider).toHaveBeenCalledWith({
+    expect(timeline.setConversationAgent).toHaveBeenCalledWith({
       conversationId: 'conversation-1',
       agentTargetId: 'claude',
       provider: 'claude',
@@ -174,7 +174,7 @@ describe('ChatSessionService', () => {
       model: 'codex:gpt-5.5',
       prompt: 'Try the newer Codex model',
     });
-    expect(timeline.setConversationProvider).toHaveBeenCalledWith({
+    expect(timeline.setConversationAgent).toHaveBeenCalledWith({
       conversationId: 'conversation-1',
       agentTargetId: 'codex',
       provider: 'codex',
@@ -1080,6 +1080,59 @@ describe('ChatSessionService', () => {
     ]);
   });
 
+  it('sends the requested exact turn when automatic and manual legacy migration overlap', async () => {
+    const queuedTurnStore = createMemoryQueuedTurnStore();
+    queuedTurnStore.load.mockReturnValueOnce([
+      {
+        queueId: 'queued-turn-1',
+        content: 'First queued turn',
+        prompt: 'First queued turn',
+        agentId: 'codex',
+        attachments: [],
+        commentAttachments: [],
+        conversationId: 'conversation-1',
+        appendConversationId: 'conversation-1',
+      },
+      {
+        queueId: 'queued-turn-2',
+        content: 'Requested queued turn',
+        prompt: 'Requested queued turn',
+        agentId: 'codex',
+        attachments: [],
+        commentAttachments: [],
+        conversationId: 'conversation-1',
+        appendConversationId: 'conversation-1',
+      },
+    ]);
+    const catalogLoad = deferred<Array<{
+      agentTargetId: string;
+      providerId: string;
+      label: string;
+      supported: boolean;
+      models: [];
+    }>>();
+    const entry = createService({
+      queuedTurnStore,
+      agentCatalogEnsureLoaded: vi.fn(() => catalogLoad.promise),
+    });
+    await Promise.resolve();
+
+    const sendRequested = entry.service.sendQueuedTurnNext('queued-turn-2');
+    catalogLoad.resolve([
+      { agentTargetId: 'team:writer', providerId: 'codex', label: 'Writer', supported: true, models: [] },
+    ]);
+    await sendRequested;
+
+    expect(entry.run.createRun).toHaveBeenCalledTimes(1);
+    expect(firstCreateRunInput(entry.run)).toMatchObject({
+      agentTargetId: 'team:writer',
+      prompt: 'Requested queued turn',
+    });
+    expect(entry.service.getSnapshot().queuedTurns.map((turn) => turn.content)).toEqual([
+      'First queued turn',
+    ]);
+  });
+
   it('keeps restored queued turns waiting when restored messages still have a running run', async () => {
     const queuedTurnStore = createMemoryQueuedTurnStore();
     const firstEntry = createService({ queuedTurnStore });
@@ -1180,7 +1233,7 @@ type TestTimelineService = IChatTimelineService & {
   startAssistantRun: ReturnType<typeof vi.fn>;
   applyAgentEvent: ReturnType<typeof vi.fn>;
   finishRun: ReturnType<typeof vi.fn>;
-  setConversationProvider: ReturnType<typeof vi.fn>;
+  setConversationAgent: ReturnType<typeof vi.fn>;
   createConversation: ReturnType<typeof vi.fn>;
   ensureConversationPersisted: ReturnType<typeof vi.fn>;
   selectConversation: ReturnType<typeof vi.fn>;
@@ -1205,6 +1258,9 @@ function createService(
       save: ReturnType<typeof vi.fn>;
     };
     agentCatalog?: Array<{ agentTargetId: string; providerId: string; label: string; supported: boolean; models: [] }>;
+    agentCatalogEnsureLoaded?: () => Promise<
+      Array<{ agentTargetId: string; providerId: string; label: string; supported: boolean; models: [] }>
+    >;
   } = {},
 ) {
   let activeRunId: string | null = options.activeRunId ?? null;
@@ -1221,7 +1277,7 @@ function createService(
       commentAttachments: input.commentAttachments,
     })),
     removeMessage: vi.fn(),
-    setConversationProvider: vi.fn(),
+    setConversationAgent: vi.fn(),
     setUserMessageTurnStatus: vi.fn(),
     startAssistantRun: vi.fn((input: { runId: string; conversationId?: string | null }) => {
       activeRunId = input.runId;
@@ -1318,12 +1374,14 @@ function createService(
       run: run as IRunService,
       context: context as IContextPickerService,
       files: files as IDesignFileService,
-      ...(options.agentCatalog ? {
+      ...(options.agentCatalog || options.agentCatalogEnsureLoaded ? {
         agentCatalog: {
           _serviceBrand: undefined,
           subscribe: vi.fn(() => vi.fn()),
-          getSnapshot: vi.fn(() => ({ catalog: options.agentCatalog, loading: false, error: null })),
-          ensureLoaded: vi.fn(async () => options.agentCatalog ?? []),
+          getSnapshot: vi.fn(() => ({ catalog: options.agentCatalog ?? [], loading: false, error: null })),
+          ensureLoaded: vi.fn(
+            options.agentCatalogEnsureLoaded ?? (async () => options.agentCatalog ?? []),
+          ),
           refresh: vi.fn(async () => options.agentCatalog ?? []),
         },
       } : {}),

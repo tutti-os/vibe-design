@@ -9,7 +9,7 @@ import type {
   ChatTimelineSnapshot,
   FinishRunInput,
   MessageBlock,
-  SetConversationProviderInput,
+  SetConversationAgentInput,
   SetUserMessageTurnStatusInput,
   StartAssistantRunInput,
 } from '../chat-timeline-types';
@@ -228,7 +228,7 @@ export class ChatTimelineService implements IChatTimelineService {
     this.emitChange();
   }
 
-  setConversationProvider(input: SetConversationProviderInput): void {
+  setConversationAgent(input: SetConversationAgentInput): void {
     const conversation = this.conversations.get(input.conversationId);
     if (!conversation) {
       return;

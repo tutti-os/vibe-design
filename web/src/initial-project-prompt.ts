@@ -1,3 +1,5 @@
+import { resolveLegacyProviderAgentTargetId } from './services/agent-catalog/agent-catalog-types';
+
 const INITIAL_PROJECT_PROMPT_PREFIX = 'vibe-design:initial-project-prompt:';
 const INITIAL_PROJECT_SKILLS_PREFIX = 'vibe-design:initial-project-skills:';
 const INITIAL_PROJECT_AGENT_PREFIX = 'vibe-design:initial-project-agent:';
@@ -10,6 +12,7 @@ export interface InitialProjectAgentSelection {
 export interface InitialProjectAgentHandoff {
   selection: InitialProjectAgentSelection | null;
   unresolvedLegacyProviderId?: string;
+  unresolvedSelection?: InitialProjectAgentSelection;
 }
 
 export function stashInitialProjectPrompt(projectId: string, prompt: string): void {
@@ -129,20 +132,39 @@ export function consumeInitialProjectAgentHandoff(
     const model = 'model' in parsed && typeof parsed.model === 'string'
       ? parsed.model.trim()
       : '';
-    if (agentTargetId) {
-      return { selection: { agentTargetId, ...(model ? { model } : {}) } };
+    const storedSelection = agentTargetId
+      ? { agentTargetId, ...(model ? { model } : {}) }
+      : null;
+    if (storedSelection) {
+      const exact = catalog.find((entry) => entry.agentTargetId === agentTargetId);
+      if (exact) {
+        return { selection: { ...storedSelection, agentTargetId: exact.agentTargetId } };
+      }
+      const migratedTargetId = resolveLegacyProviderAgentTargetId(catalog, agentTargetId);
+      if (migratedTargetId) {
+        return { selection: { ...storedSelection, agentTargetId: migratedTargetId } };
+      }
+      return {
+        selection: null,
+        unresolvedLegacyProviderId: agentTargetId,
+        unresolvedSelection: storedSelection,
+      };
     }
     const legacyProviderId = 'agentId' in parsed && typeof parsed.agentId === 'string'
       ? parsed.agentId.trim()
       : '';
-    const matches = catalog.filter((entry) => entry.providerId === legacyProviderId);
-    if (legacyProviderId && matches.length === 1 && matches[0]) {
+    const migratedTargetId = resolveLegacyProviderAgentTargetId(catalog, legacyProviderId);
+    if (legacyProviderId && migratedTargetId) {
       return {
-        selection: { agentTargetId: matches[0].agentTargetId, ...(model ? { model } : {}) },
+        selection: { agentTargetId: migratedTargetId, ...(model ? { model } : {}) },
       };
     }
     return legacyProviderId
-      ? { selection: null, unresolvedLegacyProviderId: legacyProviderId }
+      ? {
+          selection: null,
+          unresolvedLegacyProviderId: legacyProviderId,
+          unresolvedSelection: { agentTargetId: legacyProviderId, ...(model ? { model } : {}) },
+        }
       : { selection: null };
   } catch {
     return { selection: null };

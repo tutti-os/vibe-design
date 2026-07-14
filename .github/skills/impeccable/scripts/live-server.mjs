@@ -1628,7 +1628,7 @@ function createRequestHandler({ detectScript, sessionPath, livePath }) {
       }
       (async () => {
         let result;
-        let routedProvider = 'subprocess';
+        let routedRunner = 'agent';
         let transaction = null;
         let commitBatch = null;
         try {
@@ -1645,16 +1645,19 @@ function createRequestHandler({ detectScript, sessionPath, livePath }) {
               transaction = existingTransaction;
             }
           }
-          const requestedMode = (process.env.IMPECCABLE_LIVE_COPY_AGENT || 'auto').trim().toLowerCase();
-          const useChatRoute = requestedMode === 'chat'
-            || (requestedMode === 'auto' && chatAgentLikelyActive());
+          const requestedMode = (
+            process.env.IMPECCABLE_LIVE_COPY_AGENT_MODE
+            || process.env.IMPECCABLE_LIVE_COPY_AGENT
+            || 'agent'
+          ).trim().toLowerCase();
+          const useChatRoute = requestedMode === 'chat';
           if (useChatRoute) {
-            routedProvider = 'chat';
+            routedRunner = 'chat';
             const timeoutMs = Number(process.env.IMPECCABLE_LIVE_COPY_AGENT_TIMEOUT_MS || 120000);
             result = await commitManualEdits({
               cwd: process.cwd(),
               pageUrl,
-              provider: 'chat',
+              runner: 'chat',
               env: process.env,
               timeoutMs,
               chatAvailable: chatAgentLikelyActive,
@@ -1665,11 +1668,16 @@ function createRequestHandler({ detectScript, sessionPath, livePath }) {
             });
           } else {
             const timeoutMs = Number(process.env.IMPECCABLE_LIVE_COPY_AGENT_TIMEOUT_MS || 120000);
-            const provider = ['codex', 'claude', 'mock'].includes(requestedMode) ? requestedMode : undefined;
+            if (!['agent', 'auto', 'mock'].includes(requestedMode)) {
+              throw new Error(`Unsupported live copy-edit runner mode: ${requestedMode}. Use agent with IMPECCABLE_LIVE_COPY_AGENT_ID, chat, or mock.`);
+            }
+            const runner = requestedMode === 'mock' ? 'mock' : 'agent';
+            routedRunner = runner;
             result = await commitManualEdits({
               cwd: process.cwd(),
               pageUrl,
-              provider,
+              runner,
+              agentTargetId: process.env.IMPECCABLE_LIVE_COPY_AGENT_ID || undefined,
               env: process.env,
               timeoutMs,
               chatAvailable: chatAgentLikelyActive,
@@ -1689,7 +1697,7 @@ function createRequestHandler({ detectScript, sessionPath, livePath }) {
           const message = err.stderr?.toString?.() || err.message;
           recordManualEditActivity('manual_edit_commit_failed', {
             pageUrl,
-            provider: routedProvider,
+            runner: routedRunner,
             error: 'manual_edit_commit_failed',
             message,
             transactionId: transaction?.id || null,
@@ -1712,7 +1720,7 @@ function createRequestHandler({ detectScript, sessionPath, livePath }) {
         if (result?.needsManualDecision) {
           recordManualEditActivity('manual_edit_repair_needs_decision', {
             pageUrl,
-            provider: routedProvider,
+            runner: routedRunner,
             transactionId: transaction?.id || existingTransaction?.id || null,
             repair: result.repair || null,
             failed: summarizeManualApplyFailures(result.failed),
@@ -1723,7 +1731,7 @@ function createRequestHandler({ detectScript, sessionPath, livePath }) {
         } else {
           recordManualEditActivity('manual_edit_commit_done', {
             pageUrl,
-            provider: routedProvider,
+            runner: routedRunner,
             reason: result.reason || null,
             repair: result.repair || null,
             appliedCount: Array.isArray(result.applied) ? result.applied.length : 0,

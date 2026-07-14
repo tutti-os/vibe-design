@@ -5,7 +5,7 @@ import type {
   ChatConversationSummary,
   ChatTimelineSnapshot,
   FinishRunInput,
-  SetConversationProviderInput,
+  SetConversationAgentInput,
   SetUserMessageTurnStatusInput,
   StartAssistantRunInput,
 } from './chat-timeline-types';
@@ -21,7 +21,7 @@ export interface IChatTimelineService {
   deleteConversation(conversationId: string): void;
   appendUserMessage(input: AppendUserMessageInput): ChatMessage;
   removeMessage(messageId: string): void;
-  setConversationProvider(input: SetConversationProviderInput): void;
+  setConversationAgent(input: SetConversationAgentInput): void;
   setUserMessageTurnStatus(input: SetUserMessageTurnStatusInput): void;
   startAssistantRun(input: StartAssistantRunInput): ChatMessage;
   applyAgentEvent(runId: string, event: AgentEvent): void;

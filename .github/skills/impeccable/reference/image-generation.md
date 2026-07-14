@@ -1,6 +1,6 @@
-# Codex: Visual Direction & Asset Production
+# Native Image Generation: Visual Direction & Asset Production
 
-This file is loaded by `/impeccable craft` when the harness has native image generation (currently Codex via `image_gen`). Other harnesses skip it. It covers the two craft steps that depend on real image generation: landing the visual direction, and producing the raster assets the implementation will compose.
+This file is loaded by `/impeccable craft` when the current agent has native image-generation capability. Agents without that capability skip it. It covers the two craft steps that depend on real image generation: landing the visual direction, and producing the raster assets the implementation will compose.
 
 Read this *before* generating any images. The order matters, and the per-step user pauses are what keep generated imagery from drifting away from the brief.
 
@@ -102,4 +102,4 @@ Prefer HTML/CSS/SVG/canvas when they can credibly reproduce an ingredient; reach
 
 ## After This File
 
-Once Steps A through F are complete, return to `craft.md` Step 5 (Build to Production Quality). The implementation builds against the confirmed palette, approved mock, and the assets the producer wrote.
+Once Steps A through F are complete, return to `craft.md` Step 4 (Build to Production Quality). The implementation builds against the confirmed palette, approved mock, and the assets the producer wrote.

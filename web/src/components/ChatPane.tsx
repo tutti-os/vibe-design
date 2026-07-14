@@ -42,6 +42,7 @@ import type {
   MessageBlock,
 } from '../services/chat-timeline/chat-timeline-types';
 import type { QueuedTurnPreview } from '../services/chat-session/chat-session-types';
+import { resolveLegacyProviderAgentTargetId } from '../services/agent-catalog/agent-catalog-types';
 import type {
   ContextPickerSnapshot,
   ContextSearchResultItem,
@@ -192,14 +193,32 @@ export function ChatPane({
     )?.model;
     return typeof model === 'string' && model.trim() ? model : null;
   }, [visibleSnapshot.activeConversationId, visibleSnapshot.conversations]);
-  const summaryAgentTargetId = visibleSnapshot.conversations.find(
+  const activeConversation = visibleSnapshot.conversations.find(
     (conversation) => conversation.id === visibleSnapshot.activeConversationId,
-  )?.agentTargetId?.trim() || null;
-  const selectedAgentTargetId = summaryAgentTargetId
-    ?? activeConversationAgentTargetId
-    ?? agentModelCatalog.find((entry) => entry.isDefault && entry.supported)?.agentTargetId
-    ?? agentModelCatalog.find((entry) => entry.supported)?.agentTargetId
-    ?? null;
+  );
+  const summaryAgentTargetId = activeConversation?.agentTargetId?.trim() || null;
+  const legacyConversationProviderId = !summaryAgentTargetId
+    ? activeConversation?.provider?.trim() || null
+    : null;
+  const migratedConversationTargetId = legacyConversationProviderId
+    ? resolveLegacyProviderAgentTargetId(agentModelCatalog, legacyConversationProviderId)
+    : null;
+  const unresolvedAgentTargetLock = Boolean(
+    legacyConversationProviderId && !migratedConversationTargetId,
+  );
+  const lockedConversationTargetId = summaryAgentTargetId
+    ?? migratedConversationTargetId
+    ?? activeConversationAgentTargetId;
+  const selectedAgentTargetId = lockedConversationTargetId
+    ?? (unresolvedAgentTargetLock
+      ? null
+      : agentModelCatalog.find((entry) => entry.isDefault && entry.supported)?.agentTargetId
+        ?? agentModelCatalog.find((entry) => entry.supported)?.agentTargetId
+        ?? null);
+  const selectedAgentSupported = Boolean(
+    selectedAgentTargetId
+    && agentAvailability.find((entry) => entry.agentTargetId === selectedAgentTargetId)?.supported,
+  );
   const activeConversationAgentLabel = selectedAgentTargetId
     ? agentModelCatalog.find((entry) => entry.agentTargetId === selectedAgentTargetId)?.label ?? selectedAgentTargetId
     : t('chat.composer.modelProvider');
@@ -376,6 +395,7 @@ export function ChatPane({
             comments={previewComments}
             projectId={projectId}
             agentTargetId={selectedAgentTargetId}
+            agentSupported={selectedAgentSupported}
             onSendSelected={onSendPreviewComments}
             onDelete={onDeletePreviewComment}
             onOpenComment={onOpenPreviewComment}
@@ -538,11 +558,15 @@ export function ChatPane({
                     projectId={projectId}
                     onOpenImagePreview={openImagePreview}
                     onAnswerToolQuestion={onAnswerToolQuestion}
-                    onSubmitToolQuestionFallback={(content) => {
-                      if (selectedAgentTargetId) {
-                        return onSend({ draft: content, files: [], agentTargetId: selectedAgentTargetId });
-                      }
-                    }}
+                    {...(selectedAgentTargetId && selectedAgentSupported
+                      ? {
+                          onSubmitToolQuestionFallback: (content: string) => onSend({
+                            draft: content,
+                            files: [],
+                            agentTargetId: selectedAgentTargetId,
+                          }),
+                        }
+                      : {})}
                     onOpenAttachment={onOpenAttachment}
                     onOpenGeneratedFile={onOpenGeneratedFile}
                     onOpenFileOp={onOpenFileOp}
@@ -589,7 +613,8 @@ export function ChatPane({
           commentAttachments={commentAttachments}
           agentAvailability={agentAvailability}
           agentModelCatalog={agentModelCatalog}
-          lockedAgentTargetId={activeConversationAgentTargetId}
+          lockedAgentTargetId={lockedConversationTargetId}
+          unresolvedAgentTargetLock={unresolvedAgentTargetLock}
           lockedModel={activeConversationModel}
           activeDesignSystem={activeDesignSystem}
           designSystems={designSystems}
@@ -907,6 +932,7 @@ function PreviewCommentsPanel({
   comments,
   projectId,
   agentTargetId,
+  agentSupported,
   onSendSelected,
   onDelete,
   onOpenComment,
@@ -917,6 +943,7 @@ function PreviewCommentsPanel({
   comments: CanvasPreviewComment[];
   projectId?: string | null;
   agentTargetId: string | null;
+  agentSupported: boolean;
   onSendSelected?: (comments: CanvasPreviewComment[], agentTargetId: string) => void | Promise<void>;
   onDelete?: (commentId: string) => void | Promise<void>;
   onOpenComment?: (comment: CanvasPreviewComment) => void | Promise<void>;
@@ -933,7 +960,8 @@ function PreviewCommentsPanel({
   const canSend = visibleComments.length > 0
     && sendingCommentIds.size === 0
     && Boolean(onSendSelected)
-    && Boolean(agentTargetId);
+    && Boolean(agentTargetId)
+    && agentSupported;
 
   React.useEffect(() => {
     setSendingCommentIds((currentIds) => {
@@ -945,7 +973,7 @@ function PreviewCommentsPanel({
   }, [activeComments]);
 
   async function sendActiveComments(): Promise<void> {
-    if (!onSendSelected || !agentTargetId || visibleComments.length === 0 || sendingCommentIds.size > 0) {
+    if (!onSendSelected || !agentTargetId || !agentSupported || visibleComments.length === 0 || sendingCommentIds.size > 0) {
       return;
     }
 
@@ -1112,7 +1140,7 @@ function TimelineMessage({
   projectId?: string | null;
   onOpenImagePreview(preview: ImagePreviewState): void;
   onAnswerToolQuestion(toolUseId: string, content: string): void | Promise<void>;
-  onSubmitToolQuestionFallback(content: string): void | Promise<void>;
+  onSubmitToolQuestionFallback?: (content: string) => void | Promise<void>;
   onOpenAttachment?: (attachment: ChatAttachment) => void;
   onOpenGeneratedFile?: (file: GeneratedFileEntry) => void;
   onOpenFileOp?: (op: FileOpEntry) => void;
