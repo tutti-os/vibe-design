@@ -14,9 +14,10 @@ import {
 import type { CanvasPreviewCommentTarget } from './features/canvas-workspace/canvas-comment/canvas-comment-types';
 import type { FileOpEntry } from './runtime/file-ops';
 import {
-  consumeInitialProjectAgent,
+  consumeInitialProjectAgentHandoff,
   consumeInitialProjectPrompt,
   consumeInitialProjectSkills,
+  stashInitialProjectPrompt,
   type InitialProjectAgentSelection,
 } from './initial-project-prompt';
 import { useServiceSnapshot } from './hooks/use-service-snapshot';
@@ -39,10 +40,7 @@ import { IPreviewCommentService } from './services/preview-comments/preview-comm
 import type { PreviewCommentSnapshot } from './services/preview-comments/preview-comment-types';
 import type { ChatAttachment, ProjectFile } from './types';
 import { useTranslation } from './i18n';
-import {
-  fetchAgentAvailability,
-  installClaudeCodeAgent,
-} from './services/agent-catalog/agent-catalog-api';
+import { fetchAgentAvailability } from './services/agent-catalog/agent-catalog-api';
 import { IAgentCatalogService } from './services/agent-catalog/agent-catalog-service.interface';
 
 const CHAT_PANEL_MIN_WIDTH = 360;
@@ -216,18 +214,6 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
     },
     [activeDesignSystem, projectId, projects, t],
   );
-  const handleInstallAgent = React.useCallback(async (agentId: string) => {
-    if (agentId !== 'claude-code') {
-      throw new Error(`Unsupported agent installer: ${agentId}`);
-    }
-
-    const nextAvailability = await installClaudeCodeAgent();
-    setAgentAvailability(nextAvailability);
-    const installedAgent = nextAvailability.find((agent) => agent.id === agentId);
-    if (!installedAgent?.supported) {
-      throw new Error(installedAgent?.unavailableReason ?? 'Claude Code installation could not be verified.');
-    }
-  }, []);
   const handleRenameProject = React.useCallback(
     async (nextTitle: string) => {
       const updatedProject = await projects.updateProjectTitle(projectId, nextTitle);
@@ -339,7 +325,7 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
     [designFiles, t],
   );
   const handleSendPreviewComments = React.useCallback(
-    async (comments: CanvasPreviewComment[], agentId: string) => {
+    async (comments: CanvasPreviewComment[], agentTargetId: string) => {
       const attachments = await buildScreenshotPreviewCommentAttachments({
         comments,
         requestScreenshot: previewScreenshotRequesterRef.current,
@@ -350,7 +336,7 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
           draft: '',
           displayDraft: previewCommentDisplayDraft(attachments),
           files: [],
-          agentId,
+          agentTargetId,
           commentAttachments: attachments,
         });
         setStagedCommentAttachments([]);
@@ -585,7 +571,6 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
             onOpenDesignSystemPicker={handleOpenDesignSystemPicker}
             onSelectDesignSystem={handleSelectDesignSystem}
             onImportDesignStyleFile={handleImportDesignStyleFile}
-            onInstallAgent={handleInstallAgent}
             onRenameProject={handleRenameProject}
           />
           <div
@@ -1202,6 +1187,7 @@ function InitialProjectPromptStarter({
   onSendTurn: (draft: string, selection: InitialProjectAgentSelection | null) => void;
 }) {
   const context = useService(IContextPickerService);
+  const agentCatalog = useService(IAgentCatalogService);
   const startedRef = React.useRef(false);
 
   React.useEffect(() => {
@@ -1212,7 +1198,6 @@ function InitialProjectPromptStarter({
     startedRef.current = true;
     const prompt = consumeInitialProjectPrompt(projectId) ?? persistedPrompt?.trim() ?? null;
     const skillIds = consumeInitialProjectSkills(projectId);
-    const agentSelection = consumeInitialProjectAgent(projectId);
     // Only replay the dashboard handoff to kick off a brand-new project. If the
     // conversation already has messages (reload or revisit), clear the stale
     // handoff without replaying so we never double-send the first turn.
@@ -1221,6 +1206,12 @@ function InitialProjectPromptStarter({
     }
 
     void (async () => {
+      const catalog = await agentCatalog.ensureLoaded();
+      const agentHandoff = consumeInitialProjectAgentHandoff(projectId, catalog);
+      if (agentHandoff.unresolvedLegacyProviderId) {
+        stashInitialProjectPrompt(projectId, prompt);
+        return;
+      }
       // Re-apply the skills picked on the dashboard so the project's first run
       // includes them (the project owns a fresh context picker instance).
       for (const skillId of skillIds) {
@@ -1230,9 +1221,9 @@ function InitialProjectPromptStarter({
           // Best-effort: a skill that no longer exists is simply skipped.
         }
       }
-      onSendTurn(prompt, agentSelection);
+      onSendTurn(prompt, agentHandoff.selection);
     })();
-  }, [projectId, persistedPrompt, hasExistingMessages, onSendTurn, context]);
+  }, [projectId, persistedPrompt, hasExistingMessages, onSendTurn, context, agentCatalog]);
 
   return null;
 }
@@ -1255,7 +1246,6 @@ function ChatPanel({
   onOpenDesignSystemPicker,
   onSelectDesignSystem,
   onImportDesignStyleFile,
-  onInstallAgent,
   onRenameProject,
   onClearSentCommentAttachments,
   onClosePreviewCommentsPanel,
@@ -1284,12 +1274,11 @@ function ChatPanel({
   onOpenDesignSystemPicker: () => void | Promise<void>;
   onSelectDesignSystem: (designSystemId: string | null) => void | Promise<void>;
   onImportDesignStyleFile: (file: File) => Promise<ChatComposerDesignSystem>;
-  onInstallAgent: (agentId: string) => void | Promise<void>;
   onRenameProject: (title: string) => void | Promise<void>;
   onOpenAttachment?: (attachment: ChatAttachment) => void;
   onClearSentCommentAttachments: (sentAttachments: CanvasCommentAttachment[]) => void;
   onClosePreviewCommentsPanel: () => void;
-  onSendPreviewComments: (comments: CanvasPreviewComment[], agentId: string) => void | Promise<void>;
+  onSendPreviewComments: (comments: CanvasPreviewComment[], agentTargetId: string) => void | Promise<void>;
   onDeletePreviewComment: (commentId: string) => void | Promise<void>;
   onOpenPreviewComment: (comment: CanvasPreviewComment) => void | Promise<void>;
   onPatchPreviewCommentStatus: (commentId: string, status: CanvasCommentStatus) => void | Promise<void>;
@@ -1301,7 +1290,7 @@ function ChatPanel({
   const session = useService(IChatSessionService);
   const snapshot = useServiceSnapshot<ChatTimelineSnapshot>(timeline);
   const contextSnapshot = useServiceSnapshot<ContextPickerSnapshot>(context);
-  const activeConversationProvider = resolveActiveConversationProvider(
+  const activeConversationAgentTargetId = resolveActiveConversationAgentTargetId(
     snapshot,
   );
 
@@ -1322,7 +1311,7 @@ function ChatPanel({
           contextRemove={(kind, id) => context.removeSelection(kind, id)}
           agentAvailability={agentAvailability}
           agentModelCatalog={agentModelCatalog}
-          activeConversationProvider={activeConversationProvider}
+          activeConversationAgentTargetId={activeConversationAgentTargetId}
           activeDesignSystem={activeDesignSystem}
           designSystems={designSystems}
           designSystemPickerState={designSystemPickerState}
@@ -1334,7 +1323,6 @@ function ChatPanel({
           queuedTurns={queuedTurns}
           onOpenDesignSystemPicker={onOpenDesignSystemPicker}
           onSelectDesignSystem={onSelectDesignSystem}
-          onInstallAgent={onInstallAgent}
           onClosePreviewCommentsPanel={onClosePreviewCommentsPanel}
           onSendPreviewComments={onSendPreviewComments}
           onDeletePreviewComment={onDeletePreviewComment}
@@ -1383,14 +1371,14 @@ function ChatPanel({
   );
 }
 
-function resolveActiveConversationProvider(
+function resolveActiveConversationAgentTargetId(
   snapshot: ChatTimelineSnapshot,
 ): string | null {
-  const provider = snapshot.conversations.find(
+  const agentTargetId = snapshot.conversations.find(
     (conversation) => conversation.id === snapshot.activeConversationId,
-  )?.provider;
-  const canonicalProvider = typeof provider === 'string' ? provider.trim() : '';
-  return canonicalProvider || null;
+  )?.agentTargetId;
+  const canonicalAgentTargetId = typeof agentTargetId === 'string' ? agentTargetId.trim() : '';
+  return canonicalAgentTargetId || null;
 }
 
 function previewCommentDisplayDraft(attachments: readonly CanvasCommentAttachment[]): string {

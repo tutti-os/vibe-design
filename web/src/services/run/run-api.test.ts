@@ -84,7 +84,7 @@ describe('FetchRunApi', () => {
       new FetchRunApi().createRun({
         projectId: 'project-1',
         prompt: 'Use a specific model',
-        agentId: 'codex',
+        agentTargetId: 'codex',
         model: 'codex:gpt-5.4-mini',
       }),
     ).resolves.toEqual({ runId: 'run-1' });
@@ -96,7 +96,7 @@ describe('FetchRunApi', () => {
     expect(JSON.parse(String(request.body))).toMatchObject({
       projectId: 'project-1',
       prompt: 'Use a specific model',
-      agentId: 'codex',
+      agentTargetId: 'codex',
       model: 'codex:gpt-5.4-mini',
     });
   });
@@ -120,7 +120,7 @@ describe('FetchRunApi', () => {
         projectId: 'project-1',
         conversationId: 'conversation-1',
         prompt: 'Try switching',
-        agentId: 'claude',
+        agentTargetId: 'claude',
       }),
     ).rejects.toThrow('conversation already uses provider codex');
   });
@@ -132,7 +132,7 @@ describe('FetchRunApi', () => {
       new FetchRunApi().createRun({
         projectId: 'project-1',
         prompt: 'Try sending',
-        agentId: 'claude',
+        agentTargetId: 'claude',
       }),
     ).rejects.toThrow('Browser request API is unavailable.');
   });

@@ -4,7 +4,7 @@ import type { ChatRun } from './types/run.js';
 import { materializeArtifactRunEvent } from './artifact-materializer.js';
 import {
   appendRunEventToMessageInStore,
-  bindConversationProviderInStore,
+  bindConversationAgentTargetInStore,
   createConversationInStore,
   deleteConversationFromStore,
   type DeleteConversationFromStoreResult,
@@ -94,21 +94,34 @@ export async function createConversation(
   return createConversationInStore(projectsDir, projectId, id, title);
 }
 
-export async function bindConversationProvider(
+export async function bindConversationAgentTarget(
   projectsDir: string,
   projectId: string,
   conversationId: string,
+  agentTargetId: string,
   provider: string,
   model?: string | null,
 ): Promise<StoredConversation | null> {
-  return bindConversationProviderInStore(projectsDir, projectId, conversationId, provider, model);
+  return bindConversationAgentTargetInStore(
+    projectsDir,
+    projectId,
+    conversationId,
+    agentTargetId,
+    provider,
+    model,
+  );
 }
 
 export async function updateConversationResumeMetadata(
   projectsDir: string,
   projectId: string,
   conversationId: string,
-  input: { providerSessionId?: string | null; resumeToken?: string | null },
+  input: {
+    providerSessionId?: string | null;
+    resumeToken?: string | null;
+    agentTargetId?: string | null;
+    provider?: string | null;
+  },
 ): Promise<StoredConversation | null> {
   return updateConversationResumeMetadataInStore(projectsDir, projectId, conversationId, input);
 }

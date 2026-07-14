@@ -357,7 +357,7 @@ function ProjectCreator({
     if (selectedModel && modelOptions.some((model) => model.key === selectedModel.key)) return;
     setSelectedModel(
       (selectedModel
-        ? modelOptions.find((model) => model.provider === selectedModel.provider)
+        ? modelOptions.find((model) => model.agentTargetId === selectedModel.agentTargetId)
         : undefined) ?? modelOptions[0] ?? null,
     );
   }, [modelOptions, selectedModel]);
@@ -383,9 +383,8 @@ function ProjectCreator({
         prompt: nextPrompt,
         projectKind: typeof formProjectKind === 'string' ? formProjectKind : 'prototype',
         ...(designSystemId ? { designSystemId } : {}),
-        ...(shouldSendDashboardModel(selectedModel)
-          ? { agentId: selectedModel.agentId, model: selectedModel.modelId }
-          : {}),
+        agentTargetId: selectedModel.agentTargetId,
+        ...(selectedModel.modelId ? { model: selectedModel.modelId } : {}),
       });
       try {
         await uploadDashboardFiles(project.id, stagedFiles);
@@ -395,8 +394,8 @@ function ProjectCreator({
       stashInitialProjectPrompt(project.id, nextPrompt);
       stashInitialProjectSkills(project.id, selectedSkillIds);
       stashInitialProjectAgent(project.id, {
-        agentId: selectedModel.agentId,
-        ...(shouldSendDashboardModel(selectedModel) ? { model: selectedModel.modelId } : {}),
+        agentTargetId: selectedModel.agentTargetId,
+        ...(selectedModel.modelId ? { model: selectedModel.modelId } : {}),
       });
       setStagedFiles([]);
       // Clear the dashboard's skill selections so they don't leak into the next project.
@@ -525,6 +524,7 @@ function ProjectCreator({
                   groups={groupDashboardModelOptions(modelOptions)}
                   selectedKey={selectedModel.key}
                   selectedProvider={selectedModel.provider}
+                  selectedIconProvider={selectedModel.iconProvider}
                   selectedProviderLabel={selectedModel.providerLabel}
                   selectedModelLabel={selectedModel.modelLabel}
                   onOpenMenu={() => void agentCatalog.ensureLoaded()}
@@ -592,12 +592,15 @@ function isSupportedDashboardReferenceFile(file: File): boolean {
 function dashboardModelOptionsFromCatalog(
   catalog: ChatComposerAgentModelCatalogEntry[],
 ): DashboardModelOption[] {
-  return catalog.filter((entry) => entry.supported).flatMap((entry) => {
-    const provider = dashboardModelProviderFromAgentId(entry.agentId);
+  return [...catalog]
+    .sort((left, right) => Number(Boolean(right.isDefault)) - Number(Boolean(left.isDefault)))
+    .filter((entry) => entry.supported).flatMap((entry) => {
+    const provider = entry.agentTargetId;
     return entry.models.map((model) => ({
       key: `${provider}:${model.id}`,
       provider,
-      agentId: entry.agentId,
+      iconProvider: entry.providerId ?? '',
+      agentTargetId: entry.agentTargetId,
       providerLabel: entry.label,
       modelId: model.id,
       modelLabel: model.label,
@@ -622,6 +625,7 @@ function groupDashboardModelOptions(modelOptions: DashboardModelOption[]): Compo
 
     groups.push({
       provider: model.provider,
+      iconProvider: model.iconProvider,
       providerLabel: model.providerLabel,
       models: [{
         id: model.modelId,
@@ -634,18 +638,11 @@ function groupDashboardModelOptions(modelOptions: DashboardModelOption[]): Compo
   return groups;
 }
 
-function dashboardModelProviderFromAgentId(agentId: string): ComposerModelProvider {
-  return agentId;
-}
-
-function shouldSendDashboardModel(model: DashboardModelOption): boolean {
-  return !(model.agentId === 'codex' && model.modelId === 'default');
-}
-
 interface DashboardModelOption {
   key: string;
   provider: ComposerModelProvider;
-  agentId: string;
+  iconProvider: ComposerModelProvider;
+  agentTargetId: string;
   providerLabel: string;
   modelId: string;
   modelLabel: string | null;

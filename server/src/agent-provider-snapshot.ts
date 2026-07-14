@@ -1,11 +1,15 @@
 import { createHash } from 'node:crypto';
 
 import type { DetectContext } from '@tutti-os/agent-acp-kit';
+import { loadTuttiAgentCatalog } from '@tutti-os/agent-acp-kit/tutti';
 import type { ModelSummary } from './agents.js';
 import { localAgentRuntime } from './local-agent-runtime.js';
 
 export interface AgentProviderSnapshot {
-  id: string;
+  agentTargetId?: string;
+  providerId?: string;
+  /** @deprecated Test/injection compatibility. */
+  id?: string;
   label: string;
   supported: boolean;
   authState: 'ok' | 'missing' | 'expired' | 'unknown';
@@ -18,21 +22,33 @@ export interface AgentProviderSnapshot {
 export type DetectAgentProviders = (context?: DetectContext) => Promise<AgentProviderSnapshot[]>;
 
 export async function detectLocalAgentProviders(context?: DetectContext): Promise<AgentProviderSnapshot[]> {
-  const providers = await localAgentRuntime.detect(context);
-  return providers.map((provider) => ({
-    id: provider.provider,
-    label: provider.displayName,
-    supported: provider.supported,
-    authState: provider.authState,
-    models: provider.models.map((model) => ({
+  const [catalog, providers] = await Promise.all([
+    loadTuttiAgentCatalog({ runtime: localAgentRuntime, detectContext: context }),
+    localAgentRuntime.detect(context),
+  ]);
+  const byProvider = new Map(providers.map((provider) => [provider.provider, provider]));
+  return catalog.agents.map((agent) => {
+    const provider = byProvider.get(agent.providerId);
+    return {
+    agentTargetId: agent.agentTargetId,
+    providerId: agent.providerId,
+    label: agent.displayName,
+    supported: agent.runtimeSupported
+      && agent.availability.status === 'available'
+      && provider?.supported === true,
+    authState: provider?.authState ?? 'unknown',
+    models: (provider?.models ?? []).map((model) => ({
       id: model.id,
       label: model.label,
       ...(model.description ? { description: model.description } : {}),
     })),
-    ...(provider.defaultModelId ? { defaultModelId: provider.defaultModelId } : {}),
-    ...(provider.isDefault ? { isDefault: true as const } : {}),
-    ...(provider.reason ? { reason: provider.reason } : {}),
-  }));
+    ...(provider?.defaultModelId ? { defaultModelId: provider.defaultModelId } : {}),
+    ...(agent.agentTargetId === catalog.defaultAgentTargetId ? { isDefault: true as const } : {}),
+    ...(agent.availability.detail || provider?.reason
+      ? { reason: agent.availability.detail || provider?.reason }
+      : {}),
+  };
+  });
 }
 
 export function createAgentProviderSnapshotDetector(detectProviders: DetectAgentProviders): {

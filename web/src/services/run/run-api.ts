@@ -17,6 +17,7 @@ export class FetchRunApi implements RunApi {
 
     return {
       runId: data.runId,
+      ...(typeof data.agentTargetId === 'string' ? { agentTargetId: data.agentTargetId } : {}),
       ...(typeof data.provider === 'string' ? { provider: data.provider } : {}),
     };
   }

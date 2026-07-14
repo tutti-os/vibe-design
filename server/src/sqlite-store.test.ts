@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import initSqlJs from 'sql.js';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  bindConversationAgentTargetInStore,
   bindConversationProviderInStore,
   createConversationInStore,
   deleteConversationFromStore,
@@ -214,6 +215,59 @@ describe('sqlite preview comments', () => {
       model: 'claude:opus',
       providerSessionId: 'claude-session-1',
       resumeToken: 'resume-token-1',
+    });
+  });
+
+  it('refreshes derived provider metadata for the same exact target and clears incompatible resume state', async () => {
+    const projectsDir = await createProjectsDir();
+    writeConversation(projectsDir);
+
+    bindConversationAgentTargetInStore(
+      projectsDir,
+      'project-a',
+      'conversation-a',
+      'team:writer',
+      'codex',
+      'codex:gpt-5.4',
+    );
+    updateConversationResumeMetadataInStore(projectsDir, 'project-a', 'conversation-a', {
+      providerSessionId: 'codex-session-1',
+      resumeToken: 'codex-resume-1',
+    });
+
+    const rebound = bindConversationAgentTargetInStore(
+      projectsDir,
+      'project-a',
+      'conversation-a',
+      'team:writer',
+      'open-provider',
+    );
+
+    expect(rebound).toMatchObject({
+      agentTargetId: 'team:writer',
+      provider: 'open-provider',
+      model: null,
+      providerSessionId: null,
+      resumeToken: null,
+    });
+    expect(listConversationsFromStore(projectsDir, 'project-a')[0]).toMatchObject({
+      agentTargetId: 'team:writer',
+      provider: 'open-provider',
+      model: null,
+      providerSessionId: null,
+      resumeToken: null,
+    });
+
+    updateConversationResumeMetadataInStore(projectsDir, 'project-a', 'conversation-a', {
+      agentTargetId: 'team:writer',
+      provider: 'codex',
+      providerSessionId: 'stale-codex-session',
+      resumeToken: 'stale-codex-resume',
+    });
+    expect(listConversationsFromStore(projectsDir, 'project-a')[0]).toMatchObject({
+      provider: 'open-provider',
+      providerSessionId: null,
+      resumeToken: null,
     });
   });
 

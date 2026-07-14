@@ -25,12 +25,14 @@ describe('projectAgentModelCatalog', () => {
         reason: 'Authentication required.',
       },
     ])).toEqual([{
-      id: 'codex',
+      agentTargetId: 'local:codex',
+      providerId: 'codex',
       label: 'Codex',
       supported: true,
       models: [{ id: 'default', label: 'Default' }],
     }, {
-      id: 'claude-code',
+      agentTargetId: 'local:claude-code',
+      providerId: 'claude-code',
       label: 'Claude Code',
       supported: false,
       models: [{ id: 'opus', label: 'Opus' }],

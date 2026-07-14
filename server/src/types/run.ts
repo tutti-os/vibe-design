@@ -24,6 +24,9 @@ export interface ChatRun {
   conversationId: string | null;
   assistantMessageId: string | null;
   clientRequestId: string | null;
+  agentTargetId: string | null;
+  provider: string | null;
+  /** @deprecated Internal test compatibility; runtime selection uses agentTargetId. */
   agentId: string | null;
   providerSessionId: string | null;
   resumeToken: string | null;
@@ -56,6 +59,9 @@ export interface ChatRunCreateMeta {
   conversationId?: unknown;
   assistantMessageId?: unknown;
   clientRequestId?: unknown;
+  agentTargetId?: unknown;
+  provider?: unknown;
+  /** @deprecated Internal test compatibility. */
   agentId?: unknown;
   providerSessionId?: unknown;
   resumeToken?: unknown;
@@ -70,7 +76,8 @@ export interface RunStatusBody {
   projectId: string | null;
   conversationId: string | null;
   assistantMessageId: string | null;
-  agentId: string | null;
+  agentTargetId: string | null;
+  provider: string | null;
   providerSessionId: string | null;
   resumeToken: string | null;
   appliedPluginSnapshotId: string | null;

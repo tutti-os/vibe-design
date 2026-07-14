@@ -9,7 +9,7 @@
 
 > **Turn a prompt into a real, runnable prototype — then review, annotate, and refine it with AI in one workspace.**
 
-Prototype Design is an AI-assisted design prototyping workspace. Start from a single prompt, ground the generation in a real design system, preview the live result on an interactive canvas, mark up exactly what needs to change, and send that visual feedback straight back to a local coding agent (Codex or Claude Code). Projects, conversations, files, and comments all persist — so a prototype keeps improving across many rounds instead of resetting every time.
+Prototype Design is an AI-assisted design prototyping workspace. Start from a single prompt, ground the generation in a real design system, preview the live result on an interactive canvas, mark up exactly what needs to change, and send that visual feedback straight back to an Agent Target exposed by Tutti. Projects, conversations, files, and comments all persist — so a prototype keeps improving across many rounds instead of resetting every time.
 
 Inspired by Open Design, Prototype Design keeps the creation loop open, inspectable, and grounded in real project artifacts.
 
@@ -19,7 +19,7 @@ Inspired by Open Design, Prototype Design keeps the creation loop open, inspecta
 - **Design-system-grounded output** — Pick an official design system and it becomes generation context, keeping color, typography, spacing, and component style on-brand.
 - **Review on the canvas, not in chat** — Pin comments to exact locations and attach screenshots, so feedback stays tied to a specific file and point.
 - **A closed visual feedback loop** — Send annotated feedback back to the agent and keep iterating in the same conversation.
-- **Runs on your local agents** — Uses your installed Codex / Claude Code, so edits happen in your own development environment.
+- **Runs on your available agents** — Reads the current Tutti Agent catalog and uses the selected exact Agent Target in your environment.
 - **A durable workspace, not a one-shot generator** — Projects, conversations, files, and comments stay available across every round.
 
 ## Features
@@ -30,7 +30,7 @@ Create a project from the dashboard, search recent work, and choose an official 
 
 ### 💬 Conversational AI generation
 
-The project editor is built around a conversation workspace. Choose a local agent, switch model providers, reference project files, and attach visual comments so every generation and edit keeps the right context.
+The project editor is built around a conversation workspace. Choose from the currently available agent targets, select a model, reference project files, and attach visual comments so every generation and edit keeps the right context.
 
 ### 🖼 Canvas preview & file workspace
 
@@ -44,7 +44,7 @@ Place comments on exact preview locations and send screenshot attachments to the
 
 ### 🤖 Local agent runtime
 
-The server detects local Codex and Claude Code installation, authentication, and availability, then surfaces any problems in the UI. Available agents run through the local runtime, so the workflow edits project files inside your own development environment.
+The server reads the current Tutti Agent catalog, uses its default Agent Target, and surfaces availability problems in the UI. Provider ids remain runtime metadata and do not define user-visible agent identity.
 
 ### ⌨️ Agent-friendly CLI
 
@@ -54,7 +54,7 @@ The packaged app registers read-only `tutti vibe-design` commands. Other agents 
 
 1. Enter a project name and prompt on the dashboard.
 2. Select an official design system as generation guidance.
-3. Open the project editor and generate prototype files with Codex or Claude Code.
+3. Open the project editor and generate prototype files with an available Agent Target.
 4. Preview HTML files on the canvas and inspect hierarchy, layout, and content.
 5. Add comments or screenshot feedback to specific areas.
 6. Send the feedback back to the agent, keep editing, and retain the full conversation history.
@@ -77,7 +77,7 @@ Requirements:
 
 - Node.js compatible with the repository's Node 24 build target.
 - pnpm 10.x.
-- Codex and/or Claude Code installed and authenticated for real local agent runs.
+- At least one available Agent Target in the current Tutti Agent catalog.
 
 ```bash
 pnpm install        # install dependencies

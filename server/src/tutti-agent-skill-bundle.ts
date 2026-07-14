@@ -7,7 +7,9 @@ import {
 
 export interface ResolveTuttiAgentSkillManifestInput {
   agentSessionId?: string | null;
-  provider: string;
+  agentTargetId?: string;
+  /** @deprecated Compatibility input; exact target selection is preferred. */
+  provider?: string;
   command?: string | null;
   cwd?: string | null;
   detectContext?: DetectContext;
@@ -20,13 +22,16 @@ export type ResolvedTuttiAgentSkillBundle = TuttiAgentSkillContext;
 export async function resolveTuttiAgentSkillBundle(
   input: ResolveTuttiAgentSkillManifestInput,
 ): Promise<ResolvedTuttiAgentSkillBundle> {
+  const selection = input.agentTargetId
+    ? { agentTargetId: input.agentTargetId }
+    : { provider: input.provider ?? '' };
   return loadTuttiAgentSkillContext({
     agentSessionId: input.agentSessionId,
     command: input.command,
     cwd: input.cwd,
     detectContext: input.detectContext,
     env: input.env ?? process.env,
-    provider: input.provider,
+    ...selection,
     runTuttiCli: input.runTuttiCli,
   });
 }

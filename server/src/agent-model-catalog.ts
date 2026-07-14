@@ -2,18 +2,22 @@ import type { ModelSummary } from './agents.js';
 import type { AgentProviderSnapshot } from './agent-provider-snapshot.js';
 
 export interface AgentModelCatalogEntry {
-  id: string;
+  agentTargetId: string;
+  providerId: string;
   label: string;
   supported: boolean;
+  isDefault?: true;
   models: ModelSummary[];
 }
 
 export function projectAgentModelCatalog(providers: readonly AgentProviderSnapshot[]): AgentModelCatalogEntry[] {
   return providers
     .map((entry) => ({
-      id: entry.id,
+      agentTargetId: entry.agentTargetId ?? `local:${entry.providerId ?? entry.id ?? 'unknown'}`,
+      providerId: entry.providerId ?? entry.id ?? 'unknown',
       label: entry.label,
       supported: entry.supported,
+      ...(entry.isDefault ? { isDefault: true as const } : {}),
       models: sanitizeModelOptions(
         entry.models,
       ),

@@ -4,6 +4,8 @@ import { artifactFileName, isCompleteHtmlDocument } from '../../../artifacts/art
 import { createArtifactParser } from '../../../artifacts/artifact-parser';
 import { imageAttachmentsForPreviewComments } from '../../../features/canvas-workspace/canvas-comment/comment-screenshot-attachments';
 import type { IChatTimelineService } from '../../chat-timeline/chat-timeline-service.interface';
+import type { IAgentCatalogService } from '../../agent-catalog/agent-catalog-service.interface';
+import { resolveLegacyProviderAgentTargetId } from '../../agent-catalog/agent-catalog-types';
 import type { ContextPickerSnapshot } from '../../context-picker/context-picker-types';
 import type { IContextPickerService } from '../../context-picker/context-picker-service.interface';
 import type { IDesignFileService } from '../../design-files/design-file-service.interface';
@@ -20,6 +22,7 @@ export interface ChatSessionServiceDependencies {
   run: IRunService;
   context: IContextPickerService;
   files: IDesignFileService;
+  agentCatalog?: IAgentCatalogService;
   queuedTurnStore?: QueuedTurnStore | null;
 }
 
@@ -32,7 +35,8 @@ export interface StoredQueuedTurn {
   queueId: string;
   content: string;
   prompt: string;
-  agentId?: string;
+  agentTargetId?: string;
+  legacyProviderId?: string;
   model?: string;
   attachments: ChatAttachment[];
   commentAttachments: CanvasCommentAttachment[];
@@ -58,7 +62,7 @@ export class ChatSessionService implements IChatSessionService {
     this.nextQueuedTurnId = nextQueuedTurnId(this.queuedTurns);
     this.resumeActiveRun();
     if (this.queuedTurns.length > 0) {
-      queueMicrotask(() => this.drainQueue());
+      queueMicrotask(() => void this.migrateAndDrainQueue());
     }
   }
 
@@ -111,12 +115,12 @@ export class ChatSessionService implements IChatSessionService {
     const prompt = expandSearchCommand(promptContent)?.prompt ?? promptContent;
     const timelineSnapshot = this.dependencies.timeline.getSnapshot();
     const conversationId = timelineSnapshot.activeConversationId;
-    const lockedProvider = readActiveConversationProvider(timelineSnapshot);
+    const lockedAgentTargetId = readActiveConversationProvider(timelineSnapshot);
     const rememberedModel = readActiveConversationModel(timelineSnapshot);
     return {
       content,
       prompt,
-      agentId: lockedProvider ?? input.agentId,
+      agentTargetId: lockedAgentTargetId ?? input.agentTargetId,
       ...(input.model || rememberedModel ? { model: input.model ?? rememberedModel } : {}),
       attachments,
       commentAttachments,
@@ -157,12 +161,13 @@ export class ChatSessionService implements IChatSessionService {
       });
 
       let runId: string;
+      let agentTargetId: string | null | undefined;
       let provider: string | null | undefined;
       try {
-        ({ runId, provider } = await this.dependencies.run.createRun({
+        ({ runId, agentTargetId, provider } = await this.dependencies.run.createRun({
           projectId: this.dependencies.project.getProjectId(),
           ...(turn.conversationId ? { conversationId: turn.conversationId } : {}),
-          ...(turn.agentId ? { agentId: turn.agentId } : {}),
+          ...(turn.agentTargetId ? { agentTargetId: turn.agentTargetId } : {}),
           ...(turn.model ? { model: turn.model } : {}),
           prompt: turn.prompt,
           ...(turn.attachments.length > 0 ? { attachments: turn.attachments } : {}),
@@ -174,10 +179,13 @@ export class ChatSessionService implements IChatSessionService {
         this.dependencies.timeline.removeMessage(userMessage.id);
         throw error;
       }
-      const providerToRemember = provider ?? (turn.model ? turn.agentId : null);
-      if (turn.conversationId && providerToRemember) {
+      const targetToRemember = agentTargetId ?? turn.agentTargetId;
+      const providerToRemember = provider
+        ?? readActiveConversationRuntimeProvider(this.dependencies.timeline.getSnapshot());
+      if (turn.conversationId && targetToRemember && providerToRemember) {
         this.dependencies.timeline.setConversationProvider({
           conversationId: turn.conversationId,
+          agentTargetId: targetToRemember,
           provider: providerToRemember,
           ...(turn.model ? { model: turn.model } : {}),
         });
@@ -211,6 +219,15 @@ export class ChatSessionService implements IChatSessionService {
   async sendQueuedTurnNext(queueId: string): Promise<void> {
     const queueIndex = this.queuedTurns.findIndex((turn) => turn.queueId === queueId);
     if (queueIndex === -1) return;
+
+    const queuedTurn = this.queuedTurns[queueIndex];
+    if (queuedTurn?.legacyProviderId && !queuedTurn.agentTargetId) {
+      const catalog = await this.dependencies.agentCatalog?.ensureLoaded() ?? [];
+      const agentTargetId = resolveLegacyProviderAgentTargetId(catalog, queuedTurn.legacyProviderId);
+      if (!agentTargetId) return;
+      queuedTurn.agentTargetId = agentTargetId;
+      delete queuedTurn.legacyProviderId;
+    }
 
     const [turn] = this.queuedTurns.splice(queueIndex, 1);
     if (!turn) return;
@@ -359,6 +376,11 @@ export class ChatSessionService implements IChatSessionService {
       return;
     }
 
+    if (this.queuedTurns[0]?.legacyProviderId && !this.queuedTurns[0]?.agentTargetId) {
+      void this.migrateAndDrainQueue();
+      return;
+    }
+
     const nextTurn = this.queuedTurns.shift();
     if (!nextTurn) {
       return;
@@ -371,6 +393,24 @@ export class ChatSessionService implements IChatSessionService {
       this.persistQueuedTurns();
       this.notify();
     });
+  }
+
+  private async migrateAndDrainQueue(): Promise<void> {
+    const legacyTurns = this.queuedTurns.filter((turn) => turn.legacyProviderId && !turn.agentTargetId);
+    if (legacyTurns.length > 0) {
+      const catalog = await this.dependencies.agentCatalog?.ensureLoaded() ?? [];
+      for (const turn of legacyTurns) {
+        const agentTargetId = resolveLegacyProviderAgentTargetId(catalog, turn.legacyProviderId ?? '');
+        if (agentTargetId) {
+          turn.agentTargetId = agentTargetId;
+          delete turn.legacyProviderId;
+        }
+      }
+      this.persistQueuedTurns();
+      this.notify();
+    }
+    if (this.queuedTurns[0]?.legacyProviderId && !this.queuedTurns[0]?.agentTargetId) return;
+    this.drainQueue();
   }
 
   private loadQueuedTurns(): QueuedPreparedTurn[] {
@@ -407,7 +447,7 @@ export class ChatSessionService implements IChatSessionService {
 interface PreparedTurn {
   content: string;
   prompt: string;
-  agentId?: string;
+  agentTargetId?: string;
   model?: string;
   attachments: ChatAttachment[];
   commentAttachments: CanvasCommentAttachment[];
@@ -559,7 +599,8 @@ function storedQueuedTurn(turn: StoredQueuedTurn): StoredQueuedTurn {
     queueId: turn.queueId,
     content: turn.content,
     prompt: turn.prompt,
-    ...(turn.agentId ? { agentId: turn.agentId } : {}),
+    ...(turn.agentTargetId ? { agentTargetId: turn.agentTargetId } : {}),
+    ...(turn.legacyProviderId ? { legacyProviderId: turn.legacyProviderId } : {}),
     ...(turn.model ? { model: turn.model } : {}),
     attachments: structuredClone(turn.attachments),
     commentAttachments: structuredClone(turn.commentAttachments),
@@ -575,7 +616,7 @@ function normalizeStoredQueuedTurn(value: unknown): QueuedPreparedTurn | null {
     return null;
   }
 
-  const candidate = value as Partial<StoredQueuedTurn>;
+  const candidate = value as Partial<StoredQueuedTurn> & { agentId?: unknown };
   if (
     typeof candidate.queueId !== 'string' ||
     typeof candidate.content !== 'string' ||
@@ -599,7 +640,14 @@ function normalizeStoredQueuedTurn(value: unknown): QueuedPreparedTurn | null {
     queueId: candidate.queueId,
     content: candidate.content,
     prompt: candidate.prompt,
-    ...(typeof candidate.agentId === 'string' && candidate.agentId ? { agentId: candidate.agentId } : {}),
+    ...(typeof candidate.agentTargetId === 'string' && candidate.agentTargetId
+      ? { agentTargetId: candidate.agentTargetId }
+      : {}),
+    ...(typeof candidate.legacyProviderId === 'string' && candidate.legacyProviderId
+      ? { legacyProviderId: candidate.legacyProviderId }
+      : typeof candidate.agentId === 'string' && candidate.agentId
+        ? { legacyProviderId: candidate.agentId }
+        : {}),
     ...(typeof candidate.model === 'string' && candidate.model ? { model: candidate.model } : {}),
     attachments: structuredClone(candidate.attachments) as ChatAttachment[],
     commentAttachments: structuredClone(candidate.commentAttachments) as CanvasCommentAttachment[],
@@ -665,14 +713,24 @@ function readErrorMessage(error: Error): string {
 
 function readActiveConversationProvider(snapshot: ReturnType<IChatTimelineService['getSnapshot']>): string | undefined {
   const activeConversation = snapshot.conversations.find((conversation) => conversation.id === snapshot.activeConversationId);
-  const provider = activeConversation?.provider;
-  return typeof provider === 'string' && provider.trim().length > 0 ? provider : undefined;
+  const agentTargetId = activeConversation?.agentTargetId;
+  return typeof agentTargetId === 'string' && agentTargetId.trim().length > 0 ? agentTargetId : undefined;
 }
 
 function readActiveConversationModel(snapshot: ReturnType<IChatTimelineService['getSnapshot']>): string | undefined {
   const activeConversation = snapshot.conversations.find((conversation) => conversation.id === snapshot.activeConversationId);
   const model = activeConversation?.model;
   return typeof model === 'string' && model.trim().length > 0 ? model : undefined;
+}
+
+function readActiveConversationRuntimeProvider(
+  snapshot: ReturnType<IChatTimelineService['getSnapshot']>,
+): string | undefined {
+  const activeConversation = snapshot.conversations.find(
+    (conversation) => conversation.id === snapshot.activeConversationId,
+  );
+  const provider = activeConversation?.provider;
+  return typeof provider === 'string' && provider.trim().length > 0 ? provider : undefined;
 }
 
 function lastEventIdForRun(messages: ReturnType<IChatTimelineService['getSnapshot']>['messages'], runId: string): number | string | null {

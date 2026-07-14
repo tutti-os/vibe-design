@@ -24,13 +24,13 @@ const transformWrapperProps = vi.hoisted(() => ({
 }));
 
 const TEST_AGENT_AVAILABILITY = [
-  { id: 'codex', label: 'Codex', supported: true, authState: 'ok' },
-  { id: 'claude-code', label: 'Claude Code', supported: true, authState: 'ok' },
+  { agentTargetId: 'codex', providerId: 'codex', label: 'Codex', supported: true, authState: 'ok' },
+  { agentTargetId: 'claude-code', providerId: 'claude-code', label: 'Claude Code', supported: true, authState: 'ok' },
 ] satisfies NonNullable<React.ComponentProps<typeof ChatPaneBase>['agentAvailability']>;
 
 const TEST_AGENT_MODEL_CATALOG = [
-  { agentId: 'codex', label: 'Codex', supported: true, models: [] },
-  { agentId: 'claude-code', label: 'Claude Code', supported: true, models: [] },
+  { agentTargetId: 'codex', providerId: 'codex', label: 'Codex', supported: true, models: [] },
+  { agentTargetId: 'claude-code', providerId: 'claude-code', label: 'Claude Code', supported: true, models: [] },
 ];
 
 function ChatPane(props: React.ComponentProps<typeof ChatPaneBase>): React.ReactElement {
@@ -142,7 +142,8 @@ function cleanup(root: Root, container: HTMLElement): void {
 }
 
 function getByLabelText(container: HTMLElement, label: string): HTMLElement {
-  const element = container.querySelector(`[aria-label="${label}"]`);
+  const element = container.querySelector(`[aria-label="${label}"]`)
+    ?? (label === 'Message' ? container.querySelector('.chat-composer__textarea [contenteditable]') : null);
   if (!(element instanceof HTMLElement)) throw new Error(`Missing element labelled ${label}`);
   return element;
 }
@@ -482,7 +483,7 @@ describe('ChatPane', () => {
       );
       await changeText(getByLabelText(container, 'Message'), 'Ship this panel');
       await act(async () => getByLabelText(container, 'Send message').click());
-      expect(onSend).toHaveBeenCalledWith({ draft: 'Ship this panel', files: [], agentId: 'codex' });
+      expect(onSend).toHaveBeenCalledWith({ draft: 'Ship this panel', files: [], agentTargetId: 'codex' });
     } finally {
       cleanup(root, container);
     }
@@ -612,8 +613,8 @@ describe('ChatPane', () => {
         contextSearch={async () => ({ items: [] })}
         contextSelect={vi.fn()}
         agentAvailability={[
-          { id: 'codex', label: 'Codex', supported: true, authState: 'ok' },
-          { id: 'claude-code', label: 'Claude Code', supported: true, authState: 'ok' },
+          { agentTargetId: 'codex', providerId: 'codex', label: 'Codex', supported: true, authState: 'ok' },
+          { agentTargetId: 'claude-code', providerId: 'claude-code', label: 'Claude Code', supported: true, authState: 'ok' },
         ]}
         onSend={vi.fn()}
         onStop={vi.fn()}
@@ -625,7 +626,7 @@ describe('ChatPane', () => {
     );
 
     try {
-      const modelProvider = getByLabelText(container, 'Model provider');
+      const modelProvider = getByLabelText(container, 'Agent and model');
       await act(async () => {
         fireEvent.pointerDown(modelProvider, { button: 0, ctrlKey: false });
         fireEvent.click(modelProvider);
@@ -982,7 +983,7 @@ describe('ChatPane', () => {
     try {
       await act(async () => buttonByName(container, 'Comfortable').click());
       await act(async () => buttonByName(container, 'Submit').click());
-      expect(onSend).toHaveBeenCalledWith({ draft: 'Comfortable', files: [], agentId: 'codex' });
+      expect(onSend).toHaveBeenCalledWith({ draft: 'Comfortable', files: [], agentTargetId: 'codex' });
     } finally {
       cleanup(root, container);
     }
@@ -992,7 +993,7 @@ describe('ChatPane', () => {
     const onSend = vi.fn();
     const agentModelCatalog = [
       {
-        agentId: 'tutti-agent',
+        agentTargetId: 'tutti-agent',
         label: 'Tutti Agent',
         supported: true,
         models: [{ id: 'default', label: 'Default' }],
@@ -1042,7 +1043,7 @@ describe('ChatPane', () => {
       <ChatPane
         snapshot={snapshot}
         agentModelCatalog={agentModelCatalog}
-        activeConversationProvider="tutti-agent"
+        activeConversationAgentTargetId="tutti-agent"
         contextSnapshot={{ selectedSkills: [], selectedDesignFiles: [] }}
         contextSearch={async () => ({ items: [] })}
         contextSelect={vi.fn()}
@@ -1067,7 +1068,7 @@ describe('ChatPane', () => {
           '- 品牌名称: Acme',
         ].join('\n'),
         files: [],
-        agentId: 'tutti-agent',
+        agentTargetId: 'tutti-agent',
       });
       expect(container.textContent).toContain('Tutti Agent');
     } finally {
@@ -1599,7 +1600,7 @@ describe('ChatPane', () => {
             size: 128,
           },
         ],
-        agentId: 'codex',
+        agentTargetId: 'codex',
       });
     } finally {
       cleanup(root, container);
@@ -1725,6 +1726,7 @@ describe('ChatPane', () => {
         {
           id: 'conversation-1',
           title: 'Build a dashboard',
+          agentTargetId: 'claude-code',
           provider: 'claude-code',
           createdAt: 1,
           updatedAt: 1,
@@ -1781,7 +1783,7 @@ describe('ChatPane', () => {
       expect(onSend).toHaveBeenCalledWith({
         draft: '[form answers — discovery]\n- 任务类型是什么？: 仪表盘 [value: dashboard]',
         files: [],
-        agentId: 'claude-code',
+        agentTargetId: 'claude-code',
       });
     } finally {
       cleanup(root, container);
@@ -2523,7 +2525,7 @@ describe('ChatPane', () => {
       expect(sendButton.className).toContain('project-primary-button');
 
       await act(async () => sendButton.click());
-      expect(onSend).toHaveBeenCalledWith({ draft: '', files: [], agentId: 'codex', commentAttachments });
+      expect(onSend).toHaveBeenCalledWith({ draft: '', files: [], agentTargetId: 'codex', commentAttachments });
     } finally {
       cleanup(root, container);
     }

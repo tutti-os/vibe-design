@@ -4,8 +4,6 @@ export interface ModelSummary {
   description?: string;
 }
 
-export const DEFAULT_AGENT_ID = 'codex';
-
 export interface RuntimeAgentDef {
   id: string;
   label: string;

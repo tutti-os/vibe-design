@@ -47,10 +47,11 @@ import {
 } from './ComposerControls';
 import { PromptInput, type PromptInputHandle } from './PromptInput';
 
-type AgentId = string;
+type AgentTargetId = string;
 
 type ModelProviderEntry = {
   value: ComposerModelProvider;
+  providerId: ComposerModelProvider;
   label: string;
   comingSoon?: boolean;
 };
@@ -71,18 +72,17 @@ export interface ChatComposerProps {
   commentAttachments?: CanvasCommentAttachment[];
   agentAvailability?: ChatComposerAgentAvailability[];
   agentModelCatalog?: ChatComposerAgentModelCatalogEntry[];
-  lockedAgentId?: AgentId | null;
+  lockedAgentTargetId?: AgentTargetId | null;
   lockedModel?: string | null;
   onOpenDesignSystemPicker?(): void | Promise<void>;
   onSelectDesignSystem?(designSystemId: string | null): void | Promise<void>;
-  onInstallAgent?(agentId: AgentId): void | Promise<void>;
-  onAgentChange?(agentId: AgentId, label: string): void;
+  onAgentChange?(agentTargetId: AgentTargetId, label: string): void;
   onDraftChange?(draft: string): void;
   onSend(input: {
     draft: string;
     files: File[];
     attachments?: ChatAttachment[];
-    agentId: AgentId;
+    agentTargetId: AgentTargetId;
     model?: string;
     commentAttachments?: CanvasCommentAttachment[];
   }): void | Promise<void>;
@@ -122,11 +122,10 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     commentAttachments = [],
     agentAvailability = [],
     agentModelCatalog = [],
-    lockedAgentId = null,
+    lockedAgentTargetId = null,
     lockedModel = null,
     onOpenDesignSystemPicker,
     onSelectDesignSystem,
-    onInstallAgent,
     onAgentChange,
     onDraftChange,
     onSend,
@@ -136,7 +135,12 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     const [uncontrolledDraft, setUncontrolledDraft] = useState('');
     const [files, setFiles] = useState<File[]>([]);
     const [uploadedAttachments, setUploadedAttachments] = useState<ChatAttachment[]>([]);
-    const [modelProvider, setModelProvider] = useState<string>('codex');
+    const [modelProvider, setModelProvider] = useState<string>(() => (
+      lockedAgentTargetId?.trim()
+      || agentModelCatalog.find((entry) => entry.isDefault && entry.supported)?.agentTargetId
+      || agentModelCatalog.find((entry) => entry.supported)?.agentTargetId
+      || ''
+    ));
     const [selectedModelsByProvider, setSelectedModelsByProvider] = useState<Partial<Record<string, string>>>({});
     const [sendPending, setSendPending] = useState(false);
     const [stopPending, setStopPending] = useState(false);
@@ -145,15 +149,14 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
     const [draftDesignSystemId, setDraftDesignSystemId] = useState<string | null>(null);
     const [selectingDesignSystemId, setSelectingDesignSystemId] = useState<string | null>(null);
     const [designSystemSelectionError, setDesignSystemSelectionError] = useState<string | null>(null);
-    const [installingAgentId, setInstallingAgentId] = useState<AgentId | null>(null);
-    const [agentInstallMessage, setAgentInstallMessage] = useState<string | null>(null);
     const promptInputRef = useRef<PromptInputHandle | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const draft = controlledDraft ?? uncontrolledDraft;
     const hasCommentAttachments = commentAttachments.length > 0;
     const activeModelProviders = useMemo<ModelProviderEntry[]>(() => {
       return agentModelCatalog.map((entry) => ({
-        value: entry.agentId,
+        value: entry.agentTargetId,
+        providerId: entry.providerId ?? '',
         label: entry.label,
       }));
     }, [agentModelCatalog]);
@@ -162,7 +165,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       () => new Set(activeModelProviders.map((provider) => provider.value)),
       [activeModelProviders],
     );
-    const lockedModelProvider = lockedAgentId?.trim() || null;
+    const lockedModelProvider = lockedAgentTargetId?.trim() || null;
     const providerLocked = lockedModelProvider !== null;
     const selectedProviderUnavailableReason = unavailableReasonForProvider(modelProvider, agentAvailability);
     const selectedModelOptions = modelOptionsForProvider(modelProvider, agentModelCatalog);
@@ -283,7 +286,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           draft: draft.trim(),
           files,
           ...(uploadedAttachments.length > 0 ? { attachments: uploadedAttachments } : {}),
-          agentId: modelProvider,
+          agentTargetId: modelProvider,
           ...(selectedModel ? { model: selectedModel } : {}),
           ...(hasCommentAttachments ? { commentAttachments } : {}),
         });
@@ -334,7 +337,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       if (providerLocked) return;
       if (activeModelProviderIds.has(value)) {
         if (unavailableReasonForProvider(value, agentAvailability)) return;
-        setAgentInstallMessage(null);
         setModelProvider(value);
       }
     }
@@ -344,7 +346,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       if (unavailableReasonForProvider(provider, agentAvailability)) return;
       const providerModels = modelOptionsForProvider(provider, agentModelCatalog);
       if (!providerModels.some((model) => model.id === modelId)) return;
-      setAgentInstallMessage(null);
       setModelProvider(provider);
       setSelectedModelsByProvider((current) => ({
         ...current,
@@ -360,13 +361,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
         ? t('chat.composer.comingSoon')
         : isLockedOption ? t('chat.composer.lockedModelProvider') : unavailableReason;
       const providerDisabled = provider.comingSoon || isLockedOption || Boolean(unavailableReason);
-      const showInstallAction =
-        provider.value === 'claude-code' &&
-        Boolean(unavailableReason) &&
-        !isLockedOption &&
-        Boolean(onInstallAgent) &&
-        canInstallUnavailableAgent(availability);
-
       if (!activeModelProviderIds.has(provider.value)) {
         return renderDisabledModelProviderEntry(provider, disabledReason ?? t('chat.composer.comingSoon'));
       }
@@ -375,34 +369,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       const providerModels = modelOptionsForProvider(activeProvider, agentModelCatalog);
 
       if (providerDisabled) {
-        const disabledEntry = renderDisabledModelProviderEntry(provider, disabledReason ?? null);
-        if (!showInstallAction) return disabledEntry;
-
-        return (
-          <React.Fragment key={provider.value}>
-            {disabledEntry}
-            <div className="composer-model-install-row">
-              <Button
-                type="button"
-                className="composer-model-install-button"
-                variant="secondary"
-                size="sm"
-                aria-label={t('chat.composer.installAgent', { name: provider.label })}
-                disabled={installingAgentId !== null}
-                onPointerDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void installAgent(activeProvider, provider.label);
-                }}
-              >
-                {installingAgentId === activeProvider
-                  ? t('chat.composer.installing')
-                  : t('chat.composer.install')}
-              </Button>
-            </div>
-          </React.Fragment>
-        );
+        return renderDisabledModelProviderEntry(provider, disabledReason ?? null);
       }
 
       if (providerModels.length === 0) {
@@ -413,7 +380,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
             key={provider.value}
             onSelect={() => updateModelProvider(provider.value)}
           >
-            <ComposerModelProviderIcon provider={provider.value} />
+            <ComposerModelProviderIcon provider={provider.providerId} />
             <span>{provider.label}</span>
           </DropdownMenuItem>
         );
@@ -425,7 +392,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
             className="composer-model-provider-label"
             data-provider-option={provider.value}
           >
-            <ComposerModelProviderIcon provider={provider.value} />
+            <ComposerModelProviderIcon provider={provider.providerId} />
             <span>{provider.label}</span>
           </DropdownMenuLabel>
           <div className="composer-model-provider-models" data-provider-models={provider.value}>
@@ -469,7 +436,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           key={provider.value}
           title={provider.comingSoon ? disabledReason ?? undefined : undefined}
         >
-          <ComposerModelProviderIcon provider={provider.value} />
+          <ComposerModelProviderIcon provider={provider.providerId} />
           <span>{provider.label}</span>
         </DropdownMenuItem>
       );
@@ -488,20 +455,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           </TooltipContent>
         </Tooltip>
       );
-    }
-
-    async function installAgent(agentId: AgentId, label: string): Promise<void> {
-      if (!onInstallAgent || installingAgentId !== null) return;
-      setInstallingAgentId(agentId);
-      setAgentInstallMessage(t('chat.composer.installingAgent', { name: label }));
-      try {
-        await onInstallAgent(agentId);
-        setAgentInstallMessage(t('chat.composer.agentInstallSucceeded', { name: label }));
-      } catch (error) {
-        setAgentInstallMessage(readSendErrorMessage(error, t('chat.composer.agentInstallFailed', { name: label })));
-      } finally {
-        setInstallingAgentId(null);
-      }
     }
 
     function updateDesignSystemDialog(open: boolean): void {
@@ -595,12 +548,6 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
             {selectedProviderUnavailableReason}
           </span>
         ) : null}
-        {agentInstallMessage ? (
-          <span className="composer-hint" aria-live="polite">
-            {agentInstallMessage}
-          </span>
-        ) : null}
-
         <div className="composer-shell">
           <div className="chat-composer__topbar">
             <ComposerDesignSystemTrigger
@@ -704,6 +651,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
                   if (providerLocked && p.value !== lockedModelProvider) return [];
                   return [{
                     provider: p.value,
+                    iconProvider: p.providerId,
                     providerLabel: p.label,
                     models: modelOptionsForProvider(p.value, agentModelCatalog).map((m) => ({
                       id: m.id,
@@ -714,6 +662,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
                 })}
                 selectedKey={selectedModel ? `${modelProvider}:${selectedModel}` : modelProvider}
                 selectedProvider={modelProvider}
+                selectedIconProvider={modelProviders.find((provider) => provider.value === modelProvider)?.providerId}
                 selectedProviderLabel={selectedProviderLabel}
                 selectedModelLabel={selectedModelLabel}
                 menuClassName="composer-model-menu-content"
@@ -822,7 +771,7 @@ function modelOptionsForProvider(
   provider: string,
   catalog: ChatComposerAgentModelCatalogEntry[],
 ): ChatComposerModelOption[] {
-  return catalog.find((entry) => entry.agentId === provider)?.models ?? [];
+  return catalog.find((entry) => entry.agentTargetId === provider)?.models ?? [];
 }
 
 function selectedModelForProvider(
@@ -852,19 +801,12 @@ function availabilityForProvider(
   provider: string,
   agentAvailability: ChatComposerAgentAvailability[],
 ): ChatComposerAgentAvailability | null {
-  return agentAvailability.find((candidate) => candidate.id === provider) ?? null;
+  return agentAvailability.find((candidate) => candidate.agentTargetId === provider) ?? null;
 }
 
 function unavailableReasonForAvailability(agent: ChatComposerAgentAvailability | null): string | null {
-  if (!agent) return 'This provider is not available from Tutti.';
+  if (!agent) return 'This agent is not available from Tutti.';
   return !agent.supported ? agent.unavailableReason ?? `${agent.label} is unavailable.` : null;
-}
-
-function canInstallUnavailableAgent(agent: ChatComposerAgentAvailability | null): boolean {
-  if (!agent || agent.supported) return false;
-
-  return (agent.authState === 'missing' || agent.authState === 'unknown') &&
-    /not installed|not detected|not available on PATH|not found on PATH/i.test(agent.unavailableReason ?? '');
 }
 
 function readSendErrorMessage(error: unknown, fallback: string): string {

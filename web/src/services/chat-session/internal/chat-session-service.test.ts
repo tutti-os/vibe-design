@@ -91,10 +91,10 @@ describe('ChatSessionService', () => {
   it('passes the selected agent id into createRun', async () => {
     const { service, run } = createService();
 
-    await service.sendTurn({ draft: 'Use Claude for this', files: [], agentId: 'claude' });
+    await service.sendTurn({ draft: 'Use Claude for this', files: [], agentTargetId: 'claude' });
 
     expect(firstCreateRunInput(run)).toMatchObject({
-      agentId: 'claude',
+      agentTargetId: 'claude',
       prompt: 'Use Claude for this',
     });
   });
@@ -105,12 +105,12 @@ describe('ChatSessionService', () => {
     await service.sendTurn({
       draft: 'Use Codex mini',
       files: [],
-      agentId: 'codex',
+      agentTargetId: 'codex',
       model: 'codex:gpt-5.4-mini',
     });
 
     expect(firstCreateRunInput(run)).toMatchObject({
-      agentId: 'codex',
+      agentTargetId: 'codex',
       model: 'codex:gpt-5.4-mini',
       prompt: 'Use Codex mini',
     });
@@ -135,11 +135,12 @@ describe('ChatSessionService', () => {
   it('locks the active conversation to the provider returned by createRun', async () => {
     const { service, timeline, run } = createService({ createRunResult: { runId: 'run-1', provider: 'claude' } });
 
-    await service.sendTurn({ draft: 'Use Claude for this', files: [], agentId: 'claude' });
+    await service.sendTurn({ draft: 'Use Claude for this', files: [], agentTargetId: 'claude' });
 
-    expect(run.createRun).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'claude' }));
+    expect(run.createRun).toHaveBeenCalledWith(expect.objectContaining({ agentTargetId: 'claude' }));
     expect(timeline.setConversationProvider).toHaveBeenCalledWith({
       conversationId: 'conversation-1',
+      agentTargetId: 'claude',
       provider: 'claude',
     });
   });
@@ -147,10 +148,10 @@ describe('ChatSessionService', () => {
   it('keeps using Codex when the active conversation is already locked to Codex', async () => {
     const { service, run } = createService({ activeConversationProvider: 'codex' });
 
-    await service.sendTurn({ draft: 'Try Claude anyway', files: [], agentId: 'claude' });
+    await service.sendTurn({ draft: 'Try Claude anyway', files: [], agentTargetId: 'claude' });
 
     expect(firstCreateRunInput(run)).toMatchObject({
-      agentId: 'codex',
+      agentTargetId: 'codex',
       prompt: 'Try Claude anyway',
     });
   });
@@ -164,17 +165,18 @@ describe('ChatSessionService', () => {
     await service.sendTurn({
       draft: 'Try the newer Codex model',
       files: [],
-      agentId: 'claude',
+      agentTargetId: 'claude',
       model: 'codex:gpt-5.5',
     });
 
     expect(firstCreateRunInput(run)).toMatchObject({
-      agentId: 'codex',
+      agentTargetId: 'codex',
       model: 'codex:gpt-5.5',
       prompt: 'Try the newer Codex model',
     });
     expect(timeline.setConversationProvider).toHaveBeenCalledWith({
       conversationId: 'conversation-1',
+      agentTargetId: 'codex',
       provider: 'codex',
       model: 'codex:gpt-5.5',
     });
@@ -969,7 +971,7 @@ describe('ChatSessionService', () => {
     await firstEntry.service.sendTurn({
       draft: 'Second turn',
       files: [],
-      agentId: 'codex',
+      agentTargetId: 'codex',
       model: 'codex:gpt-5.4-mini',
     });
 
@@ -987,6 +989,95 @@ describe('ChatSessionService', () => {
       prompt: 'Second turn',
     });
     expect(queuedTurnStore.save).toHaveBeenLastCalledWith('demo-project', []);
+  });
+
+  it('migrates a legacy queued provider through a unique full-catalog target before running', async () => {
+    const queuedTurnStore = createMemoryQueuedTurnStore();
+    queuedTurnStore.load.mockReturnValueOnce([{
+      queueId: 'queued-turn-1',
+      content: 'Use the writer',
+      prompt: 'Use the writer',
+      agentId: 'codex',
+      attachments: [],
+      commentAttachments: [],
+      conversationId: 'conversation-1',
+      appendConversationId: 'conversation-1',
+    }]);
+    const entry = createService({
+      queuedTurnStore,
+      agentCatalog: [{ agentTargetId: 'team:writer', providerId: 'codex', label: 'Writer', supported: true, models: [] }],
+    });
+    await flushQueuedTurn();
+
+    expect(firstCreateRunInput(entry.run)).toMatchObject({ agentTargetId: 'team:writer' });
+  });
+
+  it('keeps an ambiguous legacy queued provider parked instead of starting the default target', async () => {
+    const queuedTurnStore = createMemoryQueuedTurnStore();
+    queuedTurnStore.load.mockReturnValueOnce([{
+      queueId: 'queued-turn-1',
+      content: 'Do not guess',
+      prompt: 'Do not guess',
+      agentId: 'codex',
+      attachments: [],
+      commentAttachments: [],
+      conversationId: 'conversation-1',
+      appendConversationId: 'conversation-1',
+    }]);
+    const entry = createService({
+      queuedTurnStore,
+      agentCatalog: [
+        { agentTargetId: 'team:writer', providerId: 'codex', label: 'Writer', supported: true, models: [] },
+        { agentTargetId: 'team:reviewer', providerId: 'codex', label: 'Reviewer', supported: true, models: [] },
+      ],
+    });
+    await flushQueuedTurn();
+
+    expect(entry.run.createRun).not.toHaveBeenCalled();
+    expect(entry.service.getSnapshot().queuedTurns).toHaveLength(1);
+  });
+
+  it('keeps an ambiguous legacy queued provider parked after an earlier exact-target turn finishes', async () => {
+    const queuedTurnStore = createMemoryQueuedTurnStore();
+    queuedTurnStore.load.mockReturnValueOnce([
+      {
+        queueId: 'queued-turn-1',
+        content: 'Run the writer first',
+        prompt: 'Run the writer first',
+        agentTargetId: 'team:writer',
+        attachments: [],
+        commentAttachments: [],
+        conversationId: 'conversation-1',
+        appendConversationId: 'conversation-1',
+      },
+      {
+        queueId: 'queued-turn-2',
+        content: 'Do not guess the legacy target',
+        prompt: 'Do not guess the legacy target',
+        agentId: 'codex',
+        attachments: [],
+        commentAttachments: [],
+        conversationId: 'conversation-1',
+        appendConversationId: 'conversation-1',
+      },
+    ]);
+    const entry = createService({
+      queuedTurnStore,
+      agentCatalog: [
+        { agentTargetId: 'team:writer', providerId: 'codex', label: 'Writer', supported: true, models: [] },
+        { agentTargetId: 'team:reviewer', providerId: 'codex', label: 'Reviewer', supported: true, models: [] },
+      ],
+    });
+    await flushQueuedTurn();
+
+    expect(entry.run.createRun).toHaveBeenCalledTimes(1);
+    firstStreamHandlers(entry.run).onEnd('succeeded');
+    await flushQueuedTurn();
+
+    expect(entry.run.createRun).toHaveBeenCalledTimes(1);
+    expect(entry.service.getSnapshot().queuedTurns.map((turn) => turn.content)).toEqual([
+      'Do not guess the legacy target',
+    ]);
   });
 
   it('keeps restored queued turns waiting when restored messages still have a running run', async () => {
@@ -1113,6 +1204,7 @@ function createService(
       load: ReturnType<typeof vi.fn>;
       save: ReturnType<typeof vi.fn>;
     };
+    agentCatalog?: Array<{ agentTargetId: string; providerId: string; label: string; supported: boolean; models: [] }>;
   } = {},
 ) {
   let activeRunId: string | null = options.activeRunId ?? null;
@@ -1175,6 +1267,7 @@ function createService(
         {
           id: 'conversation-1',
           title: 'New conversation',
+          agentTargetId: options.activeConversationProvider ?? null,
           provider: options.activeConversationProvider ?? null,
           model: options.activeConversationModel ?? null,
           createdAt: 1,
@@ -1225,6 +1318,15 @@ function createService(
       run: run as IRunService,
       context: context as IContextPickerService,
       files: files as IDesignFileService,
+      ...(options.agentCatalog ? {
+        agentCatalog: {
+          _serviceBrand: undefined,
+          subscribe: vi.fn(() => vi.fn()),
+          getSnapshot: vi.fn(() => ({ catalog: options.agentCatalog, loading: false, error: null })),
+          ensureLoaded: vi.fn(async () => options.agentCatalog ?? []),
+          refresh: vi.fn(async () => options.agentCatalog ?? []),
+        },
+      } : {}),
       ...(options.queuedTurnStore ? { queuedTurnStore: options.queuedTurnStore } : {}),
     } as ConstructorParameters<typeof ChatSessionService>[0]),
     timeline,

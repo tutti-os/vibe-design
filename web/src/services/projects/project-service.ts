@@ -13,7 +13,7 @@ export class ProjectService implements IProjectService {
       prompt: input.prompt.trim(),
       projectKind: input.projectKind,
       ...(input.designSystemId ? { designSystemId: input.designSystemId } : {}),
-      ...(input.agentId ? { agentId: input.agentId } : {}),
+      ...(input.agentTargetId ? { agentTargetId: input.agentTargetId } : {}),
       ...(input.model ? { model: input.model } : {}),
     });
   }

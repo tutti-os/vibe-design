@@ -155,6 +155,74 @@ describe('startAgentRun', () => {
     }
   });
 
+  it('keeps exact target B through composer, skills, resume, and provider runtime when two targets share one provider', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
+    try {
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(root, 'projects');
+      const cliPath = join(root, 'tutti-cli.mjs');
+      await mkdir(builtInSkillsRoot, { recursive: true });
+      await mkdir(userSkillsRoot, { recursive: true });
+      await writeFile(cliPath, [
+        '#!/usr/bin/env node',
+        'const args = process.argv.slice(2);',
+        'const config = { configurable: false, currentValue: "", defaultValue: "", options: [] };',
+        'if (args.includes("list")) process.stdout.write(JSON.stringify({',
+        '  schemaVersion: 1, defaultAgentTargetId: "team:a", agents: [',
+        '    { id: "team:a", provider: "codex", name: "A", availability: { status: "available", reasonCode: "", detail: "" } },',
+        '    { id: "team:b", provider: "codex", name: "B", availability: { status: "available", reasonCode: "", detail: "" } }',
+        '  ]',
+        '}));',
+        'else if (args.includes("composer-options")) process.stdout.write(JSON.stringify({',
+        '  schemaVersion: 2, agentTargetId: "team:b", providerId: "codex", effectiveSettings: {},',
+        '  modelConfig: config, permissionConfig: { configurable: false, defaultValue: "", modes: [] },',
+        '  reasoningConfig: config, speedConfig: config',
+        '}));',
+        'else process.stdout.write(JSON.stringify({',
+        '  schemaVersion: 2, agentTargetId: "team:b", provider: "codex",',
+        '  agentSessionId: args[args.indexOf("--agent-session-id") + 1],',
+        '  recommendedSystemPrompt: { content: "Target B skill context." }, skills: []',
+        '}));',
+      ].join('\n'));
+      await chmod(cliPath, 0o755);
+      process.env.TUTTI_CLI = cliPath;
+
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({ projectId: 'project-1', agentTargetId: 'team:b', provider: 'codex' });
+      run.providerSessionId = 'provider-session-b';
+      run.resumeToken = 'resume-b';
+      const runtime = createRecordingRuntime();
+
+      await startAgentRun({
+        run,
+        runs,
+        request: { projectId: 'project-1', agentTargetId: 'team:b', provider: 'codex', prompt: 'Run B.' },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+      });
+
+      expect(runtime.inputs).toHaveLength(1);
+      expect(runtime.inputs[0]).toMatchObject({
+        provider: 'codex',
+        runtimeProvider: 'codex',
+        resume: { mode: 'provider', providerSessionId: 'provider-session-b', resumeToken: 'resume-b' },
+      });
+      expect(runtime.inputs[0]?.systemPrompt).toContain('Target B skill context.');
+      expect(run.events.find((event) => event.event === 'start')?.data).toMatchObject({
+        agentTargetId: 'team:b',
+        provider: 'codex',
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('passes a dynamic Tutti agent skill bundle into managed ACP kit runs', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     try {
@@ -174,8 +242,22 @@ describe('startAgentRun', () => {
         '  canonical: process.env.TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL,',
         '  legacy: process.env.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL,',
         '}));',
+        'if (process.argv.includes("list")) {',
+        '  process.stdout.write(JSON.stringify({ schemaVersion: 1, defaultAgentTargetId: "local:codex", agents: [',
+        '    { id: "local:codex", provider: "codex", name: "Codex", availability: { status: "available", reasonCode: "", detail: "" } }',
+        '  ] }));',
+        '  process.exit(0);',
+        '}',
+        'if (process.argv.includes("composer-options")) {',
+        '  const config = { configurable: false, currentValue: "", defaultValue: "", options: [] };',
+        '  process.stdout.write(JSON.stringify({ schemaVersion: 2, agentTargetId: "local:codex", providerId: "codex",',
+        '    effectiveSettings: {}, modelConfig: config, permissionConfig: { configurable: false, defaultValue: "", modes: [] },',
+        '    reasoningConfig: config, speedConfig: config }));',
+        '  process.exit(0);',
+        '}',
         'process.stdout.write(JSON.stringify({',
-        '  schemaVersion: 1,',
+        '  schemaVersion: 2,',
+        '  agentTargetId: "local:codex",',
         '  provider: "codex",',
         '  agentSessionId: process.argv[process.argv.indexOf("--agent-session-id") + 1],',
         '  recommendedSystemPrompt: { format: "text/markdown", content: "Use Tutti routing." },',
@@ -229,15 +311,10 @@ describe('startAgentRun', () => {
         },
       });
 
-      expect(JSON.parse(await readFile(argsPath, 'utf8'))).toEqual([
-        '--json',
-        'agent',
-        'tutti-cli-skill-bundle',
-        '--provider',
-        'codex',
-        '--agent-session-id',
-        run.id,
-      ]);
+      expect(JSON.parse(await readFile(argsPath, 'utf8'))).toEqual(expect.arrayContaining([
+        '--agent-id',
+        'local:codex',
+      ]));
       expect(JSON.parse(await readFile(envPath, 'utf8'))).toEqual({
         legacy: 'credential-request-1',
       });
@@ -1044,7 +1121,7 @@ describe('startAgentRun', () => {
     }
   });
 
-  it('defaults to the Codex provider and includes uploaded attachments in the runtime prompt', async () => {
+  it('fails closed when no exact agent target is attached to the run', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     try {
       const builtInSkillsRoot = join(root, 'skills');
@@ -1082,14 +1159,11 @@ describe('startAgentRun', () => {
         agentRuntime: runtime,
       });
 
-      expect(runtime.inputs[0]?.provider).toBe('codex');
-      const prompt = runtime.inputs[0]?.prompt ?? '';
-      expect(prompt).toContain('你能看到图片内容吗');
-      expect(prompt).toContain('# Attached files');
-      expect(prompt).toContain('reference.png');
-      expect(prompt).toContain('assets/reference.png');
-      expect(prompt).toContain(join(projectsDir, 'project-1', 'assets', 'reference.png'));
-      expect(prompt).toContain('image/png');
+      expect(runtime.inputs).toEqual([]);
+      expect(run.status).toBe('failed');
+      expect(run.events.find((event) => event.event === 'error')?.data).toMatchObject({
+        code: 'AGENT_UNAVAILABLE',
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
