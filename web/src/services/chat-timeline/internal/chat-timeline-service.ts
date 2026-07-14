@@ -9,7 +9,7 @@ import type {
   ChatTimelineSnapshot,
   FinishRunInput,
   MessageBlock,
-  SetConversationProviderInput,
+  SetConversationAgentInput,
   SetUserMessageTurnStatusInput,
   StartAssistantRunInput,
 } from '../chat-timeline-types';
@@ -41,7 +41,7 @@ export class ChatTimelineService implements IChatTimelineService {
           pinnedTodoInput: isActive ? cloneValue(options.initialSnapshot.pinnedTodoInput) : null,
           customTitle: summary.title !== DEFAULT_CONVERSATION_TITLE,
           loaded: isActive,
-          hasHadMessages: initialMessages.length > 0 || Boolean(summary.provider),
+          hasHadMessages: initialMessages.length > 0 || Boolean(summary.agentTargetId),
           persisted: true,
           persistPromise: null,
         });
@@ -228,17 +228,18 @@ export class ChatTimelineService implements IChatTimelineService {
     this.emitChange();
   }
 
-  setConversationProvider(input: SetConversationProviderInput): void {
+  setConversationAgent(input: SetConversationAgentInput): void {
     const conversation = this.conversations.get(input.conversationId);
     if (!conversation) {
       return;
     }
-    if (conversation.summary.provider && conversation.summary.provider !== input.provider) {
+    if (conversation.summary.agentTargetId && conversation.summary.agentTargetId !== input.agentTargetId) {
       return;
     }
 
     conversation.summary = {
       ...conversation.summary,
+      agentTargetId: input.agentTargetId,
       provider: input.provider,
       ...(input.model ? { model: input.model } : {}),
       updatedAt: Date.now(),
@@ -363,7 +364,7 @@ export class ChatTimelineService implements IChatTimelineService {
       const current = this.conversations.get(conversationId);
       if (!current) return;
       current.messages = messages;
-      current.hasHadMessages = current.hasHadMessages || messages.length > 0 || Boolean(current.summary.provider);
+      current.hasHadMessages = current.hasHadMessages || messages.length > 0 || Boolean(current.summary.agentTargetId);
       current.activeRunId =
         messages.find((message) => message.role === 'assistant' && message.runStatus === 'running' && message.runId)?.runId ??
         null;
@@ -396,6 +397,7 @@ export class ChatTimelineService implements IChatTimelineService {
       summary: {
         id: conversationId,
         title: normalizedTitle,
+        agentTargetId: null,
         provider: null,
         model: null,
         createdAt: now,
@@ -433,6 +435,7 @@ export class ChatTimelineService implements IChatTimelineService {
         current.summary = {
           ...current.summary,
           title: summary.title,
+          agentTargetId: summary.agentTargetId,
           provider: summary.provider,
           model: summary.model,
           createdAt: summary.createdAt,

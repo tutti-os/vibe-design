@@ -4,7 +4,6 @@ import { readFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  installAgentProvider,
   createManagedAgentDetectContextFromHeaders,
   createManagedAgentRunContextFromHeaders,
   isManagedAgentInvocationProviderId,
@@ -19,16 +18,12 @@ import {
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { isProjectId, type ProjectEditorInitialData, type VibeDesignRoute } from '@vibe-design/web';
 import { renderPage } from '@vibe-design/web/render-page';
-import { DEFAULT_AGENT_ID } from './agents.js';
 import {
   agentDetectionFailureReason,
-  findUnavailableAgent,
-  PRIMARY_AGENT_ID,
+  legacyProviderIdsMatch,
   projectAgentAvailability,
-  resolvePreSessionFallback,
-  resolveRunFailureFallback,
+  resolveAvailableAgentTarget,
   type AgentAvailability,
-  type AgentFallback,
 } from './agent-availability.js';
 import {
   projectAgentModelCatalog,
@@ -43,7 +38,7 @@ import { startAgentRun, type StartAgentRunInput } from './agent-launcher.js';
 import { materializeProjectArtifactsFromEvents } from './artifact-materializer.js';
 import { reconcileProjectFilesFromDisk } from './project-file-reconciler.js';
 import {
-  bindConversationProvider,
+  bindConversationAgentTarget,
   createAssistantMessageId,
   createConversation,
   createUserMessageId,
@@ -80,6 +75,7 @@ import {
   listProjectFilesFromStore,
   sqlitePathForProjectsDir,
   type ProjectFileKind,
+  type StoredConversation,
   type StoredConversationMessage,
   type StoredProject,
 } from './sqlite-store.js';
@@ -100,13 +96,29 @@ export interface CreateServerOptions {
   builtInDesignSystemsRoot?: string;
   startAgentRun?: (input: StartAgentRunInput) => Promise<void> | void;
   detectAgentProviders?: DetectAgentProviders;
-  installClaudeCode?: () => Promise<void>;
   openApp?: (input: CliOpenAppInput) => Promise<void> | void;
 }
 
 type PersistentRunBodyResult =
   | { ok: true; body: Record<string, unknown> }
   | { ok: false; status: number; code: string; message: string };
+
+function storedConversationCanUseAgent(
+  conversation: StoredConversation,
+  selected: AgentAvailability,
+  catalog: AgentAvailability[],
+): boolean {
+  if (conversation.agentTargetId) {
+    return conversation.agentTargetId === selected.agentTargetId;
+  }
+  if (!conversation.provider) {
+    return true;
+  }
+  const legacyMatches = catalog.filter((candidate) => legacyProviderIdsMatch(candidate.providerId, conversation.provider!));
+  return legacyMatches.length === 1
+    && legacyMatches[0]?.supported === true
+    && legacyMatches[0].agentTargetId === selected.agentTargetId;
+}
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SERVER_DIR, '..', '..');
@@ -157,12 +169,6 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   const detectAgentModelCatalog = async (context?: DetectContext) => (
     projectAgentModelCatalog(await providerSnapshots.detect(context))
   );
-  const installClaudeCode = options.installClaudeCode ?? (async () => {
-    const result = await installAgentProvider('claude-code');
-    if (result.status === 'failed') {
-      throw new Error(result.failureReason ?? 'Claude Code installation failed.');
-    }
-  });
   const runs = createChatRunService({
     createSseResponse,
     createSseErrorPayload,
@@ -327,7 +333,16 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       return { ok: false, status: 400, code: 'BAD_REQUEST', message: 'conversationId is invalid' };
     }
 
-    const requestedProvider = readString(body.agentId) ?? DEFAULT_AGENT_ID;
+    const requestedAgentTargetId = readString(body.agentTargetId);
+    const legacyProviderId = readString(body.agentId) ?? readString(body.provider);
+    if (requestedAgentTargetId && legacyProviderId) {
+      return {
+        ok: false,
+        status: 400,
+        code: 'BAD_REQUEST',
+        message: 'Provide agentTargetId or a deprecated provider field, not both.',
+      };
+    }
     let agentAvailability: AgentAvailability[];
     try {
       agentAvailability = await detectAgentAvailability({ ...detectContext, refresh: true });
@@ -339,13 +354,19 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
         message: agentDetectionFailureReason(error),
       };
     }
-    const unavailableAgent = findUnavailableAgent(agentAvailability, requestedProvider);
-    if (unavailableAgent) {
+    let selectedAgent: AgentAvailability;
+    try {
+      selectedAgent = resolveAvailableAgentTarget(agentAvailability, {
+        agentTargetId: requestedAgentTargetId,
+        legacyProviderId,
+        allowLegacyProviderFallbackForAgentTargetId: body.allowLegacyAgentIdFallback === true,
+      });
+    } catch (error) {
       return {
         ok: false,
         status: 409,
         code: 'AGENT_UNAVAILABLE',
-        message: unavailableAgent.unavailableReason ?? `${unavailableAgent.label} is unavailable.`,
+        message: error instanceof Error ? error.message : 'The selected agent target is unavailable.',
       };
     }
 
@@ -356,12 +377,12 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       if (!existingConversation) {
         return { ok: false, status: 404, code: 'CONVERSATION_NOT_FOUND', message: 'conversation not found' };
       }
-      if (existingConversation.provider && existingConversation.provider !== requestedProvider) {
+      if (!storedConversationCanUseAgent(existingConversation, selectedAgent, agentAvailability)) {
         return {
           ok: false,
           status: 409,
-          code: 'CONVERSATION_PROVIDER_LOCKED',
-          message: `conversation already uses provider ${existingConversation.provider}`,
+          code: 'CONVERSATION_AGENT_LOCKED',
+          message: `conversation already uses agent target ${existingConversation.agentTargetId ?? 'an ambiguous legacy provider'}`,
         };
       }
       await ensureProject(ctx, projectId);
@@ -369,22 +390,23 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     } else {
       await ensureProject(ctx, projectId);
       const defaultConversation = await ensureDefaultConversation(ctx.paths.projectsDir, projectId, readString(body.title));
-      if (defaultConversation.provider && defaultConversation.provider !== requestedProvider) {
+      if (!storedConversationCanUseAgent(defaultConversation, selectedAgent, agentAvailability)) {
         return {
           ok: false,
           status: 409,
-          code: 'CONVERSATION_PROVIDER_LOCKED',
-          message: `conversation already uses provider ${defaultConversation.provider}`,
+          code: 'CONVERSATION_AGENT_LOCKED',
+          message: `conversation already uses agent target ${defaultConversation.agentTargetId ?? 'an ambiguous legacy provider'}`,
         };
       }
       conversationId = defaultConversation.id;
     }
 
-    const conversation = await bindConversationProvider(
+    const conversation = await bindConversationAgentTarget(
       ctx.paths.projectsDir,
       projectId,
       conversationId,
-      requestedProvider,
+      selectedAgent.agentTargetId,
+      selectedAgent.providerId,
       readString(body.model),
     );
     if (!conversation) {
@@ -397,8 +419,8 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       body: {
         ...body,
         conversationId,
-        agentId: conversation.provider ?? requestedProvider,
-        provider: conversation.provider ?? requestedProvider,
+        agentTargetId: conversation.agentTargetId ?? selectedAgent.agentTargetId,
+        provider: conversation.provider ?? selectedAgent.providerId,
         model: conversation.model ?? readString(body.model),
         providerSessionId: conversation.providerSessionId,
         resumeToken: conversation.resumeToken,
@@ -516,105 +538,27 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       return { ok: false, status: 400, code: 'BAD_REQUEST', message: 'projectId is required and must be path-safe' };
     }
 
-    // Local files are uploaded once and shared across the initial attempt and any fallback retry.
     const localFileResult = await saveCliLocalFiles(projectId, input.localFiles ?? input['local-files']);
     if (!localFileResult.ok) {
       return localFileResult;
     }
     const localAttachments = localFileResult.attachments;
 
-    const requestedProvider = readString(body.agentId) ?? DEFAULT_AGENT_ID;
-
-    // Pre-session fallback: if we can already tell the requested provider (codex) is unavailable
-    // and Claude Code is ready, switch before creating the run instead of failing the call.
-    let fallback = resolvePreSessionFallback(
-      await detectAgentAvailability(detectContext).catch(() => []),
-      requestedProvider,
-    );
-
-    let attemptBody = body;
-    if (fallback) {
-      const switched = await createCliFallbackConversation(projectId, body, fallback.toAgentId);
-      if (!switched.ok) {
-        return switched;
-      }
-      attemptBody = switched.body;
-    }
-
-    let first = await executeCliRun(
+    const result = await executeCliRun(
       projectId,
-      attemptBody,
+      body,
       localAttachments,
       detectContext,
       managedAgentHeaders,
     );
-
-    // The requested provider may not match the conversation it was pointed at (e.g. retrying with
-    // Claude Code on a conversation already locked to codex). A conversation can't mix providers,
-    // so transparently start a fresh conversation with the requested provider instead of failing.
-    if (!first.ok && first.code === 'CONVERSATION_PROVIDER_LOCKED' && !fallback) {
-      const requested = readString(attemptBody.agentId) ?? requestedProvider;
-      const switched = await createCliFallbackConversation(projectId, attemptBody, requested);
-      if (switched.ok) {
-        const retry = await executeCliRun(
-          projectId,
-          switched.body,
-          localAttachments,
-          detectContext,
-          managedAgentHeaders,
-        );
-        if (retry.ok) {
-          fallback = {
-            fromAgentId: lockedProviderFromMessage(first.message) ?? PRIMARY_AGENT_ID,
-            toAgentId: requested,
-            stage: 'conversation-locked',
-            reason: first.message,
-          };
-          first = retry;
-        }
-      }
-    }
-
-    if (!first.ok) {
-      return first;
-    }
-
-    // In-session fallback: codex started but failed in a way that means the provider itself is
-    // broken (auth/install/connectivity). Retry the same prompt on Claude Code in a fresh
-    // conversation, since the original conversation is now locked to codex.
-    if (!fallback && first.value.status === 'failed') {
-      const inSession = resolveRunFailureFallback(
-        await detectAgentAvailability(detectContext).catch(() => []),
-        first.value.provider ?? requestedProvider,
-        { errorCode: first.value.errorCode, error: first.value.error },
-      );
-      if (inSession) {
-        const switched = await createCliFallbackConversation(projectId, body, inSession.toAgentId);
-        if (switched.ok) {
-          const retry = await executeCliRun(
-            projectId,
-            switched.body,
-            localAttachments,
-            detectContext,
-            managedAgentHeaders,
-          );
-          if (retry.ok) {
-            return { ok: true, value: { ...retry.value, agentFallback: describeAgentFallback(inSession) } };
-          }
-        }
-      }
-    }
-
-    return {
-      ok: true,
-      value: { ...first.value, agentFallback: fallback ? describeAgentFallback(fallback) : null },
-    };
+    return result.ok ? { ok: true, value: { ...result.value, agentFallback: null } } : result;
   }
 
   interface CliRunValue {
     runId: string;
     conversationId: string | null;
     assistantMessageId: string | null;
+    agentTargetId: string | null;
     provider: string | null;
     status: ChatRun['status'];
     error: string | null;
@@ -649,8 +593,8 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
 
     try {
       const run = runs.create(createRunMeta(persistentBody));
-      const providerId = run.agentId ?? DEFAULT_AGENT_ID;
-      const managedAgentRunContext = isManagedAgentInvocationProviderId(providerId)
+      const providerId = run.provider;
+      const managedAgentRunContext = providerId && isManagedAgentInvocationProviderId(providerId)
         ? await createManagedAgentRunContextFromHeaders(managedAgentHeaders, {
             appDataDir: runtimeDir,
             providerId,
@@ -676,7 +620,8 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
           runId: run.id,
           conversationId: run.conversationId,
           assistantMessageId: run.assistantMessageId,
-          provider: run.agentId,
+          agentTargetId: run.agentTargetId,
+          provider: run.provider,
           status: status.status,
           error: status.error,
           errorCode: status.errorCode,
@@ -686,45 +631,6 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     } catch (error) {
       return cliInternalError(error, 'session start failed');
     }
-  }
-
-  // When we fall back to another provider we always run in a brand-new conversation: the original
-  // (or default) conversation may already be locked to the requested provider.
-  async function createCliFallbackConversation(
-    projectId: string,
-    body: Record<string, unknown>,
-    toAgentId: string,
-  ): Promise<{ ok: true; body: Record<string, unknown> } | Extract<CliServiceResult, { ok: false }>> {
-    try {
-      await ensureProject(ctx, projectId);
-      const conversation = await createConversation(ctx.paths.projectsDir, projectId, readString(body.title));
-      return {
-        ok: true,
-        body: { ...body, agentId: toAgentId, conversationId: conversation.id },
-      };
-    } catch (error) {
-      return cliInternalError(error, 'fallback conversation creation failed');
-    }
-  }
-
-  function describeAgentFallback(fallback: AgentFallback): Record<string, unknown> {
-    const message =
-      fallback.stage === 'pre-session'
-        ? `${fallback.fromAgentId} was unavailable, so the session was started with ${fallback.toAgentId} instead.`
-        : fallback.stage === 'conversation-locked'
-          ? `The conversation was locked to ${fallback.fromAgentId}, so a new conversation was started with ${fallback.toAgentId}.`
-          : `${fallback.fromAgentId} failed mid-run, so a new conversation was started with ${fallback.toAgentId}.`;
-    return {
-      from: fallback.fromAgentId,
-      to: fallback.toAgentId,
-      stage: fallback.stage,
-      reason: fallback.reason,
-      message,
-    };
-  }
-
-  function lockedProviderFromMessage(message: string): string | null {
-    return /already uses provider (\S+)/.exec(message)?.[1] ?? null;
   }
 
   async function saveCliLocalFiles(
@@ -795,8 +701,9 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     if (normalized.conversationId === undefined && input['conversation-id'] !== undefined) {
       normalized.conversationId = input['conversation-id'];
     }
-    if (normalized.agentId === undefined && input['agent-id'] !== undefined) {
-      normalized.agentId = input['agent-id'];
+    if (normalized.agentTargetId === undefined && input['agent-id'] !== undefined) {
+      normalized.agentTargetId = input['agent-id'];
+      normalized.allowLegacyAgentIdFallback = true;
     }
     if (normalized.assistantMessageId === undefined && input['assistant-message-id'] !== undefined) {
       normalized.assistantMessageId = input['assistant-message-id'];
@@ -864,8 +771,8 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const persistentBody = persistentBodyResult.body;
 
     const run = runs.create(createRunMeta(persistentBody));
-    const providerId = readString(persistentBody.agentId) ?? DEFAULT_AGENT_ID;
-    const managedAgentRunContext = isManagedAgentInvocationProviderId(providerId)
+    const providerId = readString(persistentBody.provider);
+    const managedAgentRunContext = providerId && isManagedAgentInvocationProviderId(providerId)
       ? await createManagedAgentRunContextFromHeaders(req.headers, {
           providerId,
           runId: run.id,
@@ -877,7 +784,8 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       runId: run.id,
       conversationId: run.conversationId,
       assistantMessageId: run.assistantMessageId,
-      provider: run.agentId,
+      agentTargetId: run.agentTargetId,
+      provider: run.provider,
     });
     runs.start(run, (startedRun) => (
       startRunFromRequest(startedRun, persistentBody, detectContext, managedAgentRunContext)
@@ -907,8 +815,8 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const persistentBody = persistentBodyResult.body;
 
     const run = runs.create(createRunMeta(persistentBody));
-    const providerId = readString(persistentBody.agentId) ?? DEFAULT_AGENT_ID;
-    const managedAgentRunContext = isManagedAgentInvocationProviderId(providerId)
+    const providerId = readString(persistentBody.provider);
+    const managedAgentRunContext = providerId && isManagedAgentInvocationProviderId(providerId)
       ? await createManagedAgentRunContextFromHeaders(req.headers, {
           providerId,
           runId: run.id,
@@ -927,9 +835,11 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const modelCatalog = await detectAgentModelCatalog({ ...detectContext, refresh: true }).catch(() => []);
     res.json({
       agents: modelCatalog.map((agent) => ({
-        id: agent.id,
+        agentTargetId: agent.agentTargetId,
+        providerId: agent.providerId,
         label: agent.label,
         supported: agent.supported,
+        ...(agent.isDefault ? { isDefault: true } : {}),
         models: agent.models.map((model) => ({
           id: model.id,
           label: model.label,
@@ -942,32 +852,6 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   app.get('/api/agents/availability', async (req: Request, res: Response): Promise<void> => {
     const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
     res.json({
-      agentAvailability: await detectAgentAvailability({ ...detectContext, refresh: true }).catch(() => []),
-    });
-  });
-
-  app.post('/api/agents/claude/install', async (req: Request, res: Response): Promise<void> => {
-    const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
-    const currentAvailability = await detectAgentAvailability(detectContext).catch(() => []);
-    const currentClaude = currentAvailability.find((agent) => agent.id === 'claude-code');
-    if (currentClaude?.supported) {
-      res.status(200).json({ agentAvailability: currentAvailability });
-      return;
-    }
-
-    try {
-      await installClaudeCode();
-    } catch (error) {
-      sendApiError(
-        res,
-        500,
-        'CLAUDE_INSTALL_FAILED',
-        error instanceof Error ? error.message : 'Claude Code installation failed.',
-      );
-      return;
-    }
-
-    res.status(200).json({
       agentAvailability: await detectAgentAvailability({ ...detectContext, refresh: true }).catch(() => []),
     });
   });
@@ -1057,9 +941,11 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
     const agentModelCatalog = (await detectAgentModelCatalog(detectContext).catch(() => []))
       .map((entry) => ({
-        agentId: entry.id,
+        agentTargetId: entry.agentTargetId,
+        providerId: entry.providerId,
         label: entry.label,
         supported: entry.supported,
+        ...(entry.isDefault ? { isDefault: true as const } : {}),
         models: entry.models,
       }));
     sendNoStore(res);
@@ -1173,6 +1059,7 @@ async function createProjectEditorInitialData(
 function conversationSummaryForClient(conversation: {
   id: string;
   title: string | null;
+  agentTargetId?: string | null;
   provider?: string | null;
   model?: string | null;
   createdAt: number;
@@ -1181,6 +1068,7 @@ function conversationSummaryForClient(conversation: {
   return {
     id: conversation.id,
     title: conversation.title ?? 'New conversation',
+    agentTargetId: conversation.agentTargetId ?? null,
     provider: conversation.provider ?? null,
     model: conversation.model ?? null,
     createdAt: conversation.createdAt,
@@ -1894,7 +1782,8 @@ function createRunMeta(body: Record<string, unknown>): ChatRunCreateMeta {
     conversationId: body.conversationId,
     assistantMessageId: body.assistantMessageId,
     clientRequestId: body.clientRequestId,
-    agentId: body.agentId ?? DEFAULT_AGENT_ID,
+    agentTargetId: body.agentTargetId,
+    provider: body.provider,
     providerSessionId: body.providerSessionId,
     resumeToken: body.resumeToken,
     appliedPluginSnapshotId: body.appliedPluginSnapshotId,

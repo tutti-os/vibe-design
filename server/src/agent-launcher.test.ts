@@ -1,10 +1,11 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  startAgentRun,
+  startAgentRun as startAgentRunWithDependencies,
   type LocalAgentRuntime,
+  type StartAgentRunInput,
 } from './agent-launcher.js';
 import { createAgentRegistry, type RuntimeAgentDef } from './agents.js';
 import { createConversation, upsertConversationMessage } from './conversations.js';
@@ -48,6 +49,14 @@ beforeEach(() => {
   delete process.env.VIBE_WORKSPACE_ROOT;
 });
 
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
 afterEach(() => {
   restoreOptionalEnv('TUTTI_CLI', originalTuttiCli);
   restoreOptionalEnv('TUTTI_APP_ID', originalTuttiAppId);
@@ -84,7 +93,56 @@ function createRecordingRuntime(
   };
 }
 
-describe('startAgentRun', () => {
+async function startAgentRun(input: StartAgentRunInput): Promise<void> {
+  if (process.env.TUTTI_CLI?.trim()) {
+    return startAgentRunWithDependencies(input);
+  }
+  const requestTargetId = typeof input.request.agentTargetId === 'string'
+    ? input.request.agentTargetId.trim()
+    : '';
+  const agentTargetId = requestTargetId || input.run.agentTargetId || '';
+  const requestProvider = typeof input.request.provider === 'string'
+    ? input.request.provider.trim()
+    : '';
+  const providerId = requestProvider || input.run.provider || '';
+  const emptyConfig = { configurable: false, currentValue: '', defaultValue: '', options: [] };
+  return startAgentRunWithDependencies({
+    loadAgentCatalog: async () => ({
+      schemaVersion: 1,
+      source: 'standalone',
+      cliContract: 'agent-id',
+      defaultAgentTargetId: agentTargetId,
+      agents: [{
+        agentTargetId,
+        providerId,
+        displayName: providerId,
+        availability: { status: 'available', reasonCode: '', detail: '' },
+        runtimeSupported: true,
+      }],
+    }),
+    loadAgentComposerOptions: async () => ({
+      schemaVersion: 2,
+      source: 'standalone',
+      agentTargetId,
+      providerId,
+      effectiveSettings: {},
+      modelConfig: emptyConfig,
+      permissionConfig: { configurable: false, defaultValue: '', modes: [] },
+      reasoningConfig: emptyConfig,
+      speedConfig: emptyConfig,
+    }),
+    resolveAgentSkillBundle: async () => ({
+      source: 'standalone',
+      agentTargetId,
+      providerId,
+      skills: [],
+      skillManifest: [],
+    }),
+    ...input,
+  });
+}
+
+describe('startAgentRun', { timeout: 10_000 }, () => {
   it('runs Codex through the ACP kit runtime and maps kit events into existing run events', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     try {
@@ -155,6 +213,193 @@ describe('startAgentRun', () => {
     }
   });
 
+  it('uses one standalone cwd and detect context for catalog, composer, skills, and runtime', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-context-'));
+    try {
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(root, 'projects');
+      const agentCwd = join(projectsDir, 'project-1');
+      await mkdir(builtInSkillsRoot, { recursive: true });
+      await mkdir(userSkillsRoot, { recursive: true });
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({
+        projectId: 'project-1',
+        agentTargetId: 'team:writer',
+        provider: 'codex',
+      });
+      const runtime = createRecordingRuntime();
+      const catalogInputs: unknown[] = [];
+      const composerInputs: unknown[] = [];
+      const skillInputs: unknown[] = [];
+      const emptyConfig = { configurable: false, currentValue: '', defaultValue: '', options: [] };
+
+      await startAgentRunWithDependencies({
+        run,
+        runs,
+        request: {
+          projectId: 'project-1',
+          agentTargetId: 'team:writer',
+          provider: 'codex',
+          prompt: 'Keep context aligned.',
+        },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+        loadAgentCatalog: async (input) => {
+          catalogInputs.push(input);
+          return {
+            schemaVersion: 1,
+            source: 'standalone',
+            cliContract: 'agent-id',
+            defaultAgentTargetId: 'team:writer',
+            agents: [{
+              agentTargetId: 'team:writer',
+              providerId: 'codex',
+              displayName: 'Writer',
+              availability: { status: 'available', reasonCode: '', detail: '' },
+              runtimeSupported: true,
+            }],
+          };
+        },
+        loadAgentComposerOptions: async (input) => {
+          composerInputs.push(input);
+          return {
+            schemaVersion: 2,
+            source: 'standalone',
+            agentTargetId: 'team:writer',
+            providerId: 'codex',
+            effectiveSettings: {},
+            modelConfig: emptyConfig,
+            permissionConfig: { configurable: false, defaultValue: '', modes: [] },
+            reasoningConfig: emptyConfig,
+            speedConfig: emptyConfig,
+          };
+        },
+        resolveAgentSkillBundle: async (input) => {
+          skillInputs.push(input);
+          return {
+            source: 'standalone',
+            agentTargetId: 'team:writer',
+            providerId: 'codex',
+            skills: [],
+            skillManifest: [],
+          };
+        },
+      });
+
+      expect(catalogInputs).toEqual([expect.objectContaining({
+        cwd: agentCwd,
+        detectContext: expect.objectContaining({ cwd: agentCwd, refresh: true }),
+      })]);
+      expect(composerInputs).toEqual([expect.objectContaining({
+        cwd: agentCwd,
+        agentTargetId: 'team:writer',
+        detectContext: expect.objectContaining({ cwd: agentCwd, refresh: true }),
+      })]);
+      expect(skillInputs).toEqual([expect.objectContaining({
+        cwd: agentCwd,
+        agentTargetId: 'team:writer',
+        detectContext: expect.objectContaining({ cwd: agentCwd, refresh: true }),
+      })]);
+      expect(runtime.inputs[0]?.cwd).toBe(agentCwd);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps exact target B through composer, skills, resume, and provider runtime when two targets share one provider', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
+    try {
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(root, 'projects');
+      const cliPath = join(root, 'tutti-cli.mjs');
+      const workspaceCwd = join(root, 'workspace-context');
+      const cliInvocationLog = join(root, 'tutti-cli-invocations.jsonl');
+      await mkdir(builtInSkillsRoot, { recursive: true });
+      await mkdir(userSkillsRoot, { recursive: true });
+      await mkdir(workspaceCwd, { recursive: true });
+      await writeFile(cliPath, [
+        '#!/usr/bin/env node',
+        'import { appendFileSync } from "node:fs";',
+        'const args = process.argv.slice(2);',
+        `appendFileSync(${JSON.stringify(cliInvocationLog)}, JSON.stringify({ args, cwd: process.cwd() }) + "\\n");`,
+        'const config = { configurable: false, currentValue: "", defaultValue: "", options: [] };',
+        'if (args.includes("list")) process.stdout.write(JSON.stringify({',
+        '  schemaVersion: 1, defaultAgentTargetId: "team:a", agents: [',
+        '    { id: "team:a", provider: "codex", name: "A", availability: { status: "available", reasonCode: "", detail: "" } },',
+        '    { id: "team:b", provider: "codex", name: "B", availability: { status: "available", reasonCode: "", detail: "" } }',
+        '  ]',
+        '}));',
+        'else if (args.includes("composer-options")) process.stdout.write(JSON.stringify({',
+        '  schemaVersion: 2, agentTargetId: "team:b", providerId: "codex", effectiveSettings: {},',
+        '  modelConfig: config, permissionConfig: { configurable: false, defaultValue: "", modes: [] },',
+        '  reasoningConfig: config, speedConfig: config',
+        '}));',
+        'else process.stdout.write(JSON.stringify({',
+        '  schemaVersion: 2, agentTargetId: "team:b", provider: "codex",',
+        '  agentSessionId: args[args.indexOf("--agent-session-id") + 1],',
+        '  recommendedSystemPrompt: { content: "Target B skill context." }, skills: []',
+        '}));',
+      ].join('\n'));
+      await chmod(cliPath, 0o755);
+      process.env.TUTTI_CLI = cliPath;
+      process.env.TUTTI_WORKSPACE_ROOT = workspaceCwd;
+
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({ projectId: 'project-1', agentTargetId: 'team:b', provider: 'codex' });
+      run.providerSessionId = 'provider-session-b';
+      run.resumeToken = 'resume-b';
+      const runtime = createRecordingRuntime();
+
+      await startAgentRun({
+        run,
+        runs,
+        request: { projectId: 'project-1', agentTargetId: 'team:b', provider: 'codex', prompt: 'Run B.' },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+      });
+
+      expect(runtime.inputs).toHaveLength(1);
+      expect(runtime.inputs[0]).toMatchObject({
+        provider: 'codex',
+        runtimeProvider: 'codex',
+        resume: { mode: 'provider', providerSessionId: 'provider-session-b', resumeToken: 'resume-b' },
+      });
+      expect(runtime.inputs[0]?.systemPrompt).toContain('Target B skill context.');
+      expect(run.events.find((event) => event.event === 'start')?.data).toMatchObject({
+        agentTargetId: 'team:b',
+        provider: 'codex',
+      });
+      const cliInvocations = (await readFile(cliInvocationLog, 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { args: string[]; cwd: string });
+      expect(cliInvocations.length).toBeGreaterThan(0);
+      const canonicalWorkspaceCwd = await realpath(workspaceCwd);
+      expect(cliInvocations.map((invocation) => ({
+        command: invocation.args.slice(1, 3).join(' '),
+        cwd: invocation.cwd,
+      }))).toEqual(cliInvocations.map((invocation) => ({
+        command: invocation.args.slice(1, 3).join(' '),
+        cwd: canonicalWorkspaceCwd,
+      })));
+      expect(runtime.inputs[0]?.cwd).toBe(join(projectsDir, 'project-1'));
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('passes a dynamic Tutti agent skill bundle into managed ACP kit runs', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     try {
@@ -174,8 +419,22 @@ describe('startAgentRun', () => {
         '  canonical: process.env.TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL,',
         '  legacy: process.env.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL,',
         '}));',
+        'if (process.argv.includes("list")) {',
+        '  process.stdout.write(JSON.stringify({ schemaVersion: 1, defaultAgentTargetId: "local:codex", agents: [',
+        '    { id: "local:codex", provider: "codex", name: "Codex", availability: { status: "available", reasonCode: "", detail: "" } }',
+        '  ] }));',
+        '  process.exit(0);',
+        '}',
+        'if (process.argv.includes("composer-options")) {',
+        '  const config = { configurable: false, currentValue: "", defaultValue: "", options: [] };',
+        '  process.stdout.write(JSON.stringify({ schemaVersion: 2, agentTargetId: "local:codex", providerId: "codex",',
+        '    effectiveSettings: {}, modelConfig: config, permissionConfig: { configurable: false, defaultValue: "", modes: [] },',
+        '    reasoningConfig: config, speedConfig: config }));',
+        '  process.exit(0);',
+        '}',
         'process.stdout.write(JSON.stringify({',
-        '  schemaVersion: 1,',
+        '  schemaVersion: 2,',
+        '  agentTargetId: "local:codex",',
         '  provider: "codex",',
         '  agentSessionId: process.argv[process.argv.indexOf("--agent-session-id") + 1],',
         '  recommendedSystemPrompt: { format: "text/markdown", content: "Use Tutti routing." },',
@@ -229,15 +488,10 @@ describe('startAgentRun', () => {
         },
       });
 
-      expect(JSON.parse(await readFile(argsPath, 'utf8'))).toEqual([
-        '--json',
-        'agent',
-        'tutti-cli-skill-bundle',
-        '--provider',
-        'codex',
-        '--agent-session-id',
-        run.id,
-      ]);
+      expect(JSON.parse(await readFile(argsPath, 'utf8'))).toEqual(expect.arrayContaining([
+        '--agent-id',
+        'local:codex',
+      ]));
       expect(JSON.parse(await readFile(envPath, 'utf8'))).toEqual({
         legacy: 'credential-request-1',
       });
@@ -1044,7 +1298,7 @@ describe('startAgentRun', () => {
     }
   });
 
-  it('defaults to the Codex provider and includes uploaded attachments in the runtime prompt', async () => {
+  it('fails closed when no exact agent target is attached to the run', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     try {
       const builtInSkillsRoot = join(root, 'skills');
@@ -1082,14 +1336,138 @@ describe('startAgentRun', () => {
         agentRuntime: runtime,
       });
 
-      expect(runtime.inputs[0]?.provider).toBe('codex');
-      const prompt = runtime.inputs[0]?.prompt ?? '';
-      expect(prompt).toContain('你能看到图片内容吗');
-      expect(prompt).toContain('# Attached files');
-      expect(prompt).toContain('reference.png');
-      expect(prompt).toContain('assets/reference.png');
-      expect(prompt).toContain(join(projectsDir, 'project-1', 'assets', 'reference.png'));
-      expect(prompt).toContain('image/png');
+      expect(runtime.inputs).toEqual([]);
+      expect(run.status).toBe('failed');
+      expect(run.events.find((event) => event.event === 'error')?.data).toMatchObject({
+        code: 'AGENT_UNAVAILABLE',
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rechecks exact target availability immediately before launch and fails closed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
+    try {
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(root, 'projects');
+      await mkdir(builtInSkillsRoot, { recursive: true });
+      await mkdir(userSkillsRoot, { recursive: true });
+
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({ projectId: 'project-1', agentTargetId: 'team:writer', provider: 'codex' });
+      const runtime = createRecordingRuntime();
+
+      await startAgentRun({
+        run,
+        runs,
+        request: { projectId: 'project-1', prompt: 'Write.', agentTargetId: 'team:writer', provider: 'codex' },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+        loadAgentCatalog: async () => ({
+          schemaVersion: 1,
+          source: 'tutti-cli',
+          cliContract: 'agent-id',
+          defaultAgentTargetId: 'team:writer',
+          agents: [{
+            agentTargetId: 'team:writer',
+            providerId: 'codex',
+            displayName: 'Writer',
+            runtimeSupported: true,
+            availability: { status: 'unavailable', reasonCode: 'offline', detail: 'Writer went offline.' },
+          }],
+        }),
+      });
+
+      expect(runtime.inputs).toEqual([]);
+      expect(run.status).toBe('failed');
+      expect(run.events.find((event) => event.event === 'error')?.data).toMatchObject({
+        code: 'AGENT_UNAVAILABLE',
+        message: 'Writer went offline.',
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not launch when cancellation wins while exact-target preflight is pending', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-cancel-preflight-'));
+    try {
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(root, 'projects');
+      await mkdir(builtInSkillsRoot, { recursive: true });
+      await mkdir(userSkillsRoot, { recursive: true });
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({ projectId: 'project-1', agentTargetId: 'team:writer', provider: 'codex' });
+      const runtime = createRecordingRuntime();
+      const composer = deferred<{
+        schemaVersion: 2;
+        source: 'standalone';
+        agentTargetId: string;
+        providerId: string;
+        effectiveSettings: Record<string, unknown>;
+        modelConfig: { configurable: boolean; currentValue: string; defaultValue: string; options: [] };
+        permissionConfig: { configurable: boolean; defaultValue: string; modes: [] };
+        reasoningConfig: { configurable: boolean; currentValue: string; defaultValue: string; options: [] };
+        speedConfig: { configurable: boolean; currentValue: string; defaultValue: string; options: [] };
+      }>();
+      const composerLoadStarted = deferred<void>();
+      const emptyConfig = { configurable: false, currentValue: '', defaultValue: '', options: [] as [] };
+      const starting = startAgentRunWithDependencies({
+        run,
+        runs,
+        request: { projectId: 'project-1', prompt: 'Write.', agentTargetId: 'team:writer', provider: 'codex' },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+        loadAgentCatalog: async () => ({
+          schemaVersion: 1,
+          source: 'standalone',
+          cliContract: 'agent-id',
+          defaultAgentTargetId: 'team:writer',
+          agents: [{
+            agentTargetId: 'team:writer', providerId: 'codex', displayName: 'Writer', runtimeSupported: true,
+            availability: { status: 'available', reasonCode: '', detail: '' },
+          }],
+        }),
+        loadAgentComposerOptions: () => {
+          composerLoadStarted.resolve(undefined);
+          return composer.promise;
+        },
+        resolveAgentSkillBundle: async () => ({
+          source: 'standalone', agentTargetId: 'team:writer', providerId: 'codex', skills: [], skillManifest: [],
+        }),
+      });
+
+      await composerLoadStarted.promise;
+      runs.cancel(run);
+      composer.resolve({
+        schemaVersion: 2,
+        source: 'standalone',
+        agentTargetId: 'team:writer',
+        providerId: 'codex',
+        effectiveSettings: {},
+        modelConfig: emptyConfig,
+        permissionConfig: { configurable: false, defaultValue: '', modes: [] },
+        reasoningConfig: emptyConfig,
+        speedConfig: emptyConfig,
+      });
+      await starting;
+
+      expect(run.status).toBe('canceled');
+      expect(runtime.inputs).toEqual([]);
+      expect(run.events.some((event) => event.event === 'start')).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

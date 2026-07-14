@@ -71,6 +71,15 @@ function argVal(args, name) {
   return null;
 }
 
+export function readOptionalAgentTargetIdArg(args) {
+  const value = argVal(args, '--agent-id');
+  if (value === null) return undefined;
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error('--agent-id requires a non-empty exact Agent Target id.');
+  }
+  return value.trim();
+}
+
 function countOps(entries) {
   let count = 0;
   for (const entry of entries || []) count += Array.isArray(entry.ops) ? entry.ops.length : 0;
@@ -765,7 +774,8 @@ async function repairPostApplyValidation({
   cwd,
   pageUrl,
   count,
-  provider,
+  runner,
+  agentTargetId,
   env,
   timeoutMs,
   applyBatchToSource,
@@ -802,7 +812,8 @@ async function repairPostApplyValidation({
     try {
       repairResult = await runCopyEditBatchAgent(buildRepairBatch(batch, repair), {
         cwd,
-        provider,
+        runner,
+        agentTargetId,
         env,
         timeoutMs,
         applyBatchToSource,
@@ -901,7 +912,8 @@ async function repairPostApplyValidation({
 export async function commitManualEdits({
   cwd = process.cwd(),
   pageUrl = null,
-  provider = undefined,
+  runner = undefined,
+  agentTargetId = undefined,
   env = process.env,
   timeoutMs = undefined,
   applyBatchToSource = undefined,
@@ -955,7 +967,8 @@ export async function commitManualEdits({
         }
       : await runCopyEditBatchAgent(batch, {
           cwd,
-          provider,
+          runner,
+          agentTargetId,
           env,
           timeoutMs,
           applyBatchToSource,
@@ -1070,7 +1083,8 @@ export async function commitManualEdits({
       cwd,
       pageUrl,
       count,
-      provider,
+      runner,
+      agentTargetId,
       env,
       timeoutMs,
       applyBatchToSource,
@@ -1155,7 +1169,8 @@ export async function commitManualEdits({
       cwd,
       pageUrl,
       count,
-      provider,
+      runner,
+      agentTargetId,
       env,
       timeoutMs,
       applyBatchToSource,
@@ -1181,7 +1196,8 @@ export async function commitManualEdits({
       cwd,
       pageUrl,
       count,
-      provider,
+      runner,
+      agentTargetId,
       env,
       timeoutMs,
       applyBatchToSource,
@@ -1216,14 +1232,15 @@ export async function commitManualEdits({
 async function main() {
   const args = process.argv.slice(2);
   if (args.includes('--help') || args.includes('-h')) {
-    console.log('Usage: node live-commit-manual-edits.mjs [--page-url=<url>] [--provider=auto|codex|claude|mock]');
+    console.log('Usage: node live-commit-manual-edits.mjs [--page-url=<url>] [--agent-id=<exact-agent-id>] [--runner=agent|mock]');
     process.exit(0);
   }
 
   const result = await commitManualEdits({
     cwd: process.cwd(),
     pageUrl: argVal(args, '--page-url'),
-    provider: argVal(args, '--provider') || undefined,
+    agentTargetId: readOptionalAgentTargetIdArg(args),
+    runner: argVal(args, '--runner') || undefined,
     timeoutMs: Number(process.env.IMPECCABLE_LIVE_COPY_AGENT_TIMEOUT_MS || 120000),
   });
   console.log(JSON.stringify(result));

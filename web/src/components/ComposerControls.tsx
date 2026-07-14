@@ -23,9 +23,7 @@ const MODEL_PROVIDER_ICON_URLS: Record<string, string> = {
 };
 
 function modelProviderIconUrl(provider: ComposerModelProvider): string {
-  const direct = MODEL_PROVIDER_ICON_URLS[provider];
-  if (direct) return direct;
-  return `/assets/agent-icons/workspace-dock-agent-${provider}.png`;
+  return MODEL_PROVIDER_ICON_URLS[provider] ?? MODEL_PROVIDER_ICON_URLS.tutti;
 }
 
 export function ComposerDesignSystemTrigger({
@@ -182,6 +180,7 @@ export function ComposerSendButton({
 
 export interface ComposerModelGroup {
   provider: ComposerModelProvider;
+  iconProvider?: ComposerModelProvider;
   providerLabel: string;
   models: Array<{
     id: string;
@@ -195,6 +194,7 @@ export function ComposerModelPicker({
   groups,
   selectedKey,
   selectedProvider,
+  selectedIconProvider,
   selectedProviderLabel,
   selectedModelLabel,
   menuClassName,
@@ -206,6 +206,7 @@ export function ComposerModelPicker({
   groups: ComposerModelGroup[];
   selectedKey: string;
   selectedProvider: ComposerModelProvider;
+  selectedIconProvider?: ComposerModelProvider;
   selectedProviderLabel: string;
   selectedModelLabel: string | null;
   menuClassName?: string;
@@ -218,7 +219,7 @@ export function ComposerModelPicker({
       <DropdownMenuTrigger asChild>
         <ComposerModelTrigger
           ariaLabel={ariaLabel}
-          provider={selectedProvider}
+          provider={selectedIconProvider ?? selectedProvider}
           providerLabel={selectedProviderLabel}
           modelLabel={selectedModelLabel}
         />
@@ -238,7 +239,7 @@ export function ComposerModelPicker({
                   data-provider-option={group.provider}
                   onSelect={() => onSelect(group.provider, '')}
                 >
-                  <ComposerModelProviderIcon provider={group.provider} />
+                  <ComposerModelProviderIcon provider={group.iconProvider ?? group.provider} />
                   <span>{group.providerLabel}</span>
                 </DropdownMenuItem>
               </React.Fragment>
@@ -258,7 +259,7 @@ export function ComposerModelPicker({
                     data-model-option-id={model.id}
                     onSelect={() => onSelect(group.provider, model.id)}
                   >
-                    <ComposerModelProviderIcon provider={group.provider} />
+                    <ComposerModelProviderIcon provider={group.iconProvider ?? group.provider} />
                     <span>{group.providerLabel}</span>
                   </DropdownMenuItem>
                 ))}
@@ -272,7 +273,7 @@ export function ComposerModelPicker({
                 className="composer-model-provider-label"
                 data-provider-option={group.provider}
               >
-                <ComposerModelProviderIcon provider={group.provider} />
+                <ComposerModelProviderIcon provider={group.iconProvider ?? group.provider} />
                 <span>{group.providerLabel}</span>
               </DropdownMenuLabel>
               <div className="composer-model-provider-models" data-provider-models={group.provider}>

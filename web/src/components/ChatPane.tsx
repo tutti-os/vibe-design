@@ -42,6 +42,7 @@ import type {
   MessageBlock,
 } from '../services/chat-timeline/chat-timeline-types';
 import type { QueuedTurnPreview } from '../services/chat-session/chat-session-types';
+import { resolveConversationAgentSelection } from '../services/agent-catalog/agent-catalog-types';
 import type {
   ContextPickerSnapshot,
   ContextSearchResultItem,
@@ -88,22 +89,21 @@ export interface ChatPaneProps {
   commentPanelOpen?: boolean;
   agentAvailability?: ChatComposerAgentAvailability[];
   agentModelCatalog?: ChatComposerAgentModelCatalogEntry[];
-  activeConversationProvider?: string | null;
+  activeConversationAgentTargetId?: string | null;
   queuedTurns?: QueuedTurnPreview[];
   startingRun?: boolean;
   onSend(input: {
     draft: string;
     files: File[];
     attachments?: ChatAttachment[];
-    agentId?: string;
+    agentTargetId?: string;
     model?: string;
     commentAttachments?: CanvasCommentAttachment[];
   }): void | Promise<void>;
   onOpenDesignSystemPicker?(): void | Promise<void>;
   onSelectDesignSystem?(designSystemId: string | null): void | Promise<void>;
-  onInstallAgent?(agentId: string): void | Promise<void>;
   onClosePreviewCommentsPanel?(): void;
-  onSendPreviewComments?(comments: CanvasPreviewComment[], agentId: string): void | Promise<void>;
+  onSendPreviewComments?(comments: CanvasPreviewComment[], agentTargetId: string): void | Promise<void>;
   onDeletePreviewComment?(commentId: string): void | Promise<void>;
   onOpenPreviewComment?(comment: CanvasPreviewComment): void | Promise<void>;
   onPatchPreviewCommentStatus?(commentId: string, status: CanvasCommentStatus): void | Promise<void>;
@@ -139,13 +139,12 @@ export function ChatPane({
   commentPanelOpen = false,
   agentAvailability = [],
   agentModelCatalog = [],
-  activeConversationProvider = null,
+  activeConversationAgentTargetId = null,
   queuedTurns = [],
   startingRun = false,
   onSend,
   onOpenDesignSystemPicker,
   onSelectDesignSystem,
-  onInstallAgent,
   onClosePreviewCommentsPanel,
   onSendPreviewComments,
   onDeletePreviewComment,
@@ -194,9 +193,29 @@ export function ChatPane({
     )?.model;
     return typeof model === 'string' && model.trim() ? model : null;
   }, [visibleSnapshot.activeConversationId, visibleSnapshot.conversations]);
-  const activeConversationProviderLabel = activeConversationProvider
-    ? agentModelCatalog.find((entry) => entry.agentId === activeConversationProvider)?.label ?? activeConversationProvider
-    : 'Codex';
+  const activeConversation = visibleSnapshot.conversations.find(
+    (conversation) => conversation.id === visibleSnapshot.activeConversationId,
+  );
+  const {
+    selectedAgentTargetId,
+    unresolvedAgentTargetLock,
+  } = resolveConversationAgentSelection({
+    catalog: agentModelCatalog,
+    conversationAgentTargetId: activeConversation?.agentTargetId,
+    legacyConversationProviderId: activeConversation?.provider,
+    fallbackAgentTargetId: activeConversationAgentTargetId,
+  });
+  const selectedCatalogAgent = selectedAgentTargetId
+    ? agentModelCatalog.find((entry) => entry.agentTargetId === selectedAgentTargetId)
+    : null;
+  const selectedAgentSupported = Boolean(
+    selectedCatalogAgent?.supported
+    && agentAvailability.find((entry) => entry.agentTargetId === selectedAgentTargetId)?.supported,
+  );
+  const toolQuestionSubmissionUnavailable = !selectedAgentTargetId || !selectedAgentSupported;
+  const activeConversationAgentLabel = selectedAgentTargetId
+    ? agentModelCatalog.find((entry) => entry.agentTargetId === selectedAgentTargetId)?.label ?? selectedAgentTargetId
+    : t('chat.composer.modelProvider');
   const activeQueuedTurns = React.useMemo(
     () => queuedTurns.filter((turn) => turn.conversationId === visibleSnapshot.activeConversationId),
     [queuedTurns, visibleSnapshot.activeConversationId],
@@ -369,7 +388,8 @@ export function ChatPane({
           <PreviewCommentsPanel
             comments={previewComments}
             projectId={projectId}
-            agentId={activeConversationProvider ?? 'codex'}
+            agentTargetId={selectedAgentTargetId}
+            agentSupported={selectedAgentSupported}
             onSendSelected={onSendPreviewComments}
             onDelete={onDeletePreviewComment}
             onOpenComment={onOpenPreviewComment}
@@ -526,15 +546,22 @@ export function ChatPane({
                   <TimelineMessage
                     key={message.id}
                     message={message}
-                    agentLabel={activeConversationProviderLabel}
+                    agentLabel={activeConversationAgentLabel}
                     streaming={streaming && message.role === 'assistant' && message.runStatus === 'running'}
                     nextUserContent={nextUserContent(visibleSnapshot.messages, message.id)}
                     projectId={projectId}
                     onOpenImagePreview={openImagePreview}
                     onAnswerToolQuestion={onAnswerToolQuestion}
-                    onSubmitToolQuestionFallback={(content) =>
-                      onSend({ draft: content, files: [], agentId: activeConversationProvider ?? 'codex' })
-                    }
+                    toolQuestionSubmissionUnavailable={toolQuestionSubmissionUnavailable}
+                    {...(selectedAgentTargetId && selectedAgentSupported
+                      ? {
+                          onSubmitToolQuestionFallback: (content: string) => onSend({
+                            draft: content,
+                            files: [],
+                            agentTargetId: selectedAgentTargetId,
+                          }),
+                        }
+                      : {})}
                     onOpenAttachment={onOpenAttachment}
                     onOpenGeneratedFile={onOpenGeneratedFile}
                     onOpenFileOp={onOpenFileOp}
@@ -581,7 +608,8 @@ export function ChatPane({
           commentAttachments={commentAttachments}
           agentAvailability={agentAvailability}
           agentModelCatalog={agentModelCatalog}
-          lockedAgentId={activeConversationProvider}
+          lockedAgentTargetId={selectedAgentTargetId}
+          unresolvedAgentTargetLock={unresolvedAgentTargetLock}
           lockedModel={activeConversationModel}
           activeDesignSystem={activeDesignSystem}
           designSystems={designSystems}
@@ -589,7 +617,6 @@ export function ChatPane({
           designSystemPickerError={designSystemPickerError}
           onOpenDesignSystemPicker={onOpenDesignSystemPicker}
           onSelectDesignSystem={onSelectDesignSystem}
-          onInstallAgent={onInstallAgent}
           onDraftChange={setComposerDraft}
           onSend={onSend}
           onStop={onStop}
@@ -899,7 +926,8 @@ function QueuedTurnContent({ turn }: { turn: QueuedTurnPreview }) {
 function PreviewCommentsPanel({
   comments,
   projectId,
-  agentId,
+  agentTargetId,
+  agentSupported,
   onSendSelected,
   onDelete,
   onOpenComment,
@@ -909,8 +937,9 @@ function PreviewCommentsPanel({
 }: {
   comments: CanvasPreviewComment[];
   projectId?: string | null;
-  agentId: string;
-  onSendSelected?: (comments: CanvasPreviewComment[], agentId: string) => void | Promise<void>;
+  agentTargetId: string | null;
+  agentSupported: boolean;
+  onSendSelected?: (comments: CanvasPreviewComment[], agentTargetId: string) => void | Promise<void>;
   onDelete?: (commentId: string) => void | Promise<void>;
   onOpenComment?: (comment: CanvasPreviewComment) => void | Promise<void>;
   onOpenImagePreview(preview: ImagePreviewState): void;
@@ -923,7 +952,11 @@ function PreviewCommentsPanel({
     () => activeComments.filter((comment) => !sendingCommentIds.has(comment.id)),
     [activeComments, sendingCommentIds],
   );
-  const canSend = visibleComments.length > 0 && sendingCommentIds.size === 0 && Boolean(onSendSelected);
+  const canSend = visibleComments.length > 0
+    && sendingCommentIds.size === 0
+    && Boolean(onSendSelected)
+    && Boolean(agentTargetId)
+    && agentSupported;
 
   React.useEffect(() => {
     setSendingCommentIds((currentIds) => {
@@ -935,13 +968,13 @@ function PreviewCommentsPanel({
   }, [activeComments]);
 
   async function sendActiveComments(): Promise<void> {
-    if (!onSendSelected || visibleComments.length === 0 || sendingCommentIds.size > 0) {
+    if (!onSendSelected || !agentTargetId || !agentSupported || visibleComments.length === 0 || sendingCommentIds.size > 0) {
       return;
     }
 
     const sentComments = [...visibleComments];
     setSendingCommentIds(new Set(sentComments.map((comment) => comment.id)));
-    await onSendSelected(sentComments, agentId);
+    await onSendSelected(sentComments, agentTargetId);
     if (onPatchStatus) {
       await Promise.all(sentComments.map((comment) => onPatchStatus(comment.id, 'attached')));
     }
@@ -1090,6 +1123,7 @@ function TimelineMessage({
   projectId,
   onOpenImagePreview,
   onAnswerToolQuestion,
+  toolQuestionSubmissionUnavailable,
   onSubmitToolQuestionFallback,
   onOpenAttachment,
   onOpenGeneratedFile,
@@ -1102,7 +1136,8 @@ function TimelineMessage({
   projectId?: string | null;
   onOpenImagePreview(preview: ImagePreviewState): void;
   onAnswerToolQuestion(toolUseId: string, content: string): void | Promise<void>;
-  onSubmitToolQuestionFallback(content: string): void | Promise<void>;
+  toolQuestionSubmissionUnavailable: boolean;
+  onSubmitToolQuestionFallback?: (content: string) => void | Promise<void>;
   onOpenAttachment?: (attachment: ChatAttachment) => void;
   onOpenGeneratedFile?: (file: GeneratedFileEntry) => void;
   onOpenFileOp?: (op: FileOpEntry) => void;
@@ -1127,6 +1162,7 @@ function TimelineMessage({
           streaming={streaming}
           nextUserContent={nextUserContent}
           onAnswerToolQuestion={onAnswerToolQuestion}
+          toolQuestionSubmissionUnavailable={toolQuestionSubmissionUnavailable}
           onSubmitToolQuestionFallback={onSubmitToolQuestionFallback}
           onOpenGeneratedFile={onOpenGeneratedFile}
           onOpenFileOp={onOpenFileOp}

@@ -76,7 +76,7 @@ describe('ChatTimelineService', () => {
     expect(api.renameConversation).toHaveBeenCalledWith('conversation-1', '帮我写一个登陆页');
   });
 
-  it('locks a conversation provider once while allowing the remembered model to change', () => {
+  it('locks a conversation to an exact agent target while allowing its model to change', () => {
     const timeline = new ChatTimelineService({
       initialSnapshot: {
         conversations: [{ id: 'conversation-1', title: 'New conversation', createdAt: 1, updatedAt: 1 }],
@@ -89,23 +89,27 @@ describe('ChatTimelineService', () => {
       },
     });
 
-    timeline.setConversationProvider({
+    timeline.setConversationAgent({
       conversationId: 'conversation-1',
+      agentTargetId: 'team:writer',
       provider: 'codex',
       model: 'codex:gpt-5.4',
     });
-    timeline.setConversationProvider({
+    timeline.setConversationAgent({
       conversationId: 'conversation-1',
+      agentTargetId: 'team:reviewer',
       provider: 'claude',
       model: 'claude:opus',
     });
-    timeline.setConversationProvider({
+    timeline.setConversationAgent({
       conversationId: 'conversation-1',
+      agentTargetId: 'team:writer',
       provider: 'codex',
       model: 'codex:gpt-5.5',
     });
 
     expect(timeline.getSnapshot().conversations[0]).toMatchObject({
+      agentTargetId: 'team:writer',
       provider: 'codex',
       model: 'codex:gpt-5.5',
     });

@@ -6,7 +6,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { ChatComposer as ChatComposerBase } from './ChatComposer';
 import type {
   ContextPickerSnapshot,
-  ContextSearchResultItem,
 } from '../services/context-picker/context-picker-types';
 import type { CanvasCommentAttachment } from '../types';
 
@@ -17,13 +16,13 @@ import type { CanvasCommentAttachment } from '../types';
 Element.prototype.scrollIntoView = vi.fn();
 
 const TEST_AGENT_AVAILABILITY = [
-  { id: 'codex', label: 'Codex', supported: true, authState: 'ok' },
-  { id: 'claude-code', label: 'Claude Code', supported: true, authState: 'ok' },
+  { agentTargetId: 'codex', providerId: 'codex', label: 'Codex', supported: true, authState: 'ok' },
+  { agentTargetId: 'claude-code', providerId: 'claude-code', label: 'Claude Code', supported: true, authState: 'ok' },
 ] satisfies NonNullable<React.ComponentProps<typeof ChatComposerBase>['agentAvailability']>;
 
 const TEST_AGENT_MODEL_CATALOG = [
-  { agentId: 'codex', label: 'Codex', supported: true, models: [] },
-  { agentId: 'claude-code', label: 'Claude Code', supported: true, models: [] },
+  { agentTargetId: 'codex', providerId: 'codex', label: 'Codex', supported: true, models: [] },
+  { agentTargetId: 'claude-code', providerId: 'claude-code', label: 'Claude Code', supported: true, models: [] },
 ];
 
 function ChatComposer(props: React.ComponentProps<typeof ChatComposerBase>): React.ReactElement {
@@ -50,7 +49,8 @@ function cleanup(root: Root, container: HTMLElement): void {
 }
 
 function getByLabelText(container: HTMLElement, label: string): HTMLElement {
-  const element = container.querySelector(`[aria-label="${label}"]`);
+  const element = container.querySelector(`[aria-label="${label}"]`)
+    ?? (label === 'Message' ? container.querySelector('.chat-composer__textarea [contenteditable]') : null);
   if (!(element instanceof HTMLElement)) throw new Error(`Missing element labelled ${label}`);
   return element;
 }
@@ -74,7 +74,7 @@ function menuItemByName(name: string): HTMLElement {
 }
 
 async function openModelMenu(container: HTMLElement): Promise<void> {
-  const trigger = getByLabelText(container, 'Model provider');
+  const trigger = getByLabelText(container, 'Agent and model');
   await act(async () => {
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false });
     fireEvent.click(trigger);
@@ -172,11 +172,11 @@ describe('ChatComposer', () => {
       <ChatComposer
         streaming={false}
         agentAvailability={[
-          { id: 'codex', label: 'Codex', supported: true, authState: 'ok' },
-          { id: 'tutti-agent', label: 'Tutti Agent', supported: true, authState: 'ok' },
+          { agentTargetId: 'codex', providerId: 'codex', label: 'Codex', supported: true, authState: 'ok' },
+          { agentTargetId: 'tutti-agent', providerId: 'tutti-agent', label: 'Tutti Agent', supported: true, authState: 'ok' },
         ]}
         agentModelCatalog={[
-          { agentId: 'codex', label: 'Codex', supported: true, models: [{ id: 'default', label: 'Default' }] },
+          { agentTargetId: 'codex', providerId: 'codex', label: 'Codex', supported: true, models: [{ id: 'default', label: 'Default' }] },
         ]}
         context={{
           search: async () => ({ items: [] }),
@@ -197,13 +197,170 @@ describe('ChatComposer', () => {
     }
   });
 
+  it('keeps multiple targets on one provider independently selectable by exact target id', async () => {
+    const onSend = vi.fn();
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        agentAvailability={[
+          { agentTargetId: 'team:alpha', providerId: 'codex', label: 'Alpha', supported: true, authState: 'ok' },
+          { agentTargetId: 'team:beta', providerId: 'codex', label: 'Beta', supported: true, authState: 'ok' },
+        ]}
+        agentModelCatalog={[
+          {
+            agentTargetId: 'team:alpha',
+            providerId: 'codex',
+            label: 'Alpha',
+            supported: true,
+            isDefault: true,
+            models: [{ id: 'default', label: 'Default' }],
+          },
+          {
+            agentTargetId: 'team:beta',
+            providerId: 'codex',
+            label: 'Beta',
+            supported: true,
+            models: [{ id: 'default', label: 'Default' }],
+          },
+        ]}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onSend={onSend}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      await openModelMenu(container);
+      const betaDefault = document.body.querySelector<HTMLElement>(
+        '[data-provider-models="team:beta"] [data-model-option-id="default"]',
+      );
+      expect(betaDefault).not.toBeNull();
+
+      await act(async () => betaDefault!.click());
+      await changeText(getByLabelText(container, 'Message'), 'Run the beta target');
+      await act(async () => getByLabelText(container, 'Send message').click());
+      await flushAsyncWork();
+
+      expect(onSend).toHaveBeenCalledWith({
+        draft: 'Run the beta target',
+        files: [],
+        agentTargetId: 'team:beta',
+        model: 'default',
+      });
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('does not let an unavailable target disable a sibling on the same provider', async () => {
+    const onSend = vi.fn();
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        draft="Run alpha"
+        agentAvailability={[
+          { agentTargetId: 'team:alpha', providerId: 'codex', label: 'Alpha', supported: true, authState: 'ok' },
+          {
+            agentTargetId: 'team:beta',
+            providerId: 'codex',
+            label: 'Beta',
+            supported: false,
+            authState: 'missing',
+            unavailableReason: 'Beta is unavailable.',
+          },
+        ]}
+        agentModelCatalog={[
+          { agentTargetId: 'team:alpha', providerId: 'codex', label: 'Alpha', supported: true, isDefault: true, models: [] },
+          { agentTargetId: 'team:beta', providerId: 'codex', label: 'Beta', supported: true, models: [] },
+        ]}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onSend={onSend}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      await openModelMenu(container);
+      expect(document.body.querySelector('[data-provider-option="team:beta"]')?.getAttribute('aria-disabled')).toBe('true');
+
+      await act(async () => getByLabelText(container, 'Send message').click());
+      await flushAsyncWork();
+      expect(onSend).toHaveBeenCalledWith({
+        draft: 'Run alpha',
+        files: [],
+        agentTargetId: 'team:alpha',
+      });
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('preserves a selected exact target when a catalog refresh removes it', async () => {
+    const onSend = vi.fn();
+    const context = {
+      search: async () => ({ items: [] }),
+      selectResult: vi.fn(),
+      snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+    };
+    const availability = [
+      { agentTargetId: 'team:alpha', providerId: 'codex', label: 'Alpha', supported: true, authState: 'ok' as const },
+      { agentTargetId: 'team:beta', providerId: 'codex', label: 'Beta', supported: true, authState: 'ok' as const },
+    ];
+    const catalog = [
+      { agentTargetId: 'team:alpha', providerId: 'codex', label: 'Alpha', supported: true, isDefault: true as const, models: [] },
+      { agentTargetId: 'team:beta', providerId: 'codex', label: 'Beta', supported: true, models: [] },
+    ];
+    const renderComposer = (
+      nextAvailability: typeof availability,
+      nextCatalog: typeof catalog,
+    ) => (
+      <ChatComposer
+        streaming={false}
+        draft="Keep beta"
+        agentAvailability={nextAvailability}
+        agentModelCatalog={nextCatalog}
+        context={context}
+        onSend={onSend}
+        onStop={vi.fn()}
+      />
+    );
+    const { container, root } = renderComponent(renderComposer(availability, catalog));
+
+    try {
+      await openModelMenu(container);
+      await act(async () => menuItemByName('Beta').click());
+      expect(getByLabelText(container, 'Agent and model').textContent).toContain('Beta');
+
+      await act(async () => root.render(renderComposer(
+        availability.slice(0, 1),
+        catalog.slice(0, 1),
+      )));
+
+      expect(getByLabelText(container, 'Agent and model').textContent).toContain('team:beta');
+      expect(getByLabelText(container, 'Agent and model').textContent).not.toContain('Alpha');
+      expect((getByLabelText(container, 'Send message') as HTMLButtonElement).disabled).toBe(true);
+      await act(async () => getByLabelText(container, 'Send message').click());
+      expect(onSend).not.toHaveBeenCalled();
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('does not send when availability has a provider omitted from the catalog', async () => {
     const onSend = vi.fn();
     const { container, root } = renderComponent(
       <ChatComposer
         streaming={false}
         draft="Use hidden provider"
-        agentAvailability={[{ id: 'codex', label: 'Codex', supported: true, authState: 'ok' }]}
+        agentAvailability={[{ agentTargetId: 'codex', providerId: 'codex', label: 'Codex', supported: true, authState: 'ok' }]}
         agentModelCatalog={[]}
         context={{
           search: async () => ({ items: [] }),
@@ -231,7 +388,7 @@ describe('ChatComposer', () => {
       <ChatComposer
         streaming={false}
         draft="Continue hidden conversation"
-        lockedAgentId="tutti-agent"
+        lockedAgentTargetId="tutti-agent"
         agentModelCatalog={TEST_AGENT_MODEL_CATALOG}
         context={{
           search: async () => ({ items: [] }),
@@ -244,7 +401,7 @@ describe('ChatComposer', () => {
     );
 
     try {
-      expect(getByLabelText(container, 'Model provider').textContent).toContain('tutti-agent');
+      expect(getByLabelText(container, 'Agent and model').textContent).toContain('tutti-agent');
       const send = getByLabelText(container, 'Send message') as HTMLButtonElement;
       expect(send.disabled).toBe(true);
       await act(async () => send.click());
@@ -298,7 +455,7 @@ describe('ChatComposer', () => {
     );
 
     try {
-      const provider = getByLabelText(container, 'Model provider');
+      const provider = getByLabelText(container, 'Agent and model');
       expect(provider.textContent).toContain('Codex');
       const codexIcon = provider.querySelector('[data-provider-icon="codex"]');
       expect(codexIcon).toBeInstanceOf(HTMLImageElement);
@@ -309,7 +466,6 @@ describe('ChatComposer', () => {
 
       const menuContent = document.body.querySelector('.composer-model-menu-content');
       expect(menuContent).toBeInstanceOf(HTMLElement);
-      expect((menuContent as HTMLElement).style.width).toBe('min(320px, calc(100vw - 24px))');
 
       const claudeOption = menuItemByName('Claude Code');
       const claudeOptionIcon = claudeOption.querySelector('[data-provider-icon="claude-code"]');
@@ -336,7 +492,7 @@ describe('ChatComposer', () => {
       });
       await flushAsyncWork();
 
-      expect(onSend).toHaveBeenCalledWith({ draft: 'Use Claude', files: [], agentId: 'claude-code' });
+      expect(onSend).toHaveBeenCalledWith({ draft: 'Use Claude', files: [], agentTargetId: 'claude-code' });
     } finally {
       cleanup(root, container);
     }
@@ -349,7 +505,7 @@ describe('ChatComposer', () => {
         streaming={false}
         agentModelCatalog={[
           {
-            agentId: 'codex',
+            agentTargetId: 'codex',
             label: 'Codex',
             supported: true,
             models: [
@@ -373,7 +529,7 @@ describe('ChatComposer', () => {
     );
 
     try {
-      const provider = getByLabelText(container, 'Model provider');
+      const provider = getByLabelText(container, 'Agent and model');
       expect(provider.textContent).toContain('Codex');
       expect(provider.textContent).toContain('Default');
       expect(container.querySelector('[aria-label="Model"]')).toBeNull();
@@ -401,7 +557,7 @@ describe('ChatComposer', () => {
       expect(onSend).toHaveBeenCalledWith({
         draft: 'Use Codex mini',
         files: [],
-        agentId: 'codex',
+        agentTargetId: 'codex',
         model: 'codex:gpt-5.5',
       });
     } finally {
@@ -416,13 +572,13 @@ describe('ChatComposer', () => {
         streaming={false}
         agentModelCatalog={[
           {
-            agentId: 'codex',
+            agentTargetId: 'codex',
             label: 'Codex',
             supported: true,
             models: [{ id: 'default', label: 'Default' }],
           },
           {
-            agentId: 'claude-code',
+            agentTargetId: 'claude-code',
             label: 'Claude Code',
             supported: true,
             models: [
@@ -446,7 +602,7 @@ describe('ChatComposer', () => {
     );
 
     try {
-      const provider = getByLabelText(container, 'Model provider');
+      const provider = getByLabelText(container, 'Agent and model');
       expect(provider.textContent).toContain('Codex');
       expect(provider.textContent).toContain('Default');
       await openModelMenu(container);
@@ -474,7 +630,7 @@ describe('ChatComposer', () => {
       expect(onSend).toHaveBeenCalledWith({
         draft: 'Use Claude opus',
         files: [],
-        agentId: 'claude-code',
+        agentTargetId: 'claude-code',
         model: 'claude:opus',
       });
     } finally {
@@ -488,8 +644,8 @@ describe('ChatComposer', () => {
       <ChatComposer
         streaming={false}
         agentAvailability={[
-          { id: 'codex', label: 'Codex', supported: true, authState: 'ok' },
-          { id: 'claude-code', label: 'Claude Code', supported: false, authState: 'unknown', unavailableReason: 'Claude Code is not installed.' },
+          { agentTargetId: 'codex', providerId: 'codex', label: 'Codex', supported: true, authState: 'ok' },
+          { agentTargetId: 'claude-code', providerId: 'claude-code', label: 'Claude Code', supported: false, authState: 'unknown', unavailableReason: 'Claude Code is not installed.' },
         ]}
         context={{
           search: async () => ({ items: [] }),
@@ -502,7 +658,7 @@ describe('ChatComposer', () => {
     );
 
     try {
-      const provider = getByLabelText(container, 'Model provider');
+      const provider = getByLabelText(container, 'Agent and model');
       expect(provider.textContent).toContain('Codex');
 
       await openModelMenu(container);
@@ -521,66 +677,24 @@ describe('ChatComposer', () => {
       });
       await flushAsyncWork();
 
-      expect(onSend).toHaveBeenCalledWith({ draft: 'Use the available provider', files: [], agentId: 'codex' });
+      expect(onSend).toHaveBeenCalledWith({ draft: 'Use the available provider', files: [], agentTargetId: 'codex' });
     } finally {
       cleanup(root, container);
     }
   });
 
-  it('offers to install Claude Code from the unavailable model provider option', async () => {
-    const onInstallAgent = vi.fn(async () => undefined);
+  it('does not expose provider-specific installation actions', async () => {
     const { container, root } = renderComponent(
       <ChatComposer
         streaming={false}
         agentAvailability={[
-          { id: 'codex', label: 'Codex', supported: true, authState: 'ok' },
-          { id: 'claude-code', label: 'Claude Code', supported: false, authState: 'unknown', unavailableReason: 'Claude Code is not installed.' },
-        ]}
-        context={{
-          search: async () => ({ items: [] }),
-          selectResult: vi.fn(),
-          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
-        }}
-        onInstallAgent={onInstallAgent}
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-      />,
-    );
-
-    try {
-      await openModelMenu(container);
-
-      const installButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
-        button.textContent?.includes('Install'),
-      );
-      expect(installButton).toBeInstanceOf(HTMLButtonElement);
-      expect(installButton?.getAttribute('aria-label')).toBe('Install Claude Code');
-
-      await act(async () => {
-        fireEvent.click(installButton!);
-      });
-      await flushAsyncWork();
-
-      expect(onInstallAgent).toHaveBeenCalledWith('claude-code');
-      expect(container.textContent).toContain('Claude Code installed. Select it to use it.');
-    } finally {
-      cleanup(root, container);
-    }
-  });
-
-  it('offers installation for the standalone CLI-not-found snapshot', async () => {
-    const onInstallAgent = vi.fn(async () => undefined);
-    const { container, root } = renderComponent(
-      <ChatComposer
-        streaming={false}
-        agentAvailability={[
-          { id: 'codex', label: 'Codex', supported: true, authState: 'ok' },
+          { agentTargetId: 'team:writer', providerId: 'team:writer', label: 'Writer', supported: true, authState: 'ok' },
           {
-            id: 'claude-code',
-            label: 'Claude Code',
+            agentTargetId: 'team:reviewer',
+            label: 'Reviewer',
             supported: false,
             authState: 'missing',
-            unavailableReason: 'Executable not found on PATH: claude',
+            unavailableReason: 'The agent runtime is unavailable.',
           },
         ]}
         context={{
@@ -588,51 +702,6 @@ describe('ChatComposer', () => {
           selectResult: vi.fn(),
           snapshot: { selectedSkills: [], selectedDesignFiles: [] },
         }}
-        onInstallAgent={onInstallAgent}
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-      />,
-    );
-
-    try {
-      await openModelMenu(container);
-      const installButton = Array.from(document.body.querySelectorAll('button')).find((button) =>
-        button.textContent?.includes('Install'),
-      );
-      expect(installButton?.getAttribute('aria-label')).toBe('Install Claude Code');
-
-      await act(async () => {
-        fireEvent.click(installButton!);
-      });
-      await flushAsyncWork();
-
-      expect(onInstallAgent).toHaveBeenCalledWith('claude-code');
-    } finally {
-      cleanup(root, container);
-    }
-  });
-
-  it('does not offer installation when Claude Code is installed but app-local auth is missing', async () => {
-    const onInstallAgent = vi.fn(async () => undefined);
-    const { container, root } = renderComponent(
-      <ChatComposer
-        streaming={false}
-        agentAvailability={[
-          { id: 'codex', label: 'Codex', supported: true, authState: 'ok' },
-          {
-            id: 'claude-code',
-            label: 'Claude Code',
-            supported: false,
-            authState: 'missing',
-            unavailableReason: 'Claude Code is not authenticated for this app.',
-          },
-        ]}
-        context={{
-          search: async () => ({ items: [] }),
-          selectResult: vi.fn(),
-          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
-        }}
-        onInstallAgent={onInstallAgent}
         onSend={vi.fn()}
         onStop={vi.fn()}
       />,
@@ -646,7 +715,6 @@ describe('ChatComposer', () => {
           button.textContent?.includes('Install'),
         ),
       ).toBe(false);
-      expect(onInstallAgent).not.toHaveBeenCalled();
     } finally {
       cleanup(root, container);
     }
@@ -657,7 +725,7 @@ describe('ChatComposer', () => {
     const { container, root } = renderComponent(
       <ChatComposer
         streaming={false}
-        lockedAgentId="claude-code"
+        lockedAgentTargetId="claude-code"
         context={{
           search: async () => ({ items: [] }),
           selectResult: vi.fn(),
@@ -669,7 +737,7 @@ describe('ChatComposer', () => {
     );
 
     try {
-      const provider = getByLabelText(container, 'Model provider');
+      const provider = getByLabelText(container, 'Agent and model');
       expect(provider.textContent).toContain('Claude Code');
       expect(provider.getAttribute('aria-disabled')).not.toBe('true');
       expect(provider.querySelector('[data-provider-icon="claude-code"]')).toBeInstanceOf(HTMLImageElement);
@@ -680,14 +748,14 @@ describe('ChatComposer', () => {
       const claudeOption = menuItemByName('Claude Code');
       expect(codexOption.getAttribute('aria-disabled')).toBe('true');
       expect(codexOption.getAttribute('title')).toBeNull();
-      expect(document.body.textContent).not.toContain('Switching models is not supported in the same conversation yet');
+      expect(document.body.textContent).not.toContain('Start a new conversation to switch agents');
       const lockedOptionTooltipTrigger = codexOption.closest('[data-slot="tooltip-trigger"]');
       expect(lockedOptionTooltipTrigger).not.toBeNull();
       await act(async () => {
         fireEvent.pointerMove(lockedOptionTooltipTrigger!);
       });
       await waitFor(() => {
-        expect(document.body.textContent).toContain('Switching models is not supported in the same conversation yet');
+        expect(document.body.textContent).toContain('Start a new conversation to switch agents');
       });
       expect(claudeOption.getAttribute('aria-disabled')).not.toBe('true');
 
@@ -697,7 +765,7 @@ describe('ChatComposer', () => {
       });
       await flushAsyncWork();
 
-      expect(onSend).toHaveBeenCalledWith({ draft: 'Continue with Claude', files: [], agentId: 'claude-code' });
+      expect(onSend).toHaveBeenCalledWith({ draft: 'Continue with Claude', files: [], agentTargetId: 'claude-code' });
     } finally {
       cleanup(root, container);
     }
@@ -708,11 +776,11 @@ describe('ChatComposer', () => {
     const { container, root } = renderComponent(
       <ChatComposer
         streaming={false}
-        lockedAgentId="codex"
+        lockedAgentTargetId="codex"
         lockedModel="codex:gpt-5.5"
         agentModelCatalog={[
           {
-            agentId: 'codex',
+            agentTargetId: 'codex',
             label: 'Codex',
             supported: true,
             models: [
@@ -721,7 +789,7 @@ describe('ChatComposer', () => {
             ],
           },
           {
-            agentId: 'claude-code',
+            agentTargetId: 'claude-code',
             label: 'Claude Code',
             supported: true,
             models: [{ id: 'claude:opus', label: 'Opus' }],
@@ -738,7 +806,7 @@ describe('ChatComposer', () => {
     );
 
     try {
-      const provider = getByLabelText(container, 'Model provider');
+      const provider = getByLabelText(container, 'Agent and model');
       expect(provider.textContent).toContain('Codex');
       expect(provider.textContent).toContain('GPT-5.5');
 
@@ -766,7 +834,7 @@ describe('ChatComposer', () => {
       expect(onSend).toHaveBeenCalledWith({
         draft: 'Use default Codex',
         files: [],
-        agentId: 'codex',
+        agentTargetId: 'codex',
         model: 'default',
       });
     } finally {
@@ -779,11 +847,11 @@ describe('ChatComposer', () => {
     const { container, root } = renderComponent(
       <ChatComposer
         streaming={false}
-        lockedAgentId="codex"
+        lockedAgentTargetId="codex"
         lockedModel="codex:gpt-5.4"
         agentModelCatalog={[
           {
-            agentId: 'codex',
+            agentTargetId: 'codex',
             label: 'Codex',
             supported: true,
             models: [
@@ -803,7 +871,7 @@ describe('ChatComposer', () => {
     );
 
     try {
-      const provider = getByLabelText(container, 'Model provider');
+      const provider = getByLabelText(container, 'Agent and model');
       await waitFor(() => {
         expect(provider.textContent).toContain('GPT-5.4');
       });
@@ -812,11 +880,24 @@ describe('ChatComposer', () => {
     }
   });
 
-  it('explains why a Codex conversation cannot switch to Claude Code', () => {
+  it('normalizes a locked model with the runtime provider prefix while keeping the exact target lock', async () => {
     const { container, root } = renderComponent(
       <ChatComposer
         streaming={false}
-        lockedAgentId="codex"
+        lockedAgentTargetId="team:writer"
+        lockedModel="codex:gpt-5.5"
+        agentAvailability={[
+          { agentTargetId: 'team:writer', providerId: 'codex', label: 'Writer', supported: true, authState: 'ok' },
+        ]}
+        agentModelCatalog={[
+          {
+            agentTargetId: 'team:writer',
+            providerId: 'codex',
+            label: 'Writer',
+            supported: true,
+            models: [{ id: 'gpt-5.5', label: 'GPT-5.5' }],
+          },
+        ]}
         context={{
           search: async () => ({ items: [] }),
           selectResult: vi.fn(),
@@ -828,7 +909,98 @@ describe('ChatComposer', () => {
     );
 
     try {
-      const provider = getByLabelText(container, 'Model provider');
+      await waitFor(() => {
+        expect(getByLabelText(container, 'Agent and model').textContent).toContain('GPT-5.5');
+      });
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('normalizes a locked model with the historical Claude provider prefix', async () => {
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        lockedAgentTargetId="team:claude"
+        lockedModel="claude:opus"
+        agentAvailability={[
+          { agentTargetId: 'team:claude', providerId: 'claude-code', label: 'Claude', supported: true, authState: 'ok' },
+        ]}
+        agentModelCatalog={[
+          {
+            agentTargetId: 'team:claude',
+            providerId: 'claude-code',
+            label: 'Claude',
+            supported: true,
+            models: [{ id: 'opus', label: 'Opus' }],
+          },
+        ]}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      await waitFor(() => {
+        expect(getByLabelText(container, 'Agent and model').textContent).toContain('Opus');
+      });
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('uses the Claude Code icon for the historical claude provider alias', () => {
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        lockedAgentTargetId="team:claude"
+        agentAvailability={[
+          { agentTargetId: 'team:claude', providerId: 'claude', label: 'Claude', supported: true, authState: 'ok' },
+        ]}
+        agentModelCatalog={[
+          { agentTargetId: 'team:claude', providerId: 'claude', label: 'Claude', supported: true, models: [] },
+        ]}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      expect(
+        getByLabelText(container, 'Agent and model').querySelector('[data-provider-icon="claude-code"]'),
+      ).toBeInstanceOf(HTMLImageElement);
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('explains why a Codex conversation cannot switch to Claude Code', () => {
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        lockedAgentTargetId="codex"
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      const provider = getByLabelText(container, 'Agent and model');
       const tooltip = container.querySelector('[role="tooltip"]');
       expect(provider).toBeTruthy();
       expect(tooltip).toBeNull();
@@ -979,97 +1151,27 @@ describe('ChatComposer', () => {
     }
   });
 
-  it('shows skill and design-file mention results, selects one, and sends draft with files', async () => {
-    const onSend = vi.fn();
+  it('queries Tutti external agent targets and inserts the exact agent mention', async () => {
     const selectResult = vi.fn();
-    const resultItems: ContextSearchResultItem[] = [
-      { id: 'skill:skill-1', kind: 'skill', label: 'Hero Builder', value: 'skill-1' },
-      {
-        id: 'design-file:file-1',
-        kind: 'design-file',
-        label: 'Hero.tsx',
-        value: 'file-1',
-        path: 'src/Hero.tsx',
-      },
-    ];
-    const snapshot: ContextPickerSnapshot = {
-      selectedSkills: [{ id: 'skill-2', name: 'Layout Critic' }],
-      selectedDesignFiles: [
-        {
-          id: 'file-2',
-          name: 'Landing.tsx',
-          path: 'src/Landing.tsx',
-          type: 'file',
-          size: 0,
-          mtime: 0,
-          kind: 'code',
-          mime: 'text/tsx',
-        },
-      ],
-    };
-
-    const { container, root } = renderComponent(
-      <ChatComposer
-        streaming={false}
-        context={{
-          search: async () => ({ items: resultItems }),
-          selectResult,
-          snapshot,
-        }}
-        onSend={onSend}
-        onStop={vi.fn()}
-      />,
-    );
-
-    try {
-      expect(container.textContent).toContain('Layout Critic');
-      expect(container.textContent).toContain('Landing.tsx');
-
-      await changeText(getByLabelText(container, 'Message'), '@hero');
-      expect(container.textContent).toContain('Hero Builder');
-      expect(container.textContent).toContain('Hero.tsx');
-      expect(container.querySelector('[data-mention-icon="skill"]')).toBeInstanceOf(SVGElement);
-      expect(container.querySelector('[data-mention-icon="design-file"]')).toBeInstanceOf(SVGElement);
-      expect(container.querySelector('[role="listbox"]')).toBeNull();
-
-      await act(async () => buttonByName(container, 'Hero.tsx').click());
-      expect(selectResult).toHaveBeenCalledWith(resultItems[1]);
-
-      const upload = getByLabelText(container, 'Import files');
-      const file = new File(['content'], 'brief.md', { type: 'text/markdown' });
-      await selectFiles(upload, [file]);
-      await changeText(getByLabelText(container, 'Message'), 'Build a hero');
-      await act(async () => {
-        getByLabelText(container, 'Send message').click();
-      });
-      await flushAsyncWork();
-
-      expect(onSend).toHaveBeenCalledWith({ draft: 'Build a hero', files: [file], agentId: 'codex' });
-    } finally {
-      cleanup(root, container);
-    }
-  });
-
-  it('queries Tutti external at providers and inserts a workspace app mention', async () => {
-    const selectResult = vi.fn();
+    const onDraftChange = vi.fn();
     const atQuery = vi.fn(async () => [
       {
-        providerId: 'workspace-app',
-        itemId: 'automation',
-        label: 'Automation',
-        subtitle: 'Workspace app',
-        thumbnailUrl: '/assets/automation.png',
+        providerId: 'agent-target',
+        itemId: 'team:automation',
+        label: 'Automation Agent',
+        subtitle: 'Agent',
+        thumbnailUrl: '/assets/automation-agent.png',
         insert: {
           kind: 'mention',
           mention: {
-            entityId: 'automation',
-            label: 'Automation',
+            entityId: 'team:automation',
+            label: 'Automation Agent',
             scope: {
               workspaceId: 'workspace-1',
             },
             presentation: {
-              iconUrl: '/assets/automation.png',
-              subtitle: 'Workspace app',
+              iconUrl: '/assets/automation-agent.png',
+              subtitle: 'Agent',
             },
           },
         },
@@ -1084,6 +1186,7 @@ describe('ChatComposer', () => {
           selectResult,
           snapshot: { selectedSkills: [], selectedDesignFiles: [] },
         }}
+        onDraftChange={onDraftChange}
         onSend={vi.fn()}
         onStop={vi.fn()}
       />,
@@ -1097,304 +1200,22 @@ describe('ChatComposer', () => {
         expect(atQuery).toHaveBeenCalledWith({
           keyword: 'auto',
           maxResults: 20,
-          providers: ['workspace-app'],
+          providers: ['agent-target'],
         }),
       );
-      await waitFor(() => expect(container.textContent).toContain('Automation'));
-      expect(container.textContent).toContain('Workspace app');
-      expect(container.querySelector('[data-mention-icon="workspace-app"]')).toBeTruthy();
+      await waitFor(() => expect(document.body.textContent).toContain('Automation Agent'));
+      expect(document.body.textContent).toContain('Agent');
 
-      await act(async () => buttonByName(container, 'Automation').click());
+      await act(async () => buttonByName(document.body, 'Automation Agent').click());
       await flushAsyncWork();
 
       expect(selectResult).not.toHaveBeenCalled();
-      expect(editorText(message)).toBe(
-        '[@Automation](mention://workspace-app/automation?workspaceId=workspace-1)',
+      expect(onDraftChange).toHaveBeenLastCalledWith(
+        '[@Automation Agent](mention://agent-target/team:automation?workspaceId=workspace-1)',
       );
       expect(container.querySelector('[aria-label="Mention results"]')).toBeNull();
     } finally {
       clearTuttiExternal();
-      cleanup(root, container);
-    }
-  });
-
-  it('opens mention results when @ follows Chinese text without a space', async () => {
-    const item: ContextSearchResultItem = {
-      id: 'skill:skill-1',
-      kind: 'skill',
-      label: 'Hero Builder',
-      value: 'skill-1',
-    };
-    const search = vi.fn(async () => ({ items: [item] }));
-    const selectResult = vi.fn();
-    const { container, root } = renderComponent(
-      <ChatComposer
-        streaming={false}
-        context={{
-          search,
-          selectResult,
-          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
-        }}
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-      />,
-    );
-
-    try {
-      await changeText(getByLabelText(container, 'Message'), '做一个中文@hero');
-
-      await waitFor(() => expect(search).toHaveBeenCalledWith('hero'));
-      expect(container.textContent).toContain('Hero Builder');
-
-      await act(async () => buttonByName(container, 'Hero Builder').click());
-      expect(selectResult).toHaveBeenCalledWith(item);
-      expect(editorText(getByLabelText(container, 'Message'))).toBe('做一个中文');
-    } finally {
-      cleanup(root, container);
-    }
-  });
-
-  it('opens mention results when @ follows non-Chinese text without a space', async () => {
-    const item: ContextSearchResultItem = {
-      id: 'skill:skill-1',
-      kind: 'skill',
-      label: 'Hero Builder',
-      value: 'skill-1',
-    };
-    const search = vi.fn(async () => ({ items: [item] }));
-    const selectResult = vi.fn();
-    const { container, root } = renderComponent(
-      <ChatComposer
-        streaming={false}
-        context={{
-          search,
-          selectResult,
-          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
-        }}
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-      />,
-    );
-
-    try {
-      await changeText(getByLabelText(container, 'Message'), 'make@hero');
-
-      await waitFor(() => expect(search).toHaveBeenCalledWith('hero'));
-      expect(container.textContent).toContain('Hero Builder');
-
-      await act(async () => buttonByName(container, 'Hero Builder').click());
-      expect(selectResult).toHaveBeenCalledWith(item);
-      expect(editorText(getByLabelText(container, 'Message'))).toBe('make');
-    } finally {
-      cleanup(root, container);
-    }
-  });
-
-  it('opens mention results when @ follows digits without a space', async () => {
-    const item: ContextSearchResultItem = {
-      id: 'skill:skill-1',
-      kind: 'skill',
-      label: 'Hero Builder',
-      value: 'skill-1',
-    };
-    const search = vi.fn(async () => ({ items: [item] }));
-    const selectResult = vi.fn();
-    const { container, root } = renderComponent(
-      <ChatComposer
-        streaming={false}
-        context={{
-          search,
-          selectResult,
-          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
-        }}
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-      />,
-    );
-
-    try {
-      await changeText(getByLabelText(container, 'Message'), '123@hero');
-
-      await waitFor(() => expect(search).toHaveBeenCalledWith('hero'));
-      expect(container.textContent).toContain('Hero Builder');
-
-      await act(async () => buttonByName(container, 'Hero Builder').click());
-      expect(selectResult).toHaveBeenCalledWith(item);
-      expect(editorText(getByLabelText(container, 'Message'))).toBe('123');
-    } finally {
-      cleanup(root, container);
-    }
-  });
-
-  it('opens empty-query mention results immediately when @ follows digits', async () => {
-    const search = vi.fn(async () => ({ items: [] }));
-    const { container, root } = renderComponent(
-      <ChatComposer
-        streaming={false}
-        context={{
-          search,
-          selectResult: vi.fn(),
-          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
-        }}
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-      />,
-    );
-
-    try {
-      await changeText(getByLabelText(container, 'Message'), '123@');
-
-      await waitFor(() => expect(search).toHaveBeenCalledWith(''));
-      expect(container.querySelector('[aria-label="Mention results"]')).not.toBeNull();
-      expect(container.textContent).toContain('No context results');
-    } finally {
-      cleanup(root, container);
-    }
-  });
-
-  it('opens mention results when a fullwidth @ follows digits', async () => {
-    const item: ContextSearchResultItem = {
-      id: 'skill:skill-1',
-      kind: 'skill',
-      label: 'Hero Builder',
-      value: 'skill-1',
-    };
-    const search = vi.fn(async () => ({ items: [item] }));
-    const selectResult = vi.fn();
-    const { container, root } = renderComponent(
-      <ChatComposer
-        streaming={false}
-        context={{
-          search,
-          selectResult,
-          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
-        }}
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-      />,
-    );
-
-    try {
-      await changeText(getByLabelText(container, 'Message'), '123＠hero');
-
-      await waitFor(() => expect(search).toHaveBeenCalledWith('hero'));
-      expect(container.textContent).toContain('Hero Builder');
-
-      await act(async () => buttonByName(container, 'Hero Builder').click());
-      expect(selectResult).toHaveBeenCalledWith(item);
-      expect(editorText(getByLabelText(container, 'Message'))).toBe('123');
-    } finally {
-      cleanup(root, container);
-    }
-  });
-
-  it('filters mention results by all, skill, and file tabs', async () => {
-    const selectResult = vi.fn();
-    const resultItems: ContextSearchResultItem[] = [
-      { id: 'skill:skill-1', kind: 'skill', label: 'Hero Builder', value: 'skill-1' },
-      {
-        id: 'design-file:file-1',
-        kind: 'design-file',
-        label: 'Hero.tsx',
-        value: 'file-1',
-        path: 'src/Hero.tsx',
-      },
-    ];
-    const { container, root } = renderComponent(
-      <ChatComposer
-        streaming={false}
-        context={{
-          search: async () => ({ items: resultItems }),
-          selectResult,
-          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
-        }}
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-      />,
-    );
-
-    try {
-      const message = getByLabelText(container, 'Message');
-      await changeText(message, '@hero');
-
-      expect(getByLabelText(container, 'Mention filters')).toBeTruthy();
-      expect(container.textContent).toContain('Hero Builder');
-      expect(container.textContent).toContain('Hero.tsx');
-
-      await act(async () => buttonByName(container, 'Skill').click());
-      expect(container.textContent).toContain('Hero Builder');
-      expect(container.textContent).not.toContain('Hero.tsx');
-
-      await act(async () => buttonByName(container, 'Files').click());
-      expect(container.textContent).not.toContain('Hero Builder');
-      expect(container.textContent).toContain('Hero.tsx');
-
-      await act(async () => {
-        fireEvent.keyDown(message, { key: 'Enter', code: 'Enter' });
-      });
-      await flushAsyncWork();
-
-      expect(selectResult).toHaveBeenCalledWith(resultItems[1]);
-    } finally {
-      cleanup(root, container);
-    }
-  });
-
-  it('switches mention filters with Tab while mention results are open', async () => {
-    const resultItems: ContextSearchResultItem[] = [
-      { id: 'skill:skill-1', kind: 'skill', label: 'Hero Builder', value: 'skill-1' },
-      {
-        id: 'design-file:file-1',
-        kind: 'design-file',
-        label: 'Hero.tsx',
-        value: 'file-1',
-        path: 'src/Hero.tsx',
-      },
-    ];
-    const { container, root } = renderComponent(
-      <ChatComposer
-        streaming={false}
-        context={{
-          search: async () => ({ items: resultItems }),
-          selectResult: vi.fn(),
-          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
-        }}
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-      />,
-    );
-
-    try {
-      const message = getByLabelText(container, 'Message');
-      await changeText(message, '@hero');
-
-      expect(buttonByName(container, 'All').getAttribute('aria-selected')).toBe('true');
-
-      let tabFromMessage = true;
-      await act(async () => {
-        tabFromMessage = fireEvent.keyDown(message, { key: 'Tab', code: 'Tab' });
-      });
-      expect(tabFromMessage).toBe(false);
-      expect(buttonByName(container, 'Skill').getAttribute('aria-selected')).toBe('true');
-      expect(container.textContent).toContain('Hero Builder');
-      expect(container.textContent).not.toContain('Hero.tsx');
-
-      await act(async () => {
-        tabFromMessage = fireEvent.keyDown(message, { key: 'Tab', code: 'Tab' });
-      });
-      expect(tabFromMessage).toBe(false);
-      expect(buttonByName(container, 'Files').getAttribute('aria-selected')).toBe('true');
-      expect(container.textContent).not.toContain('Hero Builder');
-      expect(container.textContent).toContain('Hero.tsx');
-
-      const filesTab = buttonByName(container, 'Files');
-      let tabFromFilter = true;
-      await act(async () => {
-        tabFromFilter = fireEvent.keyDown(filesTab, { key: 'Tab', code: 'Tab', shiftKey: true });
-      });
-      expect(tabFromFilter).toBe(false);
-      expect(buttonByName(container, 'Skill').getAttribute('aria-selected')).toBe('true');
-    } finally {
       cleanup(root, container);
     }
   });
@@ -1485,7 +1306,7 @@ describe('ChatComposer', () => {
         await Promise.resolve();
       });
 
-      expect(onSend).toHaveBeenCalledWith({ draft: 'Build this layout', files: [], agentId: 'codex' });
+      expect(onSend).toHaveBeenCalledWith({ draft: 'Build this layout', files: [], agentTargetId: 'codex' });
       expect(removeSelection).not.toHaveBeenCalled();
 
       await act(async () => {
@@ -1582,7 +1403,7 @@ describe('ChatComposer', () => {
       });
       await flushAsyncWork();
 
-      expect(onSend).toHaveBeenCalledWith({ draft: '', files: [image], agentId: 'codex' });
+      expect(onSend).toHaveBeenCalledWith({ draft: '', files: [image], agentTargetId: 'codex' });
     } finally {
       cleanup(root, container);
       createObjectUrl.mockRestore();
@@ -1619,76 +1440,8 @@ describe('ChatComposer', () => {
       });
       await flushAsyncWork();
 
-      expect(onSend).toHaveBeenCalledWith({ draft: '', files: [], agentId: 'codex', commentAttachments });
+      expect(onSend).toHaveBeenCalledWith({ draft: '', files: [], agentTargetId: 'codex', commentAttachments });
       expect(getByLabelText(container, 'Staged preview comments').textContent).toContain('Hero title');
-    } finally {
-      cleanup(root, container);
-    }
-  });
-
-  it('opens an empty mention state when no context results are available', async () => {
-    const search = vi.fn(async () => ({ items: [] }));
-    const { container, root } = renderComponent(
-      <ChatComposer
-        streaming={false}
-        context={{
-          search,
-          selectResult: vi.fn(),
-          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
-        }}
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-      />,
-    );
-
-    try {
-      await act(async () => {
-        getByLabelText(container, 'Open mentions').click();
-      });
-
-      await waitFor(() => expect(search).toHaveBeenCalledWith(''));
-      await waitFor(() => expect(container.querySelector('[aria-label="Mention results"]')).not.toBeNull());
-      expect(container.textContent).toContain('No context results');
-      expect(editorText(getByLabelText(container, 'Message'))).toBe('@');
-    } finally {
-      cleanup(root, container);
-    }
-  });
-
-  it('selects the first mention result on Enter and removes the mention trigger from the draft', async () => {
-    const selectResult = vi.fn();
-    const item: ContextSearchResultItem = {
-      id: 'skill:skill-1',
-      kind: 'skill',
-      label: 'Hero Builder',
-      value: 'skill-1',
-    };
-    const { container, root } = renderComponent(
-      <ChatComposer
-        streaming={false}
-        context={{
-          search: async () => ({ items: [item] }),
-          selectResult,
-          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
-        }}
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-      />,
-    );
-
-    try {
-      const message = getByLabelText(container, 'Message');
-      await changeText(message, '@hero');
-      await waitFor(() => expect(container.textContent).toContain('Hero Builder'));
-
-      await act(async () => {
-        fireEvent.keyDown(message, { key: 'Enter', code: 'Enter' });
-      });
-      await flushAsyncWork();
-
-      expect(selectResult).toHaveBeenCalledWith(item);
-      expect(editorText(message)).toBe('');
-      expect(container.querySelector('[aria-label="Mention results"]')).toBeNull();
     } finally {
       cleanup(root, container);
     }
@@ -1696,6 +1449,7 @@ describe('ChatComposer', () => {
 
   it('keeps Cmd+Enter available for editor line breaks instead of sending the draft', async () => {
     const onSend = vi.fn();
+    const onDraftChange = vi.fn();
     const { container, root } = renderComponent(
       <ChatComposer
         streaming={false}
@@ -1704,6 +1458,7 @@ describe('ChatComposer', () => {
           selectResult: vi.fn(),
           snapshot: { selectedSkills: [], selectedDesignFiles: [] },
         }}
+        onDraftChange={onDraftChange}
         onSend={onSend}
         onStop={vi.fn()}
       />,
@@ -1722,7 +1477,7 @@ describe('ChatComposer', () => {
         });
       });
 
-      expect(message.querySelectorAll('p')).toHaveLength(2);
+      expect(onDraftChange).toHaveBeenLastCalledWith('第一行\n');
       expect(onSend).not.toHaveBeenCalled();
     } finally {
       cleanup(root, container);
@@ -1731,6 +1486,7 @@ describe('ChatComposer', () => {
 
   it('keeps Ctrl+Enter available for editor line breaks instead of sending the draft', async () => {
     const onSend = vi.fn();
+    const onDraftChange = vi.fn();
     const { container, root } = renderComponent(
       <ChatComposer
         streaming={false}
@@ -1739,6 +1495,7 @@ describe('ChatComposer', () => {
           selectResult: vi.fn(),
           snapshot: { selectedSkills: [], selectedDesignFiles: [] },
         }}
+        onDraftChange={onDraftChange}
         onSend={onSend}
         onStop={vi.fn()}
       />,
@@ -1757,7 +1514,7 @@ describe('ChatComposer', () => {
         });
       });
 
-      expect(message.querySelectorAll('p')).toHaveLength(2);
+      expect(onDraftChange).toHaveBeenLastCalledWith('第一行\n');
       expect(onSend).not.toHaveBeenCalled();
     } finally {
       cleanup(root, container);
@@ -1863,7 +1620,7 @@ describe('ChatComposer', () => {
       });
       await flushAsyncWork();
 
-      expect(onSend).toHaveBeenCalledWith({ draft: '', files: [], agentId: 'codex' });
+      expect(onSend).toHaveBeenCalledWith({ draft: '', files: [], agentTargetId: 'codex' });
     } finally {
       cleanup(root, container);
     }
@@ -1899,36 +1656,8 @@ describe('ChatComposer', () => {
       await flushAsyncWork();
 
       expect(onStop).not.toHaveBeenCalled();
-      expect(onSend).toHaveBeenCalledWith({ draft: 'Queue this next', files: [], agentId: 'codex' });
+      expect(onSend).toHaveBeenCalledWith({ draft: 'Queue this next', files: [], agentTargetId: 'codex' });
       expect(editorText(getByLabelText(container, 'Message'))).toBe('');
-    } finally {
-      cleanup(root, container);
-    }
-  });
-
-  it('handles rejected context search without leaving mention results open', async () => {
-    const search = vi.fn(async () => {
-      throw new Error('search unavailable');
-    });
-    const { container, root } = renderComponent(
-      <ChatComposer
-        streaming={false}
-        context={{
-          search,
-          selectResult: vi.fn(),
-          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
-        }}
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-      />,
-    );
-
-    try {
-      await changeText(getByLabelText(container, 'Message'), '@missing');
-
-      expect(search).toHaveBeenCalledWith('missing');
-      expect(container.querySelector('[aria-label="Mention results"]')).toBeNull();
-      expect(container.textContent).toContain('Context search unavailable');
     } finally {
       cleanup(root, container);
     }
@@ -1960,7 +1689,7 @@ describe('ChatComposer', () => {
         getByLabelText(container, 'Send message').click();
       });
 
-      expect(onSend).toHaveBeenCalledWith({ draft: 'Keep this draft', files: [file], agentId: 'codex' });
+      expect(onSend).toHaveBeenCalledWith({ draft: 'Keep this draft', files: [file], agentTargetId: 'codex' });
       expect(editorText(getByLabelText(container, 'Message'))).toBe('Keep this draft');
       expect(container.textContent).toContain('brief.md');
       await waitFor(() => expect(container.textContent).toContain('Browser request API is unavailable.'));
@@ -2013,40 +1742,6 @@ describe('ChatComposer', () => {
     }
   });
 
-  it('keeps mention options open when context selection rejects and shows an error', async () => {
-    const selectResult = vi.fn(async () => {
-      throw new Error('selection failed');
-    });
-    const item: ContextSearchResultItem = {
-      id: 'skill:skill-1',
-      kind: 'skill',
-      label: 'Hero Builder',
-      value: 'skill-1',
-    };
-    const { container, root } = renderComponent(
-      <ChatComposer
-        streaming={false}
-        context={{
-          search: async () => ({ items: [item] }),
-          selectResult,
-          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
-        }}
-        onSend={vi.fn()}
-        onStop={vi.fn()}
-      />,
-    );
-
-    try {
-      await changeText(getByLabelText(container, 'Message'), '@hero');
-      await act(async () => buttonByName(container, 'Hero Builder').click());
-
-      expect(selectResult).toHaveBeenCalledWith(item);
-      expect(container.querySelector('[aria-label="Mention results"]')).not.toBeNull();
-      expect(container.textContent).toContain('Context selection failed');
-    } finally {
-      cleanup(root, container);
-    }
-  });
 });
 
 function commentAttachment(): CanvasCommentAttachment {

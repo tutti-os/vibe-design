@@ -13,7 +13,8 @@
     "package:tutti-app": "node ./scripts/package-tutti-app.mjs",
     "start": "pnpm build:web && pnpm --filter @vibe-design/server start",
     "test": "pnpm -r --if-present test",
-    "test:package": "node --test ./scripts/package-tutti-app.test.mjs ./scripts/package-cloud-zip.test.mjs",
+    "test:package": "node --test ./scripts/package-tutti-app.test.mjs ./scripts/package-cloud-zip.test.mjs ./.github/skills/impeccable/scripts/live-copy-edit-agent.test.mjs",
+    "test:impeccable": "node --test ./.github/skills/impeccable/scripts/live-copy-edit-agent.test.mjs",
     "type-check": "pnpm -r --if-present type-check"
   },
   "devDependencies": {

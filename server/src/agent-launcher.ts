@@ -7,7 +7,12 @@ import {
   type DetectContext,
   type ManagedAgentRunContext,
 } from '@tutti-os/agent-acp-kit';
-import { DEFAULT_AGENT_ID, type AgentRegistry } from './agents.js';
+import {
+  loadTuttiAgentCatalog,
+  loadTuttiAgentComposerOptions,
+} from '@tutti-os/agent-acp-kit/tutti';
+import { legacyProviderIdsMatch } from './agent-availability.js';
+import { type AgentRegistry } from './agents.js';
 import {
   createFileOutputProtocolParser,
   type FileOutputProtocolEvent,
@@ -68,6 +73,11 @@ export interface StartAgentRunInput {
   agentRuntime?: LocalAgentRuntime;
   detectContext?: DetectContext;
   managedAgentRunContext?: ManagedAgentRunContext;
+  loadAgentCatalog?: (
+    input: Parameters<typeof loadTuttiAgentCatalog>[0],
+  ) => ReturnType<typeof loadTuttiAgentCatalog>;
+  loadAgentComposerOptions?: typeof loadTuttiAgentComposerOptions;
+  resolveAgentSkillBundle?: typeof resolveTuttiAgentSkillBundle;
 }
 
 const defaultAgentRuntime: LocalAgentRuntime = localAgentRuntime;
@@ -80,11 +90,12 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   const { run, runs, request, paths } = input;
   const registry = input.registry ?? defaultAgentRegistry;
   const agentRuntime = input.agentRuntime ?? defaultAgentRuntime;
-  const agentId = readString(request.agentId) ?? run.agentId ?? DEFAULT_AGENT_ID;
-  const agent = registry.getAgentDef(agentId);
+  const agentTargetId = readString(request.agentTargetId) ?? run.agentTargetId;
+  const provider = readString(request.provider) ?? run.provider;
+  const agent = provider ? registry.getAgentDef(provider) : null;
 
-  if (!agent) {
-    runs.fail(run, 'AGENT_UNAVAILABLE', `unknown agent: ${agentId}`);
+  if (!agentTargetId || !provider || !agent) {
+    runs.fail(run, 'AGENT_UNAVAILABLE', 'The selected agent target runtime is unavailable.');
     return;
   }
 
@@ -108,7 +119,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   const skill = await resolveRequestedSkill(request, paths);
   const activeDesignSystem = await resolveProjectDesignSystem(projectId, paths, locale);
   const systemPrompt = composeSystemPrompt({
-    agentId,
+    agentId: provider,
     skillBody: skill?.body,
     skillName: skill?.name,
     skillMode: skill?.mode as ComposeInput['skillMode'],
@@ -133,12 +144,75 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   ].join('\n');
   const history = await buildConversationHistory(paths.projectsDir, run, userPrompt);
   const resume = buildProviderResume(run);
-  const tuttiSkillBundle = await resolveTuttiAgentSkillBundle({
-    agentSessionId: run.id,
-    cwd: resolveTuttiWorkspaceCwd(projectWorkspaceDir),
-    detectContext: input.detectContext,
-    provider: agentId,
+  const workspaceCwd = resolveTuttiWorkspaceCwd(projectWorkspaceDir);
+  const requestedModel = readString(request.model) ?? undefined;
+  const legacyProviderSelection = Boolean(run.agentId && !readString(request.agentTargetId));
+  const composerSelection = legacyProviderSelection
+    ? { providerId: provider }
+    : { agentTargetId };
+  const skillSelection = legacyProviderSelection
+    ? { provider }
+    : { agentTargetId };
+  const catalogDetectContext: DetectContext = {
+    ...(input.detectContext ?? {}),
+    ...(!input.detectContext?.cwd && !input.detectContext?.managedAgentInvocation
+      ? { cwd: agentCwd }
+      : {}),
+    refresh: true,
+  };
+  const catalogEnv = legacyProviderSelection ? { ...process.env, TUTTI_CLI: '' } : undefined;
+  const refreshedCatalog = await (input.loadAgentCatalog ?? loadTuttiAgentCatalog)({
+    runtime: localAgentRuntime,
+    cwd: workspaceCwd,
+    detectContext: catalogDetectContext,
+    ...(catalogEnv ? { env: catalogEnv } : {}),
   });
+  const matchingCatalogAgents = legacyProviderSelection
+    ? refreshedCatalog.agents.filter((candidate) => legacyProviderIdsMatch(candidate.providerId, provider))
+    : refreshedCatalog.agents.filter((candidate) => candidate.agentTargetId === agentTargetId);
+  const refreshedAgent = matchingCatalogAgents.length === 1 ? matchingCatalogAgents[0] : undefined;
+  if (
+    !refreshedAgent
+    || refreshedAgent.providerId !== provider
+    || !refreshedAgent.runtimeSupported
+    || refreshedAgent.availability.status !== 'available'
+  ) {
+    runs.fail(
+      run,
+      'AGENT_UNAVAILABLE',
+      refreshedAgent?.availability.detail || 'The selected agent target is unavailable in the current Tutti catalog.',
+    );
+    return;
+  }
+  const [composerOptions, tuttiSkillBundle] = await Promise.all([
+    (input.loadAgentComposerOptions ?? loadTuttiAgentComposerOptions)({
+      runtime: localAgentRuntime,
+      ...composerSelection,
+      ...(catalogEnv ? { env: catalogEnv } : {}),
+      cwd: workspaceCwd,
+      detectContext: catalogDetectContext,
+      model: requestedModel,
+      reasoningEffort: readString(request.reasoning) ?? undefined,
+    }),
+    (input.resolveAgentSkillBundle ?? resolveTuttiAgentSkillBundle)({
+      agentSessionId: run.id,
+      cwd: workspaceCwd,
+      detectContext: catalogDetectContext,
+      ...skillSelection,
+    }),
+  ]);
+  if (run.cancelRequested || runs.isTerminal(run.status)) {
+    return;
+  }
+  if (!legacyProviderSelection && (
+    composerOptions.providerId !== provider
+    || composerOptions.agentTargetId !== agentTargetId
+    || tuttiSkillBundle.providerId !== provider
+    || tuttiSkillBundle.agentTargetId !== agentTargetId
+  )) {
+    runs.fail(run, 'AGENT_UNAVAILABLE', 'The selected agent target identity changed while preparing the run.');
+    return;
+  }
   const runtimeSystemPrompt = [
     systemPrompt,
     tuttiSkillBundle.recommendedSystemPrompt?.content,
@@ -148,8 +222,8 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   run.updatedAt = Date.now();
   runs.emit(run, 'start', {
     runId: run.id,
-    agentId,
-    provider: agentId,
+    agentTargetId,
+    provider,
     projectId,
     cwd: projectWorkspaceDir,
     runtime: 'agent-acp-kit',
@@ -221,17 +295,30 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       return false;
     };
 
-    const requestedModel = readString(request.model);
-    const normalizedModel = requestedModel ? localAgentModelIdForAcp(requestedModel, agentId) : null;
+    const effectiveModel = requestedModel
+      ?? composerOptions.modelConfig.currentValue
+      ?? composerOptions.modelConfig.defaultValue;
+    const normalizedModel = effectiveModel ? localAgentModelIdForAcp(effectiveModel, provider) : null;
+    const permissionMode = composerOptions.permissionConfig.modes.find(
+      (mode) => mode.id === composerOptions.permissionConfig.defaultValue,
+    );
+    const reasoning = readString(request.reasoning)
+      ?? composerOptions.reasoningConfig.currentValue
+      ?? composerOptions.reasoningConfig.defaultValue
+      ?? undefined;
     const agentRunInput: AcpAgentRunInput = {
       runId: run.id,
-      provider: agentId,
+      provider,
+      runtimeProvider: provider,
       cwd: agentCwd,
       prompt,
       systemPrompt: runtimeSystemPrompt,
       ...(history.length > 0 ? { history } : {}),
       ...(normalizedModel ? { model: normalizedModel } : {}),
-      ...(readString(request.reasoning) ? { reasoning: readString(request.reasoning) ?? undefined } : {}),
+      ...(reasoning ? { reasoning } : {}),
+      ...(permissionMode
+        ? { permission: { modeId: permissionMode.id, semantic: permissionMode.semantic } }
+        : {}),
       ...(managedAgentInvocation ? { managedAgentInvocation } : {}),
       ...(tuttiSkillBundle.skillManifest.length > 0 ? { skillManifest: tuttiSkillBundle.skillManifest } : {}),
       signal: controller.signal,
@@ -817,6 +904,8 @@ async function persistRunResumeMetadata(
   await updateConversationResumeMetadata(projectsDir, run.projectId, run.conversationId, {
     providerSessionId,
     resumeToken,
+    agentTargetId: run.agentTargetId,
+    provider: run.provider,
   });
 }
 

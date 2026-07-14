@@ -5,7 +5,7 @@ export interface SendTurnInput {
   displayDraft?: string;
   files: File[];
   attachments?: ChatAttachment[];
-  agentId?: string;
+  agentTargetId?: string;
   model?: string;
   commentAttachments?: CanvasCommentAttachment[];
 }

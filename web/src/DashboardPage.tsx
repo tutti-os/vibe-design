@@ -351,15 +351,24 @@ function ProjectCreator({
     const catalogOptions = dashboardModelOptionsFromCatalog(agentModelCatalog);
     return catalogOptions;
   }, [agentModelCatalog]);
-  const canCreate = projectPrompt.trim().length > 0 && selectedModel !== null && !isCreating;
+  const selectedModelAvailable = selectedModel !== null
+    && modelOptions.some((model) => model.key === selectedModel.key);
+  const canCreate = projectPrompt.trim().length > 0 && selectedModelAvailable && !isCreating;
 
   React.useEffect(() => {
-    if (selectedModel && modelOptions.some((model) => model.key === selectedModel.key)) return;
-    setSelectedModel(
-      (selectedModel
-        ? modelOptions.find((model) => model.provider === selectedModel.provider)
-        : undefined) ?? modelOptions[0] ?? null,
+    if (!selectedModel) {
+      setSelectedModel(modelOptions[0] ?? null);
+      return;
+    }
+    if (modelOptions.some((model) => model.key === selectedModel.key)) return;
+    const sameTargetModel = modelOptions.find(
+      (model) => model.agentTargetId === selectedModel.agentTargetId,
     );
+    if (sameTargetModel) {
+      setSelectedModel(sameTargetModel);
+      return;
+    }
+    if (modelOptions.length === 0) setSelectedModel(null);
   }, [modelOptions, selectedModel]);
 
   async function createProject(event: React.FormEvent<HTMLFormElement>): Promise<void> {
@@ -368,7 +377,7 @@ function ProjectCreator({
     const formPrompt = formData.get('prompt');
     const formProjectKind = formData.get('projectKind');
     const nextPrompt = typeof formPrompt === 'string' ? formPrompt.trim() : '';
-    if (!nextPrompt || !selectedModel || createProjectInFlightRef.current) {
+    if (!nextPrompt || !selectedModel || !selectedModelAvailable || createProjectInFlightRef.current) {
       return;
     }
 
@@ -383,9 +392,8 @@ function ProjectCreator({
         prompt: nextPrompt,
         projectKind: typeof formProjectKind === 'string' ? formProjectKind : 'prototype',
         ...(designSystemId ? { designSystemId } : {}),
-        ...(shouldSendDashboardModel(selectedModel)
-          ? { agentId: selectedModel.agentId, model: selectedModel.modelId }
-          : {}),
+        agentTargetId: selectedModel.agentTargetId,
+        ...(selectedModel.modelId ? { model: selectedModel.modelId } : {}),
       });
       try {
         await uploadDashboardFiles(project.id, stagedFiles);
@@ -395,8 +403,8 @@ function ProjectCreator({
       stashInitialProjectPrompt(project.id, nextPrompt);
       stashInitialProjectSkills(project.id, selectedSkillIds);
       stashInitialProjectAgent(project.id, {
-        agentId: selectedModel.agentId,
-        ...(shouldSendDashboardModel(selectedModel) ? { model: selectedModel.modelId } : {}),
+        agentTargetId: selectedModel.agentTargetId,
+        ...(selectedModel.modelId ? { model: selectedModel.modelId } : {}),
       });
       setStagedFiles([]);
       // Clear the dashboard's skill selections so they don't leak into the next project.
@@ -525,6 +533,7 @@ function ProjectCreator({
                   groups={groupDashboardModelOptions(modelOptions)}
                   selectedKey={selectedModel.key}
                   selectedProvider={selectedModel.provider}
+                  selectedIconProvider={selectedModel.iconProvider}
                   selectedProviderLabel={selectedModel.providerLabel}
                   selectedModelLabel={selectedModel.modelLabel}
                   onOpenMenu={() => void agentCatalog.ensureLoaded()}
@@ -592,12 +601,18 @@ function isSupportedDashboardReferenceFile(file: File): boolean {
 function dashboardModelOptionsFromCatalog(
   catalog: ChatComposerAgentModelCatalogEntry[],
 ): DashboardModelOption[] {
-  return catalog.filter((entry) => entry.supported).flatMap((entry) => {
-    const provider = dashboardModelProviderFromAgentId(entry.agentId);
-    return entry.models.map((model) => ({
+  return [...catalog]
+    .sort((left, right) => Number(Boolean(right.isDefault)) - Number(Boolean(left.isDefault)))
+    .filter((entry) => entry.supported).flatMap((entry) => {
+    const provider = entry.agentTargetId;
+    const models = [...entry.models].sort((left, right) => (
+      Number(right.id === entry.defaultModelId) - Number(left.id === entry.defaultModelId)
+    ));
+    return models.map((model) => ({
       key: `${provider}:${model.id}`,
       provider,
-      agentId: entry.agentId,
+      iconProvider: entry.providerId ?? '',
+      agentTargetId: entry.agentTargetId,
       providerLabel: entry.label,
       modelId: model.id,
       modelLabel: model.label,
@@ -622,6 +637,7 @@ function groupDashboardModelOptions(modelOptions: DashboardModelOption[]): Compo
 
     groups.push({
       provider: model.provider,
+      iconProvider: model.iconProvider,
       providerLabel: model.providerLabel,
       models: [{
         id: model.modelId,
@@ -634,18 +650,11 @@ function groupDashboardModelOptions(modelOptions: DashboardModelOption[]): Compo
   return groups;
 }
 
-function dashboardModelProviderFromAgentId(agentId: string): ComposerModelProvider {
-  return agentId;
-}
-
-function shouldSendDashboardModel(model: DashboardModelOption): boolean {
-  return !(model.agentId === 'codex' && model.modelId === 'default');
-}
-
 interface DashboardModelOption {
   key: string;
   provider: ComposerModelProvider;
-  agentId: string;
+  iconProvider: ComposerModelProvider;
+  agentTargetId: string;
   providerLabel: string;
   modelId: string;
   modelLabel: string | null;

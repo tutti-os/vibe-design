@@ -12,7 +12,8 @@ describe('agent catalog API', () => {
   it('maps availability responses behind the API adapter', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       agentAvailability: [{
-        id: 'cursor',
+        agentTargetId: 'team:cursor',
+        providerId: 'cursor',
         label: 'Cursor',
         supported: false,
         authState: 'missing',
@@ -20,7 +21,8 @@ describe('agent catalog API', () => {
     }), { status: 200 })));
 
     await expect(fetchAgentAvailability()).resolves.toEqual([{
-      id: 'cursor',
+      agentTargetId: 'team:cursor',
+      providerId: 'cursor',
       label: 'Cursor',
       supported: false,
       authState: 'missing',
@@ -30,17 +32,73 @@ describe('agent catalog API', () => {
   it('keeps dynamic model descriptions', () => {
     expect(readAgentModelCatalog({
       agents: [{
-        id: 'opencode',
+        agentTargetId: 'team:opencode',
+        providerId: 'opencode',
         label: 'OpenCode',
         supported: false,
         models: [{ id: 'default', label: 'Default', description: 'CLI default' }],
       }],
     })).toEqual([{
-      agentId: 'opencode',
+      agentTargetId: 'team:opencode',
+      providerId: 'opencode',
       label: 'OpenCode',
       supported: false,
       models: [{ id: 'default', label: 'Default', description: 'CLI default' }],
     }]);
+  });
+
+  it('normalizes a legacy provider catalog without losing its entries', () => {
+    expect(readAgentModelCatalog({
+      agents: [{ id: 'codex', label: 'Codex', supported: true, models: [] }],
+    })).toEqual([{
+      agentTargetId: 'local:codex',
+      providerId: 'codex',
+      label: 'Codex',
+      supported: true,
+      models: [],
+    }]);
+  });
+
+  it('rejects duplicate legacy provider rows instead of inventing the same exact target twice', () => {
+    expect(() => readAgentModelCatalog({
+      agents: [
+        { id: 'codex', label: 'Codex A', supported: true, models: [] },
+        { id: 'codex', label: 'Codex B', supported: true, models: [] },
+      ],
+    })).toThrow('Legacy agent provider codex is ambiguous');
+  });
+
+  it('preserves the target default model', () => {
+    expect(readAgentModelCatalog({
+      agents: [{
+        agentTargetId: 'team:writer',
+        providerId: 'codex',
+        label: 'Writer',
+        supported: true,
+        defaultModelId: 'deep',
+        models: [{ id: 'fast', label: 'Fast' }, { id: 'deep', label: 'Deep' }],
+      }],
+    })[0]?.defaultModelId).toBe('deep');
+  });
+
+  it('does not map a legacy row over an ambiguous exact provider catalog', () => {
+    expect(() => readAgentModelCatalog({
+      agents: [
+        { agentTargetId: 'team:a', providerId: 'codex', label: 'A', supported: true, models: [] },
+        { agentTargetId: 'team:b', providerId: 'codex', label: 'B', supported: true, models: [] },
+        { id: 'codex', label: 'Legacy Codex', supported: true, models: [] },
+      ],
+    })).toThrow('Legacy agent provider codex is ambiguous');
+  });
+
+  it('treats claude and claude-code as the same provider for ambiguity checks', () => {
+    expect(() => readAgentModelCatalog({
+      agents: [
+        { agentTargetId: 'team:a', providerId: 'claude-code', label: 'A', supported: true, models: [] },
+        { agentTargetId: 'team:b', providerId: 'claude', label: 'B', supported: true, models: [] },
+        { id: 'claude', label: 'Legacy Claude', supported: true, models: [] },
+      ],
+    })).toThrow('Legacy agent provider claude is ambiguous');
   });
 
   it('rejects catalog entries without an explicit support state', () => {

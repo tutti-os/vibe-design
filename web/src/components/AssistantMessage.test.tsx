@@ -63,6 +63,43 @@ function deferred<T = void>(): {
 }
 
 describe('AssistantMessage', () => {
+  it('keeps an unanswered tool question disabled without falsely marking it answered when its target is unavailable', () => {
+    const message: ChatMessage = {
+      id: 'assistant-unavailable-question',
+      role: 'assistant',
+      content: '',
+      runStatus: 'running',
+    };
+    const blocks: MessageBlock[] = [{
+      kind: 'ask-user-question',
+      toolUseId: 'question-unavailable',
+      input: {
+        questions: [{
+          header: 'Direction',
+          question: 'Pick a layout',
+          options: [{ label: 'Grid', description: 'Dense browsing' }],
+        }],
+      },
+    }];
+
+    const { container, root } = renderComponent(
+      <AssistantMessage
+        message={message}
+        blocks={blocks}
+        streaming={false}
+        toolQuestionSubmissionUnavailable
+      />,
+    );
+
+    try {
+      expect(container.textContent).toContain('agent is unavailable');
+      expect(container.textContent).not.toContain('Answered');
+      expect(buttonByName(container, 'Submit').disabled).toBe(true);
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('localizes assistant status and tool chrome with the active locale', () => {
     const message: ChatMessage = {
       id: 'assistant-i18n',

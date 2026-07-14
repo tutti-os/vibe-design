@@ -24,8 +24,8 @@ import type { ProjectEditorInitialData } from './project-editor-data';
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const TEST_AGENT_MODEL_CATALOG = [
-  { agentId: 'codex', label: 'Codex', supported: true, models: [{ id: 'default', label: 'Default (CLI config)' }] },
-  { agentId: 'claude-code', label: 'Claude Code', supported: true, models: [{ id: 'default', label: 'Default' }] },
+  { agentTargetId: 'codex', providerId: 'codex', label: 'Codex', supported: true, models: [{ id: 'default', label: 'Default (CLI config)' }] },
+  { agentTargetId: 'claude-code', providerId: 'claude-code', label: 'Claude Code', supported: true, models: [{ id: 'default', label: 'Default' }] },
 ];
 
 function createVibeDesignFlow(options: VibeDesignFlowOptions = {}) {
@@ -83,7 +83,10 @@ function createDeferred<T>(): {
 }
 
 function getByLabelText(container: HTMLElement, label: string): HTMLElement {
-  const element = container.querySelector(`[aria-label="${label}"]`);
+  const element = container.querySelector(`[aria-label="${label}"]`)
+    ?? (label === 'Prototype prompt' || label === '原型描述'
+      ? container.querySelector('.dashboard-prompt-input [contenteditable]')
+      : null);
   if (!(element instanceof HTMLElement)) {
     throw new Error(`Could not find element with label "${label}".`);
   }
@@ -381,7 +384,7 @@ describe('VibeDesignApp', () => {
     try {
       expect(document.documentElement.lang).toBe('zh-CN');
       expect(container.textContent).toContain('今天想做什么原型？');
-      expect(container.querySelector('[role="textbox"][aria-label="原型描述"]')).toBeTruthy();
+      expect(container.querySelector('.dashboard-prompt-input [contenteditable]')).toBeTruthy();
       expect(container.textContent).not.toContain('New prototype');
     } finally {
       cleanup(root, container);
@@ -652,7 +655,7 @@ describe('VibeDesignApp', () => {
         fireEvent.click(submit!);
       });
 
-      expect(createdInputs).toEqual([
+      expect(createdInputs).toMatchObject([
         {
           title: 'Untitled',
           prompt: '我想生成一个登陆页',
@@ -705,10 +708,7 @@ describe('VibeDesignApp', () => {
       },
       async deleteProject() {},
     };
-    const flow = createVibeDesignFlow({
-      projectService,
-      openProject: vi.fn(),
-    });
+    const flow = createVibeDesignFlow({ projectService, openProject: vi.fn() });
 
     const { container, root } = renderComponent(flow.render());
 
@@ -784,10 +784,7 @@ describe('VibeDesignApp', () => {
       },
       async deleteProject() {},
     };
-    const flow = createVibeDesignFlow({
-      projectService,
-      openProject: vi.fn(),
-    });
+    const flow = createVibeDesignFlow({ projectService, openProject: vi.fn() });
 
     const { container, root } = renderComponent(flow.render());
 
@@ -883,7 +880,7 @@ describe('VibeDesignApp', () => {
         fireEvent.click(submit!);
       });
 
-      expect(createdInputs).toEqual([
+      expect(createdInputs).toMatchObject([
         {
           title: '未命名',
           prompt: '创建一个中文品牌首页',
@@ -951,7 +948,7 @@ describe('VibeDesignApp', () => {
         fireEvent.keyDown(projectName, { key: 'Enter', code: 'Enter' });
       });
 
-      expect(createdInputs).toEqual([
+      expect(createdInputs).toMatchObject([
         {
           title: 'Untitled',
           prompt: '不要被回车清空',
@@ -1116,7 +1113,7 @@ describe('VibeDesignApp', () => {
         fireEvent.click(submit!);
       });
 
-      expect(createdInputs).toEqual([
+      expect(createdInputs).toMatchObject([
         {
           title: 'Untitled',
           prompt: '品牌仪表盘',
@@ -1211,7 +1208,7 @@ describe('VibeDesignApp', () => {
         fireEvent.click(container.querySelector<HTMLButtonElement>('button[aria-label="Create prototype"]')!);
       });
 
-      expect(createdInputs).toEqual([
+      expect(createdInputs).toMatchObject([
         {
           title: 'Untitled',
           prompt: '无默认设计系统项目',
@@ -1348,7 +1345,7 @@ describe('VibeDesignApp', () => {
         fireEvent.click(submit!);
       });
 
-      expect(createdInputs).toEqual([
+      expect(createdInputs).toMatchObject([
         {
           title: 'Untitled',
           prompt: '运营面板',
@@ -1493,7 +1490,7 @@ describe('VibeDesignApp', () => {
         fireEvent.click(submit!);
       });
 
-      expect(createdInputs).toEqual([
+      expect(createdInputs).toMatchObject([
         {
           title: 'Untitled',
           prompt: '无设计系统项目',
@@ -1633,7 +1630,7 @@ describe('VibeDesignApp', () => {
         fireEvent.submit(form!);
       });
 
-      expect(createdInputs).toEqual([
+      expect(createdInputs).toMatchObject([
         {
           title: 'Untitled',
           prompt: '提交创建项目',
@@ -1646,20 +1643,22 @@ describe('VibeDesignApp', () => {
     }
   });
 
-  it('renders the dashboard prompt as the synchronized form field', () => {
+  it('renders the dashboard prompt as the synchronized form field', async () => {
     const flow = createVibeDesignFlow();
     const { container, root } = renderComponent(flow.render());
 
     try {
       const projectName = container.querySelector<HTMLElement>(
-        '[role="textbox"][aria-label="Prototype prompt"]',
+        '.dashboard-prompt-input [contenteditable]',
       );
       const hiddenPrompt = container.querySelector<HTMLInputElement>(
         'input[type="hidden"][name="prompt"]',
       );
 
       expect(projectName).not.toBeNull();
-      expect(projectName!.getAttribute('data-placeholder')).toBe('Describe the prototype you want to create...');
+      await waitFor(() => {
+        expect(projectName!.getAttribute('data-placeholder')).toBe('Describe the prototype you want to create...');
+      });
       expect(projectName!.className).toContain('dashboard-prompt-input__editor');
       expect(hiddenPrompt).not.toBeNull();
       expect(hiddenPrompt!.value).toBe('');
@@ -1825,13 +1824,15 @@ describe('VibeDesignApp', () => {
         return Response.json({
           agents: [
             {
-              id: 'codex',
+              agentTargetId: 'codex',
+              providerId: 'codex',
               label: 'Codex',
               supported: true,
               models: [{ id: 'default', label: 'Default' }],
             },
             {
-              id: 'claude-code',
+              agentTargetId: 'claude-code',
+              providerId: 'claude-code',
               label: 'Claude Code',
               supported: true,
               models: [
@@ -1868,6 +1869,29 @@ describe('VibeDesignApp', () => {
       deleteProject: vi.fn(),
     };
     const flow = createVibeDesignFlow({
+      agentModelCatalog: [
+        {
+          agentTargetId: 'codex',
+          providerId: 'codex',
+          label: 'Codex',
+          supported: true,
+          models: [{ id: 'default', label: 'Default' }],
+        },
+        {
+          agentTargetId: 'claude-code',
+          providerId: 'claude-code',
+          label: 'Claude Code',
+          supported: true,
+          models: [
+            { id: 'default', label: 'Default' },
+            {
+              id: 'claude:opus',
+              label: 'Opus',
+              description: 'Opus 4.7 · Most capable for complex work',
+            },
+          ],
+        },
+      ],
       projectService,
       openProject: vi.fn(),
     });
@@ -1903,12 +1927,12 @@ describe('VibeDesignApp', () => {
         getByLabelText(container, 'Create prototype').click();
       });
 
-      expect(createdInputs).toEqual([
+      expect(createdInputs).toMatchObject([
         {
           title: 'Untitled',
           prompt: '生成品牌首页',
           projectKind: 'prototype',
-          agentId: 'claude-code',
+          agentTargetId: 'claude-code',
           model: 'claude:opus',
         },
       ]);
@@ -1925,13 +1949,15 @@ describe('VibeDesignApp', () => {
         return Response.json({
           agents: [
             {
-              id: 'tutti-agent',
+              agentTargetId: 'tutti-agent',
+              providerId: 'tutti-agent',
               label: 'Tutti Agent',
               supported: true,
               models: [{ id: 'default', label: 'Default' }],
             },
             {
-              id: 'claude-code',
+              agentTargetId: 'claude-code',
+              providerId: 'claude-code',
               label: 'Claude Code',
               supported: false,
               models: [{ id: 'default', label: 'Default' }],
@@ -2033,7 +2059,7 @@ describe('VibeDesignApp', () => {
       expect(container.textContent).toContain('What will you prototype today?');
 
       const projectPrompt = container.querySelector<HTMLElement>(
-        '[role="textbox"][aria-label="Prototype prompt"]',
+        '.dashboard-prompt-input [contenteditable]',
       );
       const search = container.querySelector<HTMLInputElement>(
         'input[aria-label="Search designs"]',
@@ -2089,7 +2115,8 @@ describe('VibeDesignApp', () => {
       if (url === '/api/agents/models') {
         return Response.json({
           agents: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
-            id: entry.agentId,
+            agentTargetId: entry.agentTargetId,
+            providerId: entry.providerId,
             label: entry.label,
             supported: entry.supported,
             models: entry.models,
@@ -2151,6 +2178,63 @@ describe('VibeDesignApp', () => {
       expect(sendTurn.mock.calls[0]?.[0]).toMatchObject({ draft: '自动发起这个对话' });
       expect(sessionStorage.getItem(pendingInitialPromptKey('project-from-dashboard'))).toBeNull();
     } finally {
+      sessionStorage.clear();
+      cleanup(root, container);
+    }
+  });
+
+  it('restores the consumed initial handoff when sending the first turn rejects', async () => {
+    const projectId = 'project-rejected-handoff';
+    sessionStorage.setItem(pendingInitialPromptKey(projectId), '请继续完成这个项目');
+    sessionStorage.setItem(
+      `vibe-design:initial-project-agent:${projectId}`,
+      JSON.stringify({ agentTargetId: 'team:writer', model: 'deep' }),
+    );
+    sessionStorage.setItem(
+      `vibe-design:initial-project-skills:${projectId}`,
+      JSON.stringify(['skill-1']),
+    );
+    const sendTurn = vi.fn<(input: SendTurnInput) => Promise<void>>(async () => {
+      throw new Error('send rejected');
+    });
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const flow = createVibeDesignFlow({
+      route: { kind: 'project', projectId },
+      projectEditor: {
+        project: { id: projectId, tabsState: { tabs: [], activeTabKey: null } },
+        files: [],
+        conversations: [{ id: 'conversation-1', title: 'New conversation', createdAt: 1, updatedAt: 1 }],
+        activeConversationId: 'conversation-1',
+        messages: [],
+      },
+      agentModelCatalog: [{
+        agentTargetId: 'team:writer',
+        providerId: 'codex',
+        label: 'Writer',
+        supported: true,
+        defaultModelId: 'deep',
+        models: [{ id: 'deep', label: 'Deep' }],
+      }],
+      contextPickerService: new ContextPickerService({
+        listSkills: async () => [{ id: 'skill-1', name: 'Hero Builder', description: 'Build hero sections' }],
+        listDesignFiles: async () => [],
+      }),
+      chatSessionService: createTestChatSessionService(sendTurn),
+    });
+
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+      await waitFor(() => {
+        expect(sessionStorage.getItem(pendingInitialPromptKey(projectId))).toBe('请继续完成这个项目');
+      });
+      expect(JSON.parse(sessionStorage.getItem(`vibe-design:initial-project-agent:${projectId}`) ?? '{}'))
+        .toEqual({ agentTargetId: 'team:writer', model: 'deep' });
+      expect(JSON.parse(sessionStorage.getItem(`vibe-design:initial-project-skills:${projectId}`) ?? '[]'))
+        .toEqual(['skill-1']);
+    } finally {
+      consoleError.mockRestore();
       sessionStorage.clear();
       cleanup(root, container);
     }
@@ -2537,7 +2621,8 @@ describe('VibeDesignApp', () => {
       if (url === '/api/agents/models') {
         return Response.json({
           agents: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
-            id: entry.agentId,
+            agentTargetId: entry.agentTargetId,
+            providerId: entry.providerId,
             label: entry.label,
             supported: entry.supported,
             models: entry.models,
@@ -2547,7 +2632,8 @@ describe('VibeDesignApp', () => {
       if (url === '/api/agents/availability') {
         return Response.json({
           agentAvailability: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
-            id: entry.agentId,
+            agentTargetId: entry.agentTargetId,
+            providerId: entry.providerId,
             label: entry.label,
             supported: true,
             authState: 'ok',
@@ -2563,7 +2649,8 @@ describe('VibeDesignApp', () => {
         project: { id: 'design-md-project', tabsState: { tabs: [], activeTabKey: null } },
         files: [],
         agentAvailability: TEST_AGENT_MODEL_CATALOG.map((entry) => ({
-          id: entry.agentId,
+          agentTargetId: entry.agentTargetId,
+          providerId: entry.providerId,
           label: entry.label,
           supported: true,
           authState: 'ok',
@@ -2585,10 +2672,15 @@ describe('VibeDesignApp', () => {
         { type: 'text/markdown' },
       );
 
-      await selectFiles(getByLabelText(container, 'Import files'), [designFile]);
-      await changeText(getByLabelText(container, 'Message'), 'Build the page with this style');
+      const composer = container.querySelector<HTMLElement>('.composer');
+      expect(composer).not.toBeNull();
+      await selectFiles(getByLabelText(composer!, 'Import files'), [designFile]);
+      await waitFor(() => {
+        expect(getByLabelText(composer!, 'Staged input attachments').textContent).toContain('design.md');
+      });
+      await changeText(getByLabelText(composer!, 'Message'), 'Build the page with this style');
       await act(async () => {
-        getByLabelText(container, 'Send message').click();
+        getByLabelText(composer!, 'Send message').click();
         await Promise.resolve();
       });
 

@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   consumeInitialProjectAgent,
+  consumeInitialProjectAgentHandoff,
   consumeInitialProjectPrompt,
   consumeInitialProjectSkills,
   stashInitialProjectAgent,
@@ -30,18 +31,77 @@ describe('initial project prompt handoff', () => {
 
 describe('initial project agent handoff', () => {
   it('stashes and consumes the selected provider and model once', () => {
-    stashInitialProjectAgent('project-1', { agentId: 'codex', model: 'codex:gpt-5.4' });
+    stashInitialProjectAgent('project-1', { agentTargetId: 'team:writer', model: 'codex:gpt-5.4' });
 
-    expect(consumeInitialProjectAgent('project-1')).toEqual({
-      agentId: 'codex',
+    expect(consumeInitialProjectAgent('project-1', [
+      { agentTargetId: 'team:writer', providerId: 'codex' },
+    ])).toEqual({
+      agentTargetId: 'team:writer',
       model: 'codex:gpt-5.4',
     });
     expect(consumeInitialProjectAgent('project-1')).toBeNull();
   });
 
   it('keeps a provider selection without an explicit model', () => {
-    stashInitialProjectAgent('project-1', { agentId: 'claude' });
-    expect(consumeInitialProjectAgent('project-1')).toEqual({ agentId: 'claude' });
+    stashInitialProjectAgent('project-1', { agentTargetId: 'team:claude' });
+    expect(consumeInitialProjectAgent('project-1', [
+      { agentTargetId: 'team:claude', providerId: 'claude-code' },
+    ])).toEqual({ agentTargetId: 'team:claude' });
+  });
+
+  it('migrates a legacy provider selection only when the full catalog is unique', () => {
+    sessionStorage.setItem(
+      'vibe-design:initial-project-agent:project-1',
+      JSON.stringify({ agentId: 'codex', model: 'gpt-5' }),
+    );
+    expect(consumeInitialProjectAgent('project-1', [
+      { agentTargetId: 'team:writer', providerId: 'codex' },
+    ])).toEqual({ agentTargetId: 'team:writer', model: 'gpt-5' });
+  });
+
+  it('does not guess when a legacy provider maps to multiple targets', () => {
+    sessionStorage.setItem(
+      'vibe-design:initial-project-agent:project-1',
+      JSON.stringify({ agentId: 'codex' }),
+    );
+    expect(consumeInitialProjectAgent('project-1', [
+      { agentTargetId: 'team:writer', providerId: 'codex' },
+      { agentTargetId: 'team:reviewer', providerId: 'codex' },
+    ])).toBeNull();
+  });
+
+  it('does not send an exact handoff to a target that is currently unsupported', () => {
+    stashInitialProjectAgent('project-1', { agentTargetId: 'team:writer', model: 'deep' });
+
+    expect(consumeInitialProjectAgentHandoff('project-1', [
+      { agentTargetId: 'team:writer', providerId: 'codex', supported: false },
+    ])).toEqual({
+      selection: null,
+      unresolvedLegacyProviderId: 'team:writer',
+      unresolvedSelection: { agentTargetId: 'team:writer', model: 'deep' },
+    });
+  });
+
+  it('preserves the historical claude alias during a unique catalog migration', () => {
+    sessionStorage.setItem(
+      'vibe-design:initial-project-agent:project-1',
+      JSON.stringify({ agentTargetId: 'claude', model: 'opus' }),
+    );
+    expect(consumeInitialProjectAgent('project-1', [
+      { agentTargetId: 'team:claude', providerId: 'claude-code' },
+    ])).toEqual({ agentTargetId: 'team:claude', model: 'opus' });
+  });
+
+  it('returns unresolved selection data so a failed handoff can be restored intact', () => {
+    sessionStorage.setItem(
+      'vibe-design:initial-project-agent:project-1',
+      JSON.stringify({ agentTargetId: 'team:removed', model: 'removed:model' }),
+    );
+    expect(consumeInitialProjectAgentHandoff('project-1', [])).toEqual({
+      selection: null,
+      unresolvedLegacyProviderId: 'team:removed',
+      unresolvedSelection: { agentTargetId: 'team:removed', model: 'removed:model' },
+    });
   });
 });
 

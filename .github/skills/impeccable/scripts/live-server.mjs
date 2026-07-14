@@ -43,6 +43,7 @@ import {
 } from './live-manual-edits-buffer.mjs';
 import { buildManualEditEvidence } from './live-manual-edit-evidence.mjs';
 import { commitManualEdits } from './live-commit-manual-edits.mjs';
+import { chooseCopyEditAgent } from './live-copy-edit-agent.mjs';
 import {
   applyDeferredSvelteComponentAccepts,
   removeAllSvelteComponentSessions,
@@ -1628,7 +1629,7 @@ function createRequestHandler({ detectScript, sessionPath, livePath }) {
       }
       (async () => {
         let result;
-        let routedProvider = 'subprocess';
+        let routedRunner = 'agent';
         let transaction = null;
         let commitBatch = null;
         try {
@@ -1645,16 +1646,39 @@ function createRequestHandler({ detectScript, sessionPath, livePath }) {
               transaction = existingTransaction;
             }
           }
-          const requestedMode = (process.env.IMPECCABLE_LIVE_COPY_AGENT || 'auto').trim().toLowerCase();
-          const useChatRoute = requestedMode === 'chat'
-            || (requestedMode === 'auto' && chatAgentLikelyActive());
-          if (useChatRoute) {
-            routedProvider = 'chat';
+          const requestedMode = (
+            process.env.IMPECCABLE_LIVE_COPY_AGENT_MODE
+            || process.env.IMPECCABLE_LIVE_COPY_AGENT
+            || 'agent'
+          ).trim().toLowerCase();
+          const supportedModes = new Set(['agent', 'chat', 'mock', '0', 'false', 'off', 'none']);
+          if (!supportedModes.has(requestedMode)) {
+            throw new Error(`Unsupported live copy-edit runner mode: ${requestedMode}. Use agent with IMPECCABLE_LIVE_COPY_AGENT_ID, chat, or mock.`);
+          }
+          const selectedRunner = chooseCopyEditAgent({
+            env: process.env,
+            chatAvailable: chatAgentLikelyActive,
+          });
+          if (!selectedRunner) {
+            routedRunner = 'disabled';
+            result = {
+              applied: [],
+              failed: [],
+              files: [],
+              cleared: 0,
+              count: pendingCount,
+              pageUrl,
+              reason: ['0', 'false', 'off', 'none'].includes(requestedMode)
+                ? 'manual_edit_runner_disabled'
+                : 'manual_edit_runner_unavailable',
+            };
+          } else if (selectedRunner === 'chat') {
+            routedRunner = 'chat';
             const timeoutMs = Number(process.env.IMPECCABLE_LIVE_COPY_AGENT_TIMEOUT_MS || 120000);
             result = await commitManualEdits({
               cwd: process.cwd(),
               pageUrl,
-              provider: 'chat',
+              runner: 'chat',
               env: process.env,
               timeoutMs,
               chatAvailable: chatAgentLikelyActive,
@@ -1665,11 +1689,13 @@ function createRequestHandler({ detectScript, sessionPath, livePath }) {
             });
           } else {
             const timeoutMs = Number(process.env.IMPECCABLE_LIVE_COPY_AGENT_TIMEOUT_MS || 120000);
-            const provider = ['codex', 'claude', 'mock'].includes(requestedMode) ? requestedMode : undefined;
+            const runner = selectedRunner;
+            routedRunner = runner;
             result = await commitManualEdits({
               cwd: process.cwd(),
               pageUrl,
-              provider,
+              runner,
+              agentTargetId: process.env.IMPECCABLE_LIVE_COPY_AGENT_ID || undefined,
               env: process.env,
               timeoutMs,
               chatAvailable: chatAgentLikelyActive,
@@ -1689,7 +1715,7 @@ function createRequestHandler({ detectScript, sessionPath, livePath }) {
           const message = err.stderr?.toString?.() || err.message;
           recordManualEditActivity('manual_edit_commit_failed', {
             pageUrl,
-            provider: routedProvider,
+            runner: routedRunner,
             error: 'manual_edit_commit_failed',
             message,
             transactionId: transaction?.id || null,
@@ -1712,7 +1738,7 @@ function createRequestHandler({ detectScript, sessionPath, livePath }) {
         if (result?.needsManualDecision) {
           recordManualEditActivity('manual_edit_repair_needs_decision', {
             pageUrl,
-            provider: routedProvider,
+            runner: routedRunner,
             transactionId: transaction?.id || existingTransaction?.id || null,
             repair: result.repair || null,
             failed: summarizeManualApplyFailures(result.failed),
@@ -1723,7 +1749,7 @@ function createRequestHandler({ detectScript, sessionPath, livePath }) {
         } else {
           recordManualEditActivity('manual_edit_commit_done', {
             pageUrl,
-            provider: routedProvider,
+            runner: routedRunner,
             reason: result.reason || null,
             repair: result.repair || null,
             appliedCount: Array.isArray(result.applied) ? result.applied.length : 0,

@@ -3,7 +3,7 @@ import type { AgentEvent, CanvasCommentAttachment, ChatAttachment, ChatMessageCo
 export interface CreateRunInput {
   projectId: string;
   conversationId?: string;
-  agentId?: string;
+  agentTargetId?: string;
   model?: string;
   prompt: string;
   attachments?: ChatAttachment[];
@@ -14,6 +14,7 @@ export interface CreateRunInput {
 
 export interface CreateRunResult {
   runId: string;
+  agentTargetId?: string | null;
   provider?: string | null;
 }
 

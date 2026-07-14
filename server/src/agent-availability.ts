@@ -1,153 +1,110 @@
 import type { AgentProviderSnapshot } from './agent-provider-snapshot.js';
 
 export interface AgentAvailability {
-  id: string;
+  agentTargetId: string;
+  providerId: string;
   label: string;
   supported: boolean;
   authState: 'ok' | 'missing' | 'expired' | 'unknown';
+  isDefault?: true;
   unavailableReason?: string;
 }
 
 export function projectAgentAvailability(providers: readonly AgentProviderSnapshot[]): AgentAvailability[] {
-  return providers.map((entry) => ({
-    id: entry.id,
-    label: entry.label,
-    supported: entry.supported,
-    authState: entry.authState,
-    ...(entry.reason ? { unavailableReason: entry.reason } : {}),
-  }));
+  assertValidCatalogDefault(providers);
+  return providers.flatMap((entry) => {
+    const identity = resolveSnapshotIdentity(providers, entry);
+    if (!identity) return [];
+    return [{
+      ...identity,
+      label: entry.label,
+      supported: entry.supported,
+      authState: entry.authState,
+      ...(entry.isDefault ? { isDefault: true as const } : {}),
+      ...(entry.reason ? { unavailableReason: entry.reason } : {}),
+    }];
+  });
 }
 
-export function findUnavailableAgent(
+export function resolveAvailableAgentTarget(
   agents: AgentAvailability[],
-  agentId: string,
-): AgentAvailability | null {
-  const agent = agents.find((candidate) => candidate.id === agentId);
-  if (!agent) {
-    return {
-      id: agentId,
-      label: agentId,
-      supported: false,
-      authState: 'unknown',
-      unavailableReason: `${agentId} is not available from Tutti.`,
-    };
+  input: {
+    agentTargetId?: string | null;
+    legacyProviderId?: string | null;
+    allowLegacyProviderFallbackForAgentTargetId?: boolean;
+  },
+): AgentAvailability {
+  const requestedTarget = input.agentTargetId?.trim();
+  let match: AgentAvailability | undefined;
+  if (requestedTarget) {
+    match = agents.find((candidate) => candidate.agentTargetId === requestedTarget);
+    if (!match && input.allowLegacyProviderFallbackForAgentTargetId) {
+      match = resolveUniqueLegacyProvider(agents, requestedTarget);
+    }
+  } else if (input.legacyProviderId?.trim()) {
+    match = resolveUniqueLegacyProvider(agents, input.legacyProviderId.trim());
+  } else {
+    match = agents.find((candidate) => candidate.isDefault)
+      ?? agents.find((candidate) => candidate.supported);
   }
-  return agent.supported ? null : agent;
+  if (!match) {
+    throw new Error(requestedTarget
+      ? `Agent target is not exposed by Tutti: ${requestedTarget}.`
+      : 'No available agent target is exposed by Tutti.');
+  }
+  if (!match.supported) {
+    throw new Error(match.unavailableReason ?? `${match.label} is unavailable.`);
+  }
+  return match;
 }
 
-/** Default provider when callers omit an explicit agent id. */
-export const PRIMARY_AGENT_ID = 'codex';
-
-export interface AgentFallback {
-  fromAgentId: string;
-  toAgentId: string;
-  stage: 'pre-session' | 'in-session' | 'conversation-locked';
-  reason: string;
-}
-
-function findFallbackAgent(
-  agents: AgentAvailability[],
-  requestedProvider: string,
-): AgentAvailability | null {
-  const fallbackProvider = requestedProvider === 'codex'
-    ? 'claude-code'
-    : requestedProvider === 'claude-code'
-      ? 'codex'
-      : null;
-  return fallbackProvider
-    ? agents.find((candidate) => candidate.id === fallbackProvider && candidate.supported) ?? null
+export function resolveSnapshotIdentity(
+  catalog: readonly AgentProviderSnapshot[],
+  entry: AgentProviderSnapshot,
+): Pick<AgentAvailability, 'agentTargetId' | 'providerId'> | null {
+  const providerId = (entry.providerId ?? entry.id)?.trim();
+  if (!providerId) return null;
+  const exactTargetId = entry.agentTargetId?.trim();
+  if (exactTargetId) return { agentTargetId: exactTargetId, providerId };
+  const matches = catalog.filter((candidate) => {
+    const candidateProviderId = (candidate.providerId ?? candidate.id)?.trim();
+    return candidateProviderId && legacyProviderIdsMatch(candidateProviderId, providerId);
+  });
+  return matches.length === 1
+    ? { agentTargetId: `local:${providerId}`, providerId }
     : null;
 }
 
-/**
- * When the requested provider is unavailable before a session starts, switch to the first
- * other available provider instead of failing the call.
- */
-export function resolvePreSessionFallback(
+function resolveUniqueLegacyProvider(
   agents: AgentAvailability[],
-  requestedProvider: string,
-): AgentFallback | null {
-  const requested = agents.find((candidate) => candidate.id === requestedProvider) ?? null;
-  if (!requested || requested.supported) {
-    return null;
+  providerId: string,
+): AgentAvailability {
+  const matches = agents.filter((candidate) => legacyProviderIdsMatch(candidate.providerId, providerId));
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length === 0
+        ? `No agent target uses legacy provider ${providerId}.`
+        : `Multiple agent targets use legacy provider ${providerId}; select an exact agent target id.`,
+    );
   }
-
-  const fallback = findFallbackAgent(agents, requestedProvider);
-  if (!fallback) {
-    return null;
-  }
-
-  return {
-    fromAgentId: requestedProvider,
-    toAgentId: fallback.id,
-    stage: 'pre-session',
-    reason: requested.unavailableReason ?? `${requested.label} is unavailable.`,
-  };
+  return matches[0]!;
 }
 
-/**
- * A failed run looks like "the provider is broken" (auth, install, or connectivity problems)
- * rather than "the task itself failed". These are the cases where retrying the same prompt on a
- * different provider is worthwhile.
- */
-export function isAgentBrokenFailure(errorCode: string | null, message: string | null): boolean {
-  if (errorCode === 'AGENT_UNAVAILABLE') {
-    return true;
-  }
-
-  const haystack = `${errorCode ?? ''} ${message ?? ''}`.toLowerCase();
-  if (!haystack.trim()) {
-    return false;
-  }
-
-  return [
-    '401',
-    '403',
-    'unauthor', // unauthorized / unauthorised
-    'unauthenticated',
-    'not authenticated',
-    'authentication',
-    'missing bearer',
-    'api key',
-    'apikey',
-    'credential',
-    'forbidden',
-    'enoent',
-    'not installed',
-    'command not found',
-    'spawn',
-    'econnrefused',
-    'enotfound',
-    'etimedout',
-    'socket hang up',
-    'connection refused',
-    'connection reset',
-  ].some((needle) => haystack.includes(needle));
+export function legacyProviderIdsMatch(left: string, right: string): boolean {
+  return normalizeLegacyProviderId(left) === normalizeLegacyProviderId(right);
 }
 
-/**
- * After a run fails in a provider-broken way, retry on the first other available provider.
- */
-export function resolveRunFailureFallback(
-  agents: AgentAvailability[],
-  agentId: string,
-  failure: { errorCode: string | null; error: string | null },
-): AgentFallback | null {
-  if (!isAgentBrokenFailure(failure.errorCode, failure.error)) {
-    return null;
-  }
+export function normalizeLegacyProviderId(providerId: string): string {
+  const normalized = providerId.trim();
+  return normalized === 'claude' ? 'claude-code' : normalized;
+}
 
-  const fallback = findFallbackAgent(agents, agentId);
-  if (!fallback) {
-    return null;
+export function assertValidCatalogDefault(providers: readonly AgentProviderSnapshot[]): void {
+  const defaults = providers.filter((entry) => entry.isDefault);
+  if (defaults.length === 0) return;
+  if (defaults.length !== 1 || !resolveSnapshotIdentity(providers, defaults[0]!)) {
+    throw new Error('The Tutti agent catalog default is ambiguous or malformed.');
   }
-
-  return {
-    fromAgentId: agentId,
-    toAgentId: fallback.id,
-    stage: 'in-session',
-    reason: failure.error ?? `${agentId} run failed.`,
-  };
 }
 
 export function agentDetectionFailureReason(error: unknown): string {

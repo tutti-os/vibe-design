@@ -56,6 +56,7 @@ export type ToolCardProps =
       nextUserContent?: string;
       onAnswer?: (toolUseId: string, content: string) => void | Promise<void>;
       onFallbackAnswer?: (content: string) => void | Promise<void>;
+      submissionUnavailable?: boolean;
     }
   | {
       kind: 'todo-write';
@@ -86,6 +87,7 @@ export function ToolCard(props: ToolCardProps) {
         nextUserContent={props.nextUserContent}
         onAnswer={props.onAnswer}
         onFallbackAnswer={props.onFallbackAnswer}
+        submissionUnavailable={props.submissionUnavailable}
       />
     );
   }
@@ -334,6 +336,7 @@ function QuestionCard({
   nextUserContent,
   onAnswer,
   onFallbackAnswer,
+  submissionUnavailable = false,
 }: {
   toolUseId: string;
   input: AskUserQuestionInput;
@@ -342,6 +345,7 @@ function QuestionCard({
   nextUserContent?: string;
   onAnswer?: (toolUseId: string, content: string) => void | Promise<void>;
   onFallbackAnswer?: (content: string) => void | Promise<void>;
+  submissionUnavailable?: boolean;
 }) {
   const questions = parseAskUserQuestionInput(input);
   const { t } = useTranslation();
@@ -386,6 +390,7 @@ function QuestionCard({
             }
           : undefined
       }
+      submissionUnavailable={submissionUnavailable}
     />
   );
 }

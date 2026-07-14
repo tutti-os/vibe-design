@@ -1,10 +1,18 @@
+import { resolveLegacyProviderAgentTargetId } from './services/agent-catalog/agent-catalog-types';
+
 const INITIAL_PROJECT_PROMPT_PREFIX = 'vibe-design:initial-project-prompt:';
 const INITIAL_PROJECT_SKILLS_PREFIX = 'vibe-design:initial-project-skills:';
 const INITIAL_PROJECT_AGENT_PREFIX = 'vibe-design:initial-project-agent:';
 
 export interface InitialProjectAgentSelection {
-  agentId: string;
+  agentTargetId: string;
   model?: string;
+}
+
+export interface InitialProjectAgentHandoff {
+  selection: InitialProjectAgentSelection | null;
+  unresolvedLegacyProviderId?: string;
+  unresolvedSelection?: InitialProjectAgentSelection;
 }
 
 export function stashInitialProjectPrompt(projectId: string, prompt: string): void {
@@ -80,16 +88,16 @@ export function stashInitialProjectAgent(
   projectId: string,
   selection: InitialProjectAgentSelection,
 ): void {
-  const agentId = selection.agentId.trim();
+  const agentTargetId = selection.agentTargetId.trim();
   const model = selection.model?.trim();
-  if (!agentId || typeof window === 'undefined') {
+  if (!agentTargetId || typeof window === 'undefined') {
     return;
   }
 
   try {
     window.sessionStorage.setItem(
       initialProjectAgentKey(projectId),
-      JSON.stringify({ agentId, ...(model ? { model } : {}) }),
+      JSON.stringify({ agentTargetId, ...(model ? { model } : {}) }),
     );
   } catch {
     // Session storage is a best-effort handoff between dashboard navigation and the project page.
@@ -98,27 +106,72 @@ export function stashInitialProjectAgent(
 
 export function consumeInitialProjectAgent(
   projectId: string,
+  catalog: readonly { agentTargetId: string; providerId?: string; supported?: boolean }[] = [],
 ): InitialProjectAgentSelection | null {
+  return consumeInitialProjectAgentHandoff(projectId, catalog).selection;
+}
+
+export function consumeInitialProjectAgentHandoff(
+  projectId: string,
+  catalog: readonly { agentTargetId: string; providerId?: string; supported?: boolean }[] = [],
+): InitialProjectAgentHandoff {
   if (typeof window === 'undefined') {
-    return null;
+    return { selection: null };
   }
 
   try {
     const key = initialProjectAgentKey(projectId);
     const raw = window.sessionStorage.getItem(key);
     window.sessionStorage.removeItem(key);
-    if (!raw) return null;
+    if (!raw) return { selection: null };
     const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-    const agentId = 'agentId' in parsed && typeof parsed.agentId === 'string'
-      ? parsed.agentId.trim()
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { selection: null };
+    const agentTargetId = 'agentTargetId' in parsed && typeof parsed.agentTargetId === 'string'
+      ? parsed.agentTargetId.trim()
       : '';
     const model = 'model' in parsed && typeof parsed.model === 'string'
       ? parsed.model.trim()
       : '';
-    return agentId ? { agentId, ...(model ? { model } : {}) } : null;
+    const storedSelection = agentTargetId
+      ? { agentTargetId, ...(model ? { model } : {}) }
+      : null;
+    if (storedSelection) {
+      const supportedCatalog = catalog.filter((entry) => entry.supported !== false);
+      const exact = supportedCatalog.find((entry) => entry.agentTargetId === agentTargetId);
+      if (exact) {
+        return { selection: { ...storedSelection, agentTargetId: exact.agentTargetId } };
+      }
+      const migratedTargetId = resolveLegacyProviderAgentTargetId(supportedCatalog, agentTargetId);
+      if (migratedTargetId) {
+        return { selection: { ...storedSelection, agentTargetId: migratedTargetId } };
+      }
+      return {
+        selection: null,
+        unresolvedLegacyProviderId: agentTargetId,
+        unresolvedSelection: storedSelection,
+      };
+    }
+    const legacyProviderId = 'agentId' in parsed && typeof parsed.agentId === 'string'
+      ? parsed.agentId.trim()
+      : '';
+    const migratedTargetId = resolveLegacyProviderAgentTargetId(
+      catalog.filter((entry) => entry.supported !== false),
+      legacyProviderId,
+    );
+    if (legacyProviderId && migratedTargetId) {
+      return {
+        selection: { agentTargetId: migratedTargetId, ...(model ? { model } : {}) },
+      };
+    }
+    return legacyProviderId
+      ? {
+          selection: null,
+          unresolvedLegacyProviderId: legacyProviderId,
+          unresolvedSelection: { agentTargetId: legacyProviderId, ...(model ? { model } : {}) },
+        }
+      : { selection: null };
   } catch {
-    return null;
+    return { selection: null };
   }
 }
 

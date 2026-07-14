@@ -122,6 +122,7 @@ export class VibeDesignFlow {
         run: runService,
         context: contextPickerService,
         files: designFileService,
+        agentCatalog: agentCatalogService,
         queuedTurnStore: createBrowserQueuedTurnStore(),
       });
 

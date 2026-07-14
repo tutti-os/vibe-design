@@ -41,6 +41,7 @@ export interface ChatTimelineMessage extends ChatMessage {
 export interface ChatConversationSummary {
   id: string;
   title: string;
+  agentTargetId?: string | null;
   provider?: string | null;
   model?: string | null;
   createdAt: number;
@@ -70,8 +71,9 @@ export interface SetUserMessageTurnStatusInput {
   turnStatus: 'queued' | null;
 }
 
-export interface SetConversationProviderInput {
+export interface SetConversationAgentInput {
   conversationId: string;
+  agentTargetId: string;
   provider: string;
   model?: string | null;
 }

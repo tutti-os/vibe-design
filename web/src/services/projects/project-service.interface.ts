@@ -6,7 +6,7 @@ export interface CreateProjectInput {
   prompt: string;
   projectKind: string;
   designSystemId?: string | null;
-  agentId?: string;
+  agentTargetId?: string;
   model?: string;
 }
 

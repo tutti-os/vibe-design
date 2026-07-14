@@ -8,7 +8,13 @@ describe('AgentCatalogService', () => {
     const fetch = vi
       .fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(Response.json({
-        agents: [{ id: 'tutti-agent', label: 'Tutti Agent', models: [] }],
+        agents: [{
+          agentTargetId: 'team:tutti-agent',
+          providerId: 'tutti-agent',
+          label: 'Tutti Agent',
+          supported: true,
+          models: [],
+        }],
       }))
       .mockResolvedValueOnce(Response.json({ error: { message: 'temporary' } }, { status: 503 }));
     vi.stubGlobal('fetch', fetch);
@@ -17,12 +23,18 @@ describe('AgentCatalogService', () => {
     await service.ensureLoaded();
     await service.ensureLoaded();
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(service.getSnapshot().catalog.map((entry) => entry.agentId)).toEqual(['tutti-agent']);
+    expect(service.getSnapshot().catalog.map((entry) => entry.agentTargetId)).toEqual(['team:tutti-agent']);
 
     await service.refresh();
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(service.getSnapshot()).toEqual({
-      catalog: [{ agentId: 'tutti-agent', label: 'Tutti Agent', models: [] }],
+      catalog: [{
+        agentTargetId: 'team:tutti-agent',
+        providerId: 'tutti-agent',
+        label: 'Tutti Agent',
+        supported: true,
+        models: [],
+      }],
       loading: false,
       error: 'temporary',
     });

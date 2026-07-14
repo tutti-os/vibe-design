@@ -34,7 +34,9 @@ type TestCreateServer = (options?: {
   builtInDesignSystemsRoot?: string;
   userDesignSystemsRoot?: string;
   detectAgentProviders?: (context?: DetectContext) => Promise<Array<{
-    id: string;
+    id?: string;
+    agentTargetId?: string;
+    providerId?: string;
     label: string;
     supported?: boolean;
     authState?: 'ok' | 'missing' | 'expired' | 'unknown';
@@ -65,7 +67,10 @@ function createTestServer(options?: Parameters<TestCreateServer>[0]): Server {
     startAgentRun: () => {},
     ...options,
     detectAgentProviders: async (context) => (await detectAgentProviders(context)).map((provider) => ({
-      id: provider.id,
+      ...(provider.agentTargetId
+        ? { agentTargetId: provider.agentTargetId }
+        : { id: provider.id ?? '' }),
+      ...(provider.providerId ? { providerId: provider.providerId } : {}),
       label: provider.label,
       supported: provider.supported ?? true,
       authState: provider.authState ?? (provider.supported === false ? 'unknown' : 'ok'),
@@ -344,8 +349,8 @@ describe('createServer', () => {
       createTestServer({
         runtimeDir: runtimeRoot,
         detectAgentProviders: async () => [
-          { id: 'codex', label: 'Codex', supported: true },
-          { id: 'claude', label: 'Claude Code', supported: false, unavailableReason: 'Claude Code is not installed.' },
+          { agentTargetId: 'local:codex', providerId: 'codex', label: 'Codex', supported: true },
+          { agentTargetId: 'local:claude', providerId: 'claude', label: 'Claude Code', supported: false, unavailableReason: 'Claude Code is not installed.' },
         ],
       }),
     );
@@ -357,8 +362,8 @@ describe('createServer', () => {
     expect(readInitialDataFromHtml(html)).toMatchObject({
       projectEditor: {
         agentAvailability: [
-          { id: 'codex', label: 'Codex', supported: true },
-          { id: 'claude', label: 'Claude Code', supported: false, unavailableReason: 'Claude Code is not installed.' },
+          { agentTargetId: 'local:codex', providerId: 'codex', label: 'Codex', supported: true },
+          { agentTargetId: 'local:claude', providerId: 'claude', label: 'Claude Code', supported: false, unavailableReason: 'Claude Code is not installed.' },
         ],
       },
     });
@@ -460,12 +465,13 @@ describe('createServer', () => {
       projectEditor: {
         agentAvailability: [
           {
-            id: 'codex',
+            agentTargetId: 'local:codex',
+            providerId: 'codex',
             label: 'Codex',
             supported: false,
             unavailableReason: 'Unable to run codex --version: context canceled',
           },
-          { id: 'claude', label: 'Claude Code', supported: true },
+          { agentTargetId: 'local:claude', providerId: 'claude', label: 'Claude Code', supported: true },
         ],
       },
     });
@@ -502,7 +508,8 @@ describe('createServer', () => {
     expect(await response.json()).toEqual({
       agents: [
         {
-          id: 'claude',
+          agentTargetId: 'local:claude',
+          providerId: 'claude',
           label: 'Claude Code',
           supported: true,
           models: [
@@ -511,7 +518,8 @@ describe('createServer', () => {
           ],
         },
         {
-          id: 'codex',
+          agentTargetId: 'local:codex',
+          providerId: 'codex',
           label: 'Codex',
           supported: true,
           models: [
@@ -642,7 +650,8 @@ describe('createServer', () => {
     expect(await second.json()).toMatchObject({
       agents: [
         {
-          id: 'codex',
+          agentTargetId: 'local:codex',
+          providerId: 'codex',
           models: [{ id: 'transient-fallback', label: 'Transient fallback' }],
         },
       ],
@@ -747,17 +756,10 @@ describe('createServer', () => {
       body: JSON.stringify({}),
     });
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      agentAvailability: [
-        { id: 'codex', label: 'Codex', supported: true },
-        { id: 'claude-code', label: 'Claude Code', supported: true },
-      ],
-    });
-    expect(installCalls).toEqual(['claude']);
-    expect(detectCalls).toBe(2);
-    expect(detectContexts[0]?.refresh).not.toBe(true);
-    expect(detectContexts[1]?.refresh).toBe(true);
+    expect(response.status).toBe(404);
+    expect(installCalls).toEqual([]);
+    expect(detectCalls).toBe(0);
+    expect(detectContexts).toEqual([]);
   });
 
   it('exposes project context through Tutti CLI handlers without destructive project tools', async () => {
@@ -1347,15 +1349,10 @@ describe('createServer', () => {
     expect(started.body.value).toMatchObject({
       provider: 'claude-code',
       status: 'succeeded',
-      agentFallback: {
-        from: 'codex',
-        to: 'claude-code',
-        stage: 'pre-session',
-        reason: 'Codex is not authenticated.',
-      },
+      agentFallback: null,
     });
     // Codex is never started; only Claude Code runs.
-    expect(startedAgents).toEqual(['claude-code']);
+    expect(startedAgents).toEqual([null]);
   });
 
   it('retries on Claude Code in a new conversation when a codex run breaks mid-session', async () => {
@@ -1368,9 +1365,9 @@ describe('createServer', () => {
           { id: 'claude-code', label: 'Claude Code', supported: true },
         ],
         startAgentRun: ({ run, runs, request }) => {
-          const agentId = (request.agentId as string | undefined) ?? null;
-          startedAgents.push(agentId);
-          if (agentId === 'codex') {
+          const provider = (request.provider as string | undefined) ?? null;
+          startedAgents.push(provider);
+          if (provider === 'codex') {
             runs.fail(run, 'AGENT_EXECUTION_FAILED', '401 Unauthorized: Missing bearer or basic authentication');
             return;
           }
@@ -1385,23 +1382,19 @@ describe('createServer', () => {
     const started = await postCli(port, 'session-start', {
       'project-id': projectId,
       'conversation-id': codexConversationId,
-      'agent-id': 'codex',
+      'agent-id': 'local:codex',
       prompt: 'Build a modern login page',
     });
 
     expect(started.status).toBe(200);
     expect(started.body.value).toMatchObject({
-      provider: 'claude-code',
-      status: 'succeeded',
-      agentFallback: {
-        from: 'codex',
-        to: 'claude-code',
-        stage: 'in-session',
-      },
+      provider: 'codex',
+      status: 'failed',
+      agentFallback: null,
     });
     // The fallback runs in a fresh conversation, not the codex-locked one.
-    expect((started.body.value as { conversationId: string }).conversationId).not.toBe(codexConversationId);
-    expect(startedAgents).toEqual(['codex', 'claude-code']);
+    expect((started.body.value as { conversationId: string }).conversationId).toBe(codexConversationId);
+    expect(startedAgents).toEqual(['codex']);
   });
 
   it('reports no fallback and surfaces the failure when codex breaks and Claude Code is unavailable', async () => {
@@ -1414,7 +1407,7 @@ describe('createServer', () => {
           { id: 'claude-code', label: 'Claude Code', supported: false, unavailableReason: 'Claude Code is not installed.' },
         ],
         startAgentRun: ({ run, runs, request }) => {
-          startedAgents.push((request.agentId as string | undefined) ?? null);
+          startedAgents.push((request.provider as string | undefined) ?? null);
           runs.fail(run, 'AGENT_EXECUTION_FAILED', '401 Unauthorized: Missing bearer or basic authentication');
         },
       }),
@@ -1424,7 +1417,7 @@ describe('createServer', () => {
 
     const started = await postCli(port, 'session-start', {
       'project-id': projectId,
-      'agent-id': 'codex',
+      'agent-id': 'local:codex',
       prompt: 'Build a modern login page',
     });
 
@@ -1448,7 +1441,7 @@ describe('createServer', () => {
           { id: 'claude', label: 'Claude Code', supported: true },
         ],
         startAgentRun: ({ run, runs, request }) => {
-          startedAgents.push((request.agentId as string | undefined) ?? null);
+          startedAgents.push((request.provider as string | undefined) ?? null);
           runs.finish(run, 'succeeded');
         },
       }),
@@ -1461,31 +1454,23 @@ describe('createServer', () => {
     await postCli(port, 'session-start', {
       'project-id': projectId,
       'conversation-id': codexConversationId,
-      'agent-id': 'codex',
+      'agent-id': 'local:codex',
       prompt: 'Build with codex',
     });
 
-    // Re-targeting the same conversation with Claude Code would collide with the codex lock; the
-    // call transparently runs in a fresh conversation instead of failing.
+    // Re-targeting the same conversation with Claude Code is rejected by the exact-target lock.
     const started = await postCli(port, 'session-start', {
       'project-id': projectId,
       'conversation-id': codexConversationId,
-      'agent-id': 'claude',
+      'agent-id': 'local:claude',
       prompt: 'Now build with Claude Code',
     });
 
-    expect(started.status).toBe(200);
-    expect(started.body.value).toMatchObject({
-      provider: 'claude',
-      status: 'succeeded',
-      agentFallback: {
-        from: 'codex',
-        to: 'claude',
-        stage: 'conversation-locked',
-      },
+    expect(started.status).toBe(409);
+    expect(started.body).toMatchObject({
+      error: { code: 'CONVERSATION_AGENT_LOCKED' },
     });
-    expect((started.body.value as { conversationId: string }).conversationId).not.toBe(codexConversationId);
-    expect(startedAgents).toEqual(['codex', 'claude']);
+    expect(startedAgents).toEqual(['codex']);
   });
 
   it('serves the dashboard page at the root route', async () => {
@@ -2091,7 +2076,8 @@ describe('createServer', () => {
     expect(await statusResponse.json()).toMatchObject({
       id: created.runId,
       projectId: 'project-1',
-      agentId: 'claude',
+      agentTargetId: 'local:claude',
+      provider: 'claude',
     });
 
     const eventsResponse = await fetch(`http://127.0.0.1:${port}/api/runs/${created.runId}/events`);
@@ -2556,7 +2542,7 @@ describe('createServer', () => {
     expect(await response.json()).toMatchObject({
       error: {
         code: 'AGENT_UNAVAILABLE',
-        message: 'tutti-agent is not available from Tutti.',
+        message: 'No agent target uses legacy provider tutti-agent.',
       },
     });
     expect(startedRequests).toEqual([]);
@@ -2585,8 +2571,10 @@ describe('createServer', () => {
     expect(createResponse.status).toBe(202);
     expect(startedRuns).toEqual([
       {
-        agentId: 'codex',
+        agentId: null,
         request: expect.objectContaining({
+          agentTargetId: 'local:codex',
+          provider: 'codex',
           projectId: 'project-1',
           prompt: 'Build a small page',
         }),
@@ -3757,7 +3745,71 @@ describe('createServer', () => {
 
     expect(lockedRunResponse.status).toBe(409);
     await expect(lockedRunResponse.json()).resolves.toMatchObject({
-      error: { code: 'CONVERSATION_PROVIDER_LOCKED' },
+      error: { code: 'CONVERSATION_AGENT_LOCKED' },
+    });
+  });
+
+  it('persists exact target B through the run API when two targets share one provider', async () => {
+    const started: Array<Record<string, unknown>> = [];
+    const port = await listenOnRandomPort(createTestServer({
+      runtimeDir: await createRuntimeDir(),
+      detectAgentProviders: async () => [
+        {
+          agentTargetId: 'team:a',
+          providerId: 'codex',
+          label: 'A',
+          supported: true,
+          authState: 'ok',
+          isDefault: true,
+        },
+        {
+          agentTargetId: 'team:b',
+          providerId: 'codex',
+          label: 'B',
+          supported: true,
+          authState: 'ok',
+        },
+      ],
+      startAgentRun: ({ run, runs, request }) => {
+        started.push(request);
+        runs.finish(run, 'succeeded');
+      },
+    }));
+    const projectResponse = await fetch(`http://127.0.0.1:${port}/api/projects`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Two targets', prompt: 'Choose B' }),
+    });
+    const projectPayload = await projectResponse.json() as { project: { id: string }; conversationId: string };
+
+    const runResponse = await fetch(`http://127.0.0.1:${port}/api/runs`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: projectPayload.project.id,
+        conversationId: projectPayload.conversationId,
+        agentTargetId: 'team:b',
+        prompt: 'Run exact target B',
+      }),
+    });
+    expect(runResponse.status).toBe(202);
+    await expect(runResponse.json()).resolves.toMatchObject({
+      agentTargetId: 'team:b',
+      provider: 'codex',
+    });
+    expect(started).toEqual([
+      expect.objectContaining({ agentTargetId: 'team:b', provider: 'codex' }),
+    ]);
+
+    const conversationsResponse = await fetch(
+      `http://127.0.0.1:${port}/api/projects/${projectPayload.project.id}/conversations`,
+    );
+    await expect(conversationsResponse.json()).resolves.toMatchObject({
+      conversations: [{
+        id: projectPayload.conversationId,
+        agentTargetId: 'team:b',
+        provider: 'codex',
+      }],
     });
   });
 
