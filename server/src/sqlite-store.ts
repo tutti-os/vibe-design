@@ -248,7 +248,11 @@ const PREVIEW_COMMENT_SELECTION_KIND_SET = new Set<PreviewCommentSelectionKind>(
 const stores = new Map<string, SqliteDatabase>();
 
 export function sqlitePathForProjectsDir(projectsDir: string): string {
-  return path.join(path.dirname(projectsDir), 'vibe-design.sqlite');
+  const databaseDir = process.env.TUTTI_APP_DATABASE_DIR?.trim();
+  return path.join(
+    databaseDir ? path.resolve(databaseDir) : path.dirname(projectsDir),
+    'vibe-design.sqlite',
+  );
 }
 
 export function getStore(projectsDir: string): SqliteDatabase {

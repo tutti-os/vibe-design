@@ -107,6 +107,7 @@ The server consumes the web renderer through the workspace dependency `@vibe-des
 | `TUTTI_APP_HOST` or `HOST` | HTTP bind host | `127.0.0.1` |
 | `TUTTI_APP_PORT` or `PORT` | HTTP bind port | `3000` |
 | `TUTTI_APP_DATA_DIR` | Durable project, conversation, skill, and design system data | `.vibe` under the current working directory |
+| `TUTTI_APP_DATABASE_DIR` | VM-local active SQLite database and WAL files | `$TUTTI_APP_DATA_DIR` |
 | `VIBE_USER_SKILLS_DIR` | User-imported skill root | `$TUTTI_APP_DATA_DIR/skills` |
 | `VIBE_BUILTIN_SKILLS_DIR` | Bundled skill root | `skills/` |
 | `VIBE_USER_DESIGN_SYSTEMS_DIR` | User-editable design system root | `$TUTTI_APP_DATA_DIR/design-systems` |

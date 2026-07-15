@@ -333,7 +333,8 @@ test('bootstrap uses the managed Tutti Node runtime', async () => {
   const source = await readFile(new URL('../bootstrap.sh', import.meta.url), 'utf8');
 
   assert.equal(source.includes('TUTTI_APP_NODE'), true);
-  assert.equal(source.includes('TUTTI_APP_NODE'), true);
+  assert.equal(source.includes('TUTTI_APP_DATABASE_DIR'), true);
+  assert.equal(source.includes('legacy_db="$TUTTI_APP_DATA_DIR/vibe-design.sqlite"'), true);
   assert.equal(source.includes('VIBE_TUTTI_CLI'), false);
   assert.equal(source.includes('exec node '), false);
 });
