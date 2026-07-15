@@ -3,18 +3,7 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  createManagedAgentDetectContextFromHeaders,
-  createManagedAgentRunContextFromHeaders,
-  isManagedAgentInvocationProviderId,
-  type DetectContext,
-  type ManagedAgentInvocationCredentialHeaders,
-  type ManagedAgentRunContext,
-} from '@tutti-os/agent-acp-kit';
-import {
-  projectTuttiCliChildProcess,
-  redactTuttiCliChildProcessText,
-} from '@tutti-os/agent-acp-kit/tutti';
+import type { DetectContext } from '@tutti-os/agent-acp-kit';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { isProjectId, type ProjectEditorInitialData, type VibeDesignRoute } from '@vibe-design/web';
 import { renderPage } from '@vibe-design/web/render-page';
@@ -299,23 +288,20 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     run: ChatRun,
     request: Record<string, unknown>,
     detectContext?: DetectContext,
-    managedAgentRunContext?: ManagedAgentRunContext,
   ): Promise<void> | void {
     const runner = options.startAgentRun ?? startAgentRun;
     return runner({
       run,
       runs,
-      request: withoutManagedAgentInvocationCredential(request),
+      request,
       paths: {
         projectsDir,
-        appDataDir: runtimeDir,
         userSkillsRoot: ctx.paths.userSkillsRoot,
         builtInSkillsRoot: ctx.paths.builtInSkillsRoot,
         userDesignSystemsRoot: ctx.paths.userDesignSystemsRoot,
         builtInDesignSystemsRoot: ctx.paths.builtInDesignSystemsRoot,
       },
       detectContext,
-      managedAgentRunContext,
     });
   }
 
@@ -531,7 +517,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   }
 
   async function startCliSession(request: CliStartSessionInput): Promise<CliServiceResult> {
-    const { detectContext, input, managedAgentHeaders } = request;
+    const { detectContext, input } = request;
     const body = normalizeCliRunInput(input);
     const projectId = readString(body.projectId);
     if (!projectId || !isSafeProjectId(projectId)) {
@@ -549,7 +535,6 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       body,
       localAttachments,
       detectContext,
-      managedAgentHeaders,
     );
     return result.ok ? { ok: true, value: { ...result.value, agentFallback: null } } : result;
   }
@@ -571,7 +556,6 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     body: Record<string, unknown>,
     localAttachments: unknown[],
     detectContext: DetectContext | undefined,
-    managedAgentHeaders: ManagedAgentInvocationCredentialHeaders,
   ): Promise<{ ok: true; value: CliRunValue } | Extract<CliServiceResult, { ok: false }>> {
     const persistentBodyResult = await preparePersistentRunBody(body, detectContext);
     if (!persistentBodyResult.ok) {
@@ -593,20 +577,11 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
 
     try {
       const run = runs.create(createRunMeta(persistentBody));
-      const providerId = run.provider;
-      const managedAgentRunContext = providerId && isManagedAgentInvocationProviderId(providerId)
-        ? await createManagedAgentRunContextFromHeaders(managedAgentHeaders, {
-            appDataDir: runtimeDir,
-            providerId,
-            runId: run.id,
-          })
-        : undefined;
       await persistRunMessages(persistentBody, run);
       runs.start(run, (startedRun) => startRunFromRequest(
         startedRun,
         persistentBody,
         detectContext,
-        managedAgentRunContext,
       ));
       // Run synchronously to completion, then return the agent conversation verbatim.
       const status = await runs.wait(run);
@@ -740,10 +715,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
         ok: false,
         status: 503,
         code: 'APP_OPEN_FAILED',
-        message: redactTuttiCliChildProcessText(
-          error instanceof Error ? error.message : 'app open failed',
-          input.detectContext?.redactionSecrets ?? [],
-        ),
+        message: error instanceof Error ? error.message : 'app open failed',
       };
     }
   }
@@ -761,9 +733,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     }
 
     const requestBody = body;
-    const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
-
-    const persistentBodyResult = await preparePersistentRunBody(requestBody, detectContext);
+    const persistentBodyResult = await preparePersistentRunBody(requestBody);
     if (!persistentBodyResult.ok) {
       sendPersistentRunBodyError(res, persistentBodyResult);
       return;
@@ -771,14 +741,6 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const persistentBody = persistentBodyResult.body;
 
     const run = runs.create(createRunMeta(persistentBody));
-    const providerId = readString(persistentBody.provider);
-    const managedAgentRunContext = providerId && isManagedAgentInvocationProviderId(providerId)
-      ? await createManagedAgentRunContextFromHeaders(req.headers, {
-          providerId,
-          runId: run.id,
-          appDataDir: runtimeDir,
-        })
-      : undefined;
     await persistRunMessages(persistentBody, run);
     res.status(202).json({
       runId: run.id,
@@ -787,9 +749,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       agentTargetId: run.agentTargetId,
       provider: run.provider,
     });
-    runs.start(run, (startedRun) => (
-      startRunFromRequest(startedRun, persistentBody, detectContext, managedAgentRunContext)
-    ));
+    runs.start(run, (startedRun) => startRunFromRequest(startedRun, persistentBody));
   });
 
   app.post('/api/chat', async (req: Request, res: Response): Promise<void> => {
@@ -805,9 +765,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     }
 
     const requestBody = body;
-    const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
-
-    const persistentBodyResult = await preparePersistentRunBody(requestBody, detectContext);
+    const persistentBodyResult = await preparePersistentRunBody(requestBody);
     if (!persistentBodyResult.ok) {
       sendPersistentRunBodyError(res, persistentBodyResult);
       return;
@@ -815,24 +773,13 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     const persistentBody = persistentBodyResult.body;
 
     const run = runs.create(createRunMeta(persistentBody));
-    const providerId = readString(persistentBody.provider);
-    const managedAgentRunContext = providerId && isManagedAgentInvocationProviderId(providerId)
-      ? await createManagedAgentRunContextFromHeaders(req.headers, {
-          providerId,
-          runId: run.id,
-          appDataDir: runtimeDir,
-        })
-      : undefined;
     await persistRunMessages(persistentBody, run);
     runs.stream(run, req, res);
-    runs.start(run, (startedRun) => (
-      startRunFromRequest(startedRun, persistentBody, detectContext, managedAgentRunContext)
-    ));
+    runs.start(run, (startedRun) => startRunFromRequest(startedRun, persistentBody));
   });
 
-  app.get('/api/agents/models', async (req: Request, res: Response): Promise<void> => {
-    const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
-    const modelCatalog = await detectAgentModelCatalog({ ...detectContext, refresh: true }).catch(() => []);
+  app.get('/api/agents/models', async (_req: Request, res: Response): Promise<void> => {
+    const modelCatalog = await detectAgentModelCatalog({ refresh: true }).catch(() => []);
     res.json({
       agents: modelCatalog.map((agent) => ({
         agentTargetId: agent.agentTargetId,
@@ -849,10 +796,9 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     });
   });
 
-  app.get('/api/agents/availability', async (req: Request, res: Response): Promise<void> => {
-    const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
+  app.get('/api/agents/availability', async (_req: Request, res: Response): Promise<void> => {
     res.json({
-      agentAvailability: await detectAgentAvailability({ ...detectContext, refresh: true }).catch(() => []),
+      agentAvailability: await detectAgentAvailability({ refresh: true }).catch(() => []),
     });
   });
 
@@ -936,10 +882,9 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     }
   });
 
-  app.get(['/', '/index.html'], async (req: Request, res: Response) => {
+  app.get(['/', '/index.html'], async (_req: Request, res: Response) => {
     const recentProjects = await listProjectSummaries(projectsDir, 20);
-    const detectContext = createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir });
-    const agentModelCatalog = (await detectAgentModelCatalog(detectContext).catch(() => []))
+    const agentModelCatalog = (await detectAgentModelCatalog().catch(() => []))
       .map((entry) => ({
         agentTargetId: entry.agentTargetId,
         providerId: entry.providerId,
@@ -964,7 +909,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       projectsDir,
       project,
       await detectAgentAvailability(
-        createManagedAgentDetectContextFromHeaders(req.headers, { appDataDir: runtimeDir }),
+        undefined,
       ).catch(() => []),
       runs,
     );
@@ -1606,23 +1551,20 @@ function requestTuttiAppOpen(input: CliOpenAppInput): Promise<void> {
     return Promise.reject(new Error('open route must be an origin-root route'));
   }
 
-  const projectedChild = projectTuttiCliChildProcess({
-    baseEnv: process.env,
-    detectContext: input.detectContext,
-  });
-  const command = projectedChild.env.TUTTI_CLI?.trim();
+  const childEnv = { ...process.env };
+  const command = childEnv.TUTTI_CLI?.trim();
   if (!command) {
     return Promise.reject(new Error('TUTTI_CLI is not configured'));
   }
 
-  const appId = projectedChild.env.TUTTI_APP_ID?.trim();
+  const appId = childEnv.TUTTI_APP_ID?.trim();
   if (!appId) {
     return Promise.reject(new Error('TUTTI_APP_ID is not configured'));
   }
 
   return new Promise((resolvePromise, reject) => {
     const child = spawn(command, ['--json', 'app', 'open', '--app-id', appId, '--route', input.route], {
-      env: projectedChild.env,
+      env: childEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -1639,7 +1581,6 @@ function requestTuttiAppOpen(input: CliOpenAppInput): Promise<void> {
       reject(new Error(`tutti app open timed out: ${cliFailureDetail(
         stdout,
         stderr,
-        projectedChild.redactionSecrets,
       )}`));
     }, TUTTI_APP_OPEN_TIMEOUT_MS);
 
@@ -1660,10 +1601,7 @@ function requestTuttiAppOpen(input: CliOpenAppInput): Promise<void> {
 
       settled = true;
       clearTimeout(timeout);
-      reject(new Error(redactTuttiCliChildProcessText(
-        error.message,
-        projectedChild.redactionSecrets,
-      )));
+      reject(new Error(error.message));
     });
 
     child.once('close', (exitCode) => {
@@ -1681,7 +1619,6 @@ function requestTuttiAppOpen(input: CliOpenAppInput): Promise<void> {
       reject(new Error(`tutti app open failed: ${cliFailureDetail(
         stdout,
         stderr,
-        projectedChild.redactionSecrets,
       )}`));
     });
   });
@@ -1694,12 +1631,8 @@ function isSafeAppOpenRoute(route: string): boolean {
 function cliFailureDetail(
   stdout: string,
   stderr: string,
-  redactionSecrets: readonly string[] = [],
 ): string {
-  return redactTuttiCliChildProcessText(
-    stderr.trim() || stdout.trim() || 'no output',
-    redactionSecrets,
-  );
+  return stderr.trim() || stdout.trim() || 'no output';
 }
 
 function isMutatingMethod(method: string): boolean {
@@ -1791,16 +1724,4 @@ function createRunMeta(body: Record<string, unknown>): ChatRunCreateMeta {
     mediaExecution: body.mediaExecution,
     toolBundle: body.toolBundle,
   };
-}
-
-function withoutManagedAgentInvocationCredential(body: Record<string, unknown>): Record<string, unknown> {
-  if (!Object.hasOwn(body, 'managedAgentInvocationCredential')) {
-    return body;
-  }
-
-  const {
-    managedAgentInvocationCredential: _managedAgentInvocationCredential,
-    ...rest
-  } = body;
-  return rest;
 }

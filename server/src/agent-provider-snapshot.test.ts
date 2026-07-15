@@ -26,7 +26,7 @@ const PROVIDERS: AgentProviderSnapshot[] = [{
 }];
 
 describe('createAgentProviderSnapshotDetector', () => {
-  it('joins identical in-flight managed refreshes', async () => {
+  it('joins identical in-flight standalone refreshes', async () => {
     const pending = deferred<AgentProviderSnapshot[]>();
     const detect = vi.fn(() => pending.promise);
     const snapshots = createAgentProviderSnapshotDetector(detect);
@@ -34,7 +34,6 @@ describe('createAgentProviderSnapshotDetector', () => {
       cwd: '/workspace/one',
       refresh: true,
       env: { PATH: '/opt/bin', TSH_WORKSPACE_ID: 'workspace-one' },
-      managedAgentInvocation: { cwd: '/workspace/one', credential: 'secret-one' },
     };
 
     const first = snapshots.detect(context);
@@ -50,51 +49,16 @@ describe('createAgentProviderSnapshotDetector', () => {
     await expect(first).resolves.toEqual(PROVIDERS);
   });
 
-  it('separates credentials, workspaces, and refresh modes', async () => {
+  it('separates workspaces and refresh modes', async () => {
     const detect = vi.fn(async () => PROVIDERS);
     const snapshots = createAgentProviderSnapshotDetector(detect);
     await Promise.all([
-      snapshots.detect({
-        managedAgentInvocation: { cwd: '/workspace/one', credential: 'secret-one' },
-      }),
-      snapshots.detect({
-        managedAgentInvocation: { cwd: '/workspace/one', credential: 'secret-two' },
-      }),
-      snapshots.detect({
-        managedAgentInvocation: { cwd: '/workspace/two', credential: 'secret-one' },
-      }),
-      snapshots.detect({
-        refresh: true,
-        managedAgentInvocation: { cwd: '/workspace/one', credential: 'secret-one' },
-      }),
+      snapshots.detect({ cwd: '/workspace/one' }),
+      snapshots.detect({ cwd: '/workspace/two' }),
+      snapshots.detect({ cwd: '/workspace/one', refresh: true }),
     ]);
 
-    expect(detect).toHaveBeenCalledTimes(4);
-  });
-
-  it('separates explicit catalog workspaces even when the managed invocation cwd is shared', async () => {
-    const pending = deferred<AgentProviderSnapshot[]>();
-    const detect = vi.fn(() => pending.promise);
-    const snapshots = createAgentProviderSnapshotDetector(detect);
-    const managedAgentInvocation = { cwd: '/workspace/managed', credential: 'secret-one' };
-
-    const first = snapshots.detect({
-      cwd: '/workspace/one',
-      managedAgentInvocation,
-    });
-    const second = snapshots.detect({
-      cwd: '/workspace/two',
-      managedAgentInvocation,
-    });
-
-    await Promise.resolve();
-    expect(first).not.toBe(second);
-    expect(detect).toHaveBeenCalledTimes(2);
-    pending.resolve(PROVIDERS);
-    await expect(Promise.all([first, second])).resolves.toEqual([
-      PROVIDERS,
-      PROVIDERS,
-    ]);
+    expect(detect).toHaveBeenCalledTimes(3);
   });
 
   it('separates in-flight detections whose effective environments differ', async () => {

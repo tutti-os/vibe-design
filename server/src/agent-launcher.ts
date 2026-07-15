@@ -5,7 +5,6 @@ import {
   type AgentRunInput as AcpAgentRunInput,
   type AgentRunMessage as AcpAgentRunMessage,
   type DetectContext,
-  type ManagedAgentRunContext,
 } from '@tutti-os/agent-acp-kit';
 import {
   loadTuttiAgentCatalog,
@@ -52,7 +51,6 @@ export type AgentEvent =
 
 export interface AgentRunPaths {
   projectsDir: string;
-  appDataDir?: string;
   userSkillsRoot: string;
   builtInSkillsRoot: string;
   userDesignSystemsRoot?: string;
@@ -72,7 +70,6 @@ export interface StartAgentRunInput {
   registry?: AgentRegistry;
   agentRuntime?: LocalAgentRuntime;
   detectContext?: DetectContext;
-  managedAgentRunContext?: ManagedAgentRunContext;
   loadAgentCatalog?: (
     input: Parameters<typeof loadTuttiAgentCatalog>[0],
   ) => ReturnType<typeof loadTuttiAgentCatalog>;
@@ -108,12 +105,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   const projectId = readString(request.projectId) ?? run.projectId;
   const projectWorkspaceDir = projectId ? join(paths.projectsDir, projectId) : paths.projectsDir;
   await mkdir(projectWorkspaceDir, { recursive: true });
-  const managedAgentInvocation = input.managedAgentRunContext?.managedAgentInvocation;
-  const agentCwd = input.managedAgentRunContext?.cwd ?? projectWorkspaceDir;
-  const sanitizeManagedEventPayload = createManagedEventPayloadSanitizer(
-    input.managedAgentRunContext?.cwd,
-    projectWorkspaceDir,
-  );
+  const agentCwd = projectWorkspaceDir;
 
   const locale = readString(request.locale) ?? undefined;
   const skill = await resolveRequestedSkill(request, paths);
@@ -155,9 +147,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     : { agentTargetId };
   const catalogDetectContext: DetectContext = {
     ...(input.detectContext ?? {}),
-    ...(!input.detectContext?.cwd && !input.detectContext?.managedAgentInvocation
-      ? { cwd: agentCwd }
-      : {}),
+    ...(!input.detectContext?.cwd ? { cwd: agentCwd } : {}),
     refresh: true,
   };
   const catalogEnv = legacyProviderSelection ? { ...process.env, TUTTI_CLI: '' } : undefined;
@@ -247,7 +237,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     const emitVisibleTextDelta = async (delta: string): Promise<boolean> => {
       if (!delta) return false;
       const data: AgentEvent = { type: 'text_delta', delta };
-      runs.emit(run, 'text_delta', sanitizeManagedEventPayload(data) as AgentEvent);
+      runs.emit(run, 'text_delta', data);
       const normalizedDelta = delta.toLowerCase();
       sawInlineQuestionForm ||= normalizedDelta.includes('<question-form');
       if (sawInlineQuestionForm && normalizedDelta.includes('</question-form>')) {
@@ -319,7 +309,6 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       ...(permissionMode
         ? { permission: { modeId: permissionMode.id, semantic: permissionMode.semantic } }
         : {}),
-      ...(managedAgentInvocation ? { managedAgentInvocation } : {}),
       ...(tuttiSkillBundle.skillManifest.length > 0 ? { skillManifest: tuttiSkillBundle.skillManifest } : {}),
       signal: controller.signal,
       resume,
@@ -385,7 +374,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
           if (message) {
             runs.emit(run, 'error', {
               code: 'AGENT_EXECUTION_FAILED',
-              message: sanitizeManagedEventPayload(message) as string,
+              message,
             });
             sawErrorEvent = true;
           }
@@ -400,29 +389,27 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
 
       if (projected.kind === 'error') {
         sawErrorEvent = true;
-        runs.fail(run, projected.code, sanitizeManagedEventPayload(projected.message) as string);
+        runs.fail(run, projected.code, projected.message);
         return;
       }
 
-      const projectedData = sanitizeManagedEventPayload(projected.data) as AgentEvent;
-      runs.emit(run, projected.event, projectedData);
-      const sanitizedProjected = { ...projected, data: projectedData } as ProjectedAcpEvent;
+      runs.emit(run, projected.event, projected.data);
       if (
-        sanitizedProjected.kind === 'emit' &&
-        sanitizedProjected.event === 'tool_use' &&
-        sanitizedProjected.data.type === 'tool_use'
+        projected.kind === 'emit' &&
+        projected.event === 'tool_use' &&
+        projected.data.type === 'tool_use'
       ) {
-        sawStructuredUserInputAsk ||= isUserInputToolName(sanitizedProjected.data.name);
+        sawStructuredUserInputAsk ||= isUserInputToolName(projected.data.name);
       }
       if (
-        sanitizedProjected.kind === 'emit' &&
-        sanitizedProjected.event === 'text_delta' &&
-        sanitizedProjected.data.type === 'text_delta'
+        projected.kind === 'emit' &&
+        projected.event === 'text_delta' &&
+        projected.data.type === 'text_delta'
       ) {
-        const delta = sanitizedProjected.data.delta.toLowerCase();
+        const delta = projected.data.delta.toLowerCase();
         sawInlineQuestionForm ||= delta.includes('<question-form');
       }
-      if (shouldStopAfterUserInputAsk(sanitizedProjected, sawInlineQuestionForm)) {
+      if (shouldStopAfterUserInputAsk(projected, sawInlineQuestionForm)) {
         controller.abort();
         await agentRuntime.cancel(run.id);
         runs.finish(run, 'succeeded', 0);
@@ -449,50 +436,6 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   } finally {
     run.acpSession = null;
   }
-}
-
-function createManagedEventPayloadSanitizer(
-  managedCwd: string | undefined,
-  projectWorkspaceDir: string,
-): (value: unknown) => unknown {
-  if (!managedCwd || managedCwd === projectWorkspaceDir) {
-    return (value) => value;
-  }
-
-  const normalizedManagedCwd = normalize(managedCwd);
-  const replacements = new Set([managedCwd, normalizedManagedCwd]);
-  return (value) => replaceManagedPathInPayload(value, replacements, projectWorkspaceDir);
-}
-
-function replaceManagedPathInPayload(
-  value: unknown,
-  managedPaths: Set<string>,
-  replacement: string,
-): unknown {
-  if (typeof value === 'string') {
-    let next = value;
-    for (const managedPath of managedPaths) {
-      if (managedPath) {
-        next = next.split(managedPath).join(replacement);
-      }
-    }
-    return next;
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item) => replaceManagedPathInPayload(item, managedPaths, replacement));
-  }
-
-  if (!isRecord(value)) {
-    return value;
-  }
-
-  return Object.fromEntries(
-    Object.entries(value).map(([key, entry]) => [
-      key,
-      replaceManagedPathInPayload(entry, managedPaths, replacement),
-    ]),
-  );
 }
 
 function shouldStopAfterUserInputAsk(projected: ProjectedAcpEvent, sawInlineQuestionForm: boolean): boolean {

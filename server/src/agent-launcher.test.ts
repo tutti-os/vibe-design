@@ -400,7 +400,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
     }
   });
 
-  it('passes a dynamic Tutti agent skill bundle into managed ACP kit runs', async () => {
+  it('passes a target-specific Tutti agent skill bundle into standalone ACP kit runs', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     try {
       const builtInSkillsRoot = join(root, 'skills');
@@ -408,17 +408,12 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       const projectsDir = join(root, 'projects');
       const cliPath = join(root, 'tutti-cli.mjs');
       const argsPath = join(root, 'tutti-cli-args.json');
-      const envPath = join(root, 'tutti-cli-env.json');
       await mkdir(builtInSkillsRoot, { recursive: true });
       await mkdir(userSkillsRoot, { recursive: true });
       await writeFile(cliPath, [
         '#!/usr/bin/env node',
         'import { writeFileSync } from "node:fs";',
         `writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)));`,
-        `writeFileSync(${JSON.stringify(envPath)}, JSON.stringify({`,
-        '  canonical: process.env.TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL,',
-        '  legacy: process.env.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL,',
-        '}));',
         'if (process.argv.includes("list")) {',
         '  process.stdout.write(JSON.stringify({ schemaVersion: 1, defaultAgentTargetId: "local:codex", agents: [',
         '    { id: "local:codex", provider: "codex", name: "Codex", availability: { status: "available", reasonCode: "", detail: "" } }',
@@ -458,7 +453,6 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         runsLogDir: null,
       });
       const run = runs.create({ projectId: 'project-1', agentId: 'codex' });
-      const managedRunCwd = join(root, 'managed-run');
       const runtime = createRecordingRuntime();
 
       await startAgentRun({
@@ -472,29 +466,17 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
         registry: createAgentRegistry([codexDef]),
         agentRuntime: runtime,
-        detectContext: {
-          managedAgentInvocation: {
-            credential: 'credential-request-1',
-            cwd: root,
-          },
-          redactionSecrets: ['credential-request-1'],
-        },
-        managedAgentRunContext: {
-          cwd: managedRunCwd,
-          managedAgentInvocation: {
-            credential: 'credential-run-1',
-            cwd: managedRunCwd,
-          },
-        },
       });
 
-      expect(JSON.parse(await readFile(argsPath, 'utf8'))).toEqual(expect.arrayContaining([
-        '--agent-id',
-        'local:codex',
-      ]));
-      expect(JSON.parse(await readFile(envPath, 'utf8'))).toEqual({
-        legacy: 'credential-request-1',
-      });
+      expect(JSON.parse(await readFile(argsPath, 'utf8'))).toEqual([
+        '--json',
+        'agent',
+        'tutti-cli-skill-bundle',
+        '--provider',
+        'codex',
+        '--agent-session-id',
+        run.id,
+      ]);
       expect(runtime.inputs[0]?.systemPrompt).toContain('Use Tutti routing.');
       expect(runtime.inputs[0]?.systemPrompt?.trim().endsWith('Use Tutti routing.')).toBe(true);
       expect(runtime.inputs[0]?.env).toBeUndefined();
@@ -653,7 +635,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
     }
   });
 
-  it('runs managed agents from app-data and passes managed invocation metadata', async () => {
+  it('runs agents directly from the project workspace', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     const previousDataDir = process.env.TUTTI_APP_DATA_DIR;
     try {
@@ -674,24 +656,23 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         projectId: 'project-1',
         agentId: 'codex',
       });
-      const managedRunCwd = join(appDataDir, '.agent-runs', 'codex-run-1');
       const projectWorkspaceDir = join(projectsDir, 'project-1');
       const runtime = createRecordingRuntime([
-        { type: 'status', message: `Working in ${managedRunCwd}` },
-        { type: 'text_delta', text: `Created ${managedRunCwd}/assets/Hero.tsx` },
+        { type: 'status', message: `Working in ${projectWorkspaceDir}` },
+        { type: 'text_delta', text: `Created ${projectWorkspaceDir}/assets/Hero.tsx` },
         {
           type: 'tool_call',
           id: 'write-1',
           name: 'write',
-          input: { file_path: `${managedRunCwd}/assets/Hero.tsx` },
+          input: { file_path: `${projectWorkspaceDir}/assets/Hero.tsx` },
         },
         {
           type: 'tool_result',
           id: 'write-1',
-          output: { output: `Wrote ${managedRunCwd}/assets/Hero.tsx` },
+          output: { output: `Wrote ${projectWorkspaceDir}/assets/Hero.tsx` },
           status: 'completed',
         },
-        { type: 'stderr', text: `debug cwd ${managedRunCwd}` },
+        { type: 'stderr', text: `debug cwd ${projectWorkspaceDir}` },
         { type: 'done', status: 'completed', exitCode: 0 },
       ]);
 
@@ -700,33 +681,19 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         runs,
         request: {
           projectId: 'project-1',
-          prompt: 'Build with managed credentials',
+          prompt: 'Build the project',
           agentId: 'codex',
         },
         paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
         registry: createAgentRegistry([codexDef]),
         agentRuntime: runtime,
-        managedAgentRunContext: {
-          cwd: managedRunCwd,
-          managedAgentInvocation: {
-            credential: 'credential-run-1',
-            cwd: managedRunCwd,
-          },
-        },
       });
 
       expect(runtime.inputs).toHaveLength(1);
       expect(runtime.inputs[0]).toMatchObject({
-        cwd: managedRunCwd,
+        cwd: projectWorkspaceDir,
       });
       expect(runtime.inputs[0]?.env).toBeUndefined();
-      expect(runtime.inputs[0]?.managedAgentInvocation).toEqual({
-        credential: 'credential-run-1',
-        cwd: runtime.inputs[0]?.cwd,
-      });
-      expect(run).not.toHaveProperty('managedAgentInvocationCredential');
-      expect(JSON.stringify(run.events)).not.toContain('credential-run-1');
-      expect(JSON.stringify(run.events)).not.toContain(managedRunCwd);
       expect(JSON.stringify(run.events)).toContain(projectWorkspaceDir);
     } finally {
       if (previousDataDir === undefined) {
@@ -734,65 +701,6 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       } else {
         process.env.TUTTI_APP_DATA_DIR = previousDataDir;
       }
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('passes managed invocation cwd through without app-side remapping', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
-    try {
-      const appDataDir = join(root, 'app-data');
-      const builtInSkillsRoot = join(root, 'skills');
-      const userSkillsRoot = join(root, 'user-skills');
-      const projectsDir = join(appDataDir, 'projects');
-      const unmappedRunDir = join(root, 'unmapped-agent-runs', 'codex-run-1');
-      await mkdir(builtInSkillsRoot, { recursive: true });
-      await mkdir(userSkillsRoot, { recursive: true });
-
-      const runs = createChatRunService({
-        createSseResponse: createNoopSseResponse,
-        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
-        runsLogDir: null,
-      });
-      const run = runs.create({
-        projectId: 'project-1',
-        agentId: 'codex',
-      });
-      const runtime = createRecordingRuntime();
-
-      await startAgentRun({
-        run,
-        runs,
-        request: {
-          projectId: 'project-1',
-          prompt: 'Build with fallback credentials',
-          agentId: 'codex',
-        },
-        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
-        registry: createAgentRegistry([codexDef]),
-        agentRuntime: runtime,
-        managedAgentRunContext: {
-          cwd: unmappedRunDir,
-          managedAgentInvocation: {
-            credential: 'credential-run-1',
-            cwd: unmappedRunDir,
-          },
-        },
-      });
-
-      expect(runtime.inputs).toHaveLength(1);
-      expect(runtime.inputs[0]).toMatchObject({
-        cwd: unmappedRunDir,
-      });
-      expect(runtime.inputs[0]?.env).toBeUndefined();
-      expect(runtime.inputs[0]?.managedAgentInvocation).toEqual({
-        credential: 'credential-run-1',
-        cwd: unmappedRunDir,
-      });
-      expect(run).not.toHaveProperty('managedAgentInvocationCredential');
-      expect(JSON.stringify(run.events)).not.toContain('credential-run-1');
-      expect(JSON.stringify(run.events)).not.toContain(unmappedRunDir);
-    } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -2021,82 +1929,6 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       expect(prompt).toContain('assets/Hero.tsx');
       expect(prompt).toContain(join(projectsDir, 'project-1', 'assets/Hero.tsx'));
     } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('keeps selected design file prompt paths on the project workspace during managed runs', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
-    const previousDataDir = process.env.TUTTI_APP_DATA_DIR;
-    try {
-      const appDataDir = join(root, 'app-data');
-      const builtInSkillsRoot = join(root, 'skills');
-      const userSkillsRoot = join(root, 'user-skills');
-      const projectsDir = join(appDataDir, 'projects');
-      await mkdir(builtInSkillsRoot, { recursive: true });
-      await mkdir(userSkillsRoot, { recursive: true });
-      process.env.TUTTI_APP_DATA_DIR = appDataDir;
-
-      upsertProjectFileInStore(projectsDir, 'project-1', {
-        name: 'Hero.tsx',
-        path: 'assets/Hero.tsx',
-        size: 128,
-        mime: 'text/tsx',
-        kind: 'code',
-      });
-
-      const runs = createChatRunService({
-        createSseResponse: createNoopSseResponse,
-        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
-        runsLogDir: null,
-      });
-      const run = runs.create({
-        projectId: 'project-1',
-        agentId: 'codex',
-      });
-      const runtime = createRecordingRuntime();
-      const managedRunCwd = join(appDataDir, '.agent-runs', 'codex-run-1');
-
-      await startAgentRun({
-        run,
-        runs,
-        request: {
-          projectId: 'project-1',
-          prompt: 'Improve the selected file.',
-          agentId: 'codex',
-          context: {
-            designFilePaths: ['assets/Hero.tsx'],
-          },
-        },
-        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
-        registry: createAgentRegistry([codexDef]),
-        agentRuntime: runtime,
-        managedAgentRunContext: {
-          cwd: managedRunCwd,
-          managedAgentInvocation: {
-            credential: 'credential-run-1',
-            cwd: managedRunCwd,
-          },
-        },
-      });
-
-      const prompt = runtime.inputs[0]?.prompt ?? '';
-      expect(runtime.inputs[0]?.cwd).toBe(managedRunCwd);
-      expect(runtime.inputs[0]?.managedAgentInvocation).toEqual({
-        credential: 'credential-run-1',
-        cwd: runtime.inputs[0]?.cwd,
-      });
-      expect(prompt).toContain('# Selected design files');
-      expect(prompt).toContain('Hero.tsx');
-      expect(prompt).toContain('assets/Hero.tsx');
-      expect(prompt).toContain(`${join(projectsDir, 'project-1')}/assets/Hero.tsx`);
-      expect(prompt).not.toContain(`${runtime.inputs[0]?.cwd}/assets/Hero.tsx`);
-    } finally {
-      if (previousDataDir === undefined) {
-        delete process.env.TUTTI_APP_DATA_DIR;
-      } else {
-        process.env.TUTTI_APP_DATA_DIR = previousDataDir;
-      }
       await rm(root, { recursive: true, force: true });
     }
   });

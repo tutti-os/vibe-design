@@ -1,8 +1,5 @@
 import type { Response } from 'express';
-import type {
-  DetectContext,
-  ManagedAgentInvocationCredentialHeaders,
-} from '@tutti-os/agent-acp-kit';
+import type { DetectContext } from '@tutti-os/agent-acp-kit';
 import type { SseResponse } from './http/sse.js';
 import type { ChatRunService } from './types/run.js';
 
@@ -47,7 +44,6 @@ export interface CliOpenAppInput {
 export interface CliStartSessionInput {
   detectContext?: DetectContext;
   input: Record<string, unknown>;
-  managedAgentHeaders: ManagedAgentInvocationCredentialHeaders;
 }
 
 export interface ServerContext {
