@@ -105,32 +105,7 @@ async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     ? input.request.provider.trim()
     : '';
   const providerId = requestProvider || input.run.provider || '';
-  const emptyConfig = { configurable: false, currentValue: '', defaultValue: '', options: [] };
   return startAgentRunWithDependencies({
-    loadAgentCatalog: async () => ({
-      schemaVersion: 1,
-      source: 'standalone',
-      cliContract: 'agent-id',
-      defaultAgentTargetId: agentTargetId,
-      agents: [{
-        agentTargetId,
-        providerId,
-        displayName: providerId,
-        availability: { status: 'available', reasonCode: '', detail: '' },
-        runtimeSupported: true,
-      }],
-    }),
-    loadAgentComposerOptions: async () => ({
-      schemaVersion: 2,
-      source: 'standalone',
-      agentTargetId,
-      providerId,
-      effectiveSettings: {},
-      modelConfig: emptyConfig,
-      permissionConfig: { configurable: false, defaultValue: '', modes: [] },
-      reasoningConfig: emptyConfig,
-      speedConfig: emptyConfig,
-    }),
     resolveAgentSkillBundle: async () => ({
       source: 'standalone',
       agentTargetId,
@@ -183,6 +158,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       expect(run.status).toBe('succeeded');
       expect(runtime.inputs).toHaveLength(1);
       expect(runtime.inputs[0]).toMatchObject({
+        agentTargetId: 'local:codex',
         runId: run.id,
         provider: 'codex',
         cwd: join(projectsDir, 'project-1'),
@@ -233,10 +209,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         provider: 'codex',
       });
       const runtime = createRecordingRuntime();
-      const catalogInputs: unknown[] = [];
-      const composerInputs: unknown[] = [];
       const skillInputs: unknown[] = [];
-      const emptyConfig = { configurable: false, currentValue: '', defaultValue: '', options: [] };
 
       await startAgentRunWithDependencies({
         run,
@@ -250,36 +223,6 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
         registry: createAgentRegistry([codexDef]),
         agentRuntime: runtime,
-        loadAgentCatalog: async (input) => {
-          catalogInputs.push(input);
-          return {
-            schemaVersion: 1,
-            source: 'standalone',
-            cliContract: 'agent-id',
-            defaultAgentTargetId: 'team:writer',
-            agents: [{
-              agentTargetId: 'team:writer',
-              providerId: 'codex',
-              displayName: 'Writer',
-              availability: { status: 'available', reasonCode: '', detail: '' },
-              runtimeSupported: true,
-            }],
-          };
-        },
-        loadAgentComposerOptions: async (input) => {
-          composerInputs.push(input);
-          return {
-            schemaVersion: 2,
-            source: 'standalone',
-            agentTargetId: 'team:writer',
-            providerId: 'codex',
-            effectiveSettings: {},
-            modelConfig: emptyConfig,
-            permissionConfig: { configurable: false, defaultValue: '', modes: [] },
-            reasoningConfig: emptyConfig,
-            speedConfig: emptyConfig,
-          };
-        },
         resolveAgentSkillBundle: async (input) => {
           skillInputs.push(input);
           return {
@@ -292,27 +235,22 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         },
       });
 
-      expect(catalogInputs).toEqual([expect.objectContaining({
-        cwd: agentCwd,
-        detectContext: expect.objectContaining({ cwd: agentCwd, refresh: true }),
-      })]);
-      expect(composerInputs).toEqual([expect.objectContaining({
-        cwd: agentCwd,
-        agentTargetId: 'team:writer',
-        detectContext: expect.objectContaining({ cwd: agentCwd, refresh: true }),
-      })]);
       expect(skillInputs).toEqual([expect.objectContaining({
         cwd: agentCwd,
         agentTargetId: 'team:writer',
         detectContext: expect.objectContaining({ cwd: agentCwd, refresh: true }),
       })]);
-      expect(runtime.inputs[0]?.cwd).toBe(agentCwd);
+      expect(runtime.inputs[0]).toMatchObject({
+        cwd: agentCwd,
+        agentTargetId: 'team:writer',
+        provider: 'codex',
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it('keeps exact target B through composer, skills, resume, and provider runtime when two targets share one provider', async () => {
+  it('keeps exact target B through skills, resume, and provider runtime when two targets share one provider', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     try {
       const builtInSkillsRoot = join(root, 'skills');
@@ -372,6 +310,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
 
       expect(runtime.inputs).toHaveLength(1);
       expect(runtime.inputs[0]).toMatchObject({
+        agentTargetId: 'team:b',
         provider: 'codex',
         runtimeProvider: 'codex',
         resume: { mode: 'provider', providerSessionId: 'provider-session-b', resumeToken: 'resume-b' },
@@ -386,6 +325,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         .split('\n')
         .map((line) => JSON.parse(line) as { args: string[]; cwd: string });
       expect(cliInvocations.length).toBeGreaterThan(0);
+      expect(cliInvocations.some((invocation) => invocation.args.includes('composer-options'))).toBe(false);
       const canonicalWorkspaceCwd = await realpath(workspaceCwd);
       expect(cliInvocations.map((invocation) => ({
         command: invocation.args.slice(1, 3).join(' '),
@@ -472,8 +412,8 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         '--json',
         'agent',
         'tutti-cli-skill-bundle',
-        '--provider',
-        'codex',
+        '--agent-id',
+        'local:codex',
         '--agent-session-id',
         run.id,
       ]);
@@ -509,8 +449,15 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         '#!/usr/bin/env node',
         'import { writeFileSync } from "node:fs";',
         `writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)));`,
+        'if (process.argv.includes("list")) {',
+        '  process.stdout.write(JSON.stringify({ schemaVersion: 1, defaultAgentTargetId: "local:codex", agents: [',
+        '    { id: "local:codex", provider: "codex", name: "Codex", availability: { status: "available", reasonCode: "", detail: "" } }',
+        '  ] }));',
+        '  process.exit(0);',
+        '}',
         'process.stdout.write(JSON.stringify({',
-        '  schemaVersion: 1,',
+        '  schemaVersion: 2,',
+        '  agentTargetId: "local:codex",',
         '  provider: "codex",',
         '  agentSessionId: process.argv[process.argv.indexOf("--agent-session-id") + 1],',
         '  recommendedSystemPrompt: { format: "text/markdown", content: "Use Tutti routing locally." },',
@@ -551,8 +498,8 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         '--json',
         'agent',
         'tutti-cli-skill-bundle',
-        '--provider',
-        'codex',
+        '--agent-id',
+        'local:codex',
         '--agent-session-id',
         run.id,
       ]);
@@ -590,6 +537,12 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         'const args = process.argv.slice(2);',
         'calls.push(args);',
         'writeFileSync(callsPath, JSON.stringify(calls));',
+        'if (args.includes("list")) {',
+        '  process.stdout.write(JSON.stringify({ schemaVersion: 1, defaultAgentTargetId: "local:codex", agents: [',
+        '    { id: "local:codex", provider: "codex", name: "Codex", availability: { status: "available", reasonCode: "", detail: "" } }',
+        '  ] }));',
+        '  process.exit(0);',
+        '}',
         'process.stderr.write("unknown command: agent tutti-cli-skill-bundle\\n");',
         'process.exit(2);',
         '',
@@ -619,12 +572,13 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       })).rejects.toThrow('Tutti CLI request failed.');
 
       expect(JSON.parse(await readFile(callsPath, 'utf8'))).toEqual([
+        ['--json', 'agent', 'list'],
         [
           '--json',
           'agent',
           'tutti-cli-skill-bundle',
-          '--provider',
-          'codex',
+          '--agent-id',
+          'local:codex',
           '--agent-session-id',
           run.id,
         ],
@@ -1254,7 +1208,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
     }
   });
 
-  it('rechecks exact target availability immediately before launch and fails closed', async () => {
+  it('lets the runtime fail closed when the exact target becomes unavailable before launch', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     try {
       const builtInSkillsRoot = join(root, 'skills');
@@ -1269,7 +1223,13 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         runsLogDir: null,
       });
       const run = runs.create({ projectId: 'project-1', agentTargetId: 'team:writer', provider: 'codex' });
-      const runtime = createRecordingRuntime();
+      const runtime: LocalAgentRuntime = {
+        async cancel() {},
+        async *run(input) {
+          expect(input.agentTargetId).toBe('team:writer');
+          throw new Error('Writer went offline.');
+        },
+      };
 
       await startAgentRun({
         run,
@@ -1278,25 +1238,11 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
         registry: createAgentRegistry([codexDef]),
         agentRuntime: runtime,
-        loadAgentCatalog: async () => ({
-          schemaVersion: 1,
-          source: 'tutti-cli',
-          cliContract: 'agent-id',
-          defaultAgentTargetId: 'team:writer',
-          agents: [{
-            agentTargetId: 'team:writer',
-            providerId: 'codex',
-            displayName: 'Writer',
-            runtimeSupported: true,
-            availability: { status: 'unavailable', reasonCode: 'offline', detail: 'Writer went offline.' },
-          }],
-        }),
       });
 
-      expect(runtime.inputs).toEqual([]);
       expect(run.status).toBe('failed');
       expect(run.events.find((event) => event.event === 'error')?.data).toMatchObject({
-        code: 'AGENT_UNAVAILABLE',
+        code: 'AGENT_EXECUTION_FAILED',
         message: 'Writer went offline.',
       });
     } finally {
@@ -1304,7 +1250,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
     }
   });
 
-  it('does not launch when cancellation wins while exact-target preflight is pending', async () => {
+  it('does not launch when cancellation wins while exact-target skill context is pending', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-cancel-preflight-'));
     try {
       const builtInSkillsRoot = join(root, 'skills');
@@ -1319,19 +1265,14 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       });
       const run = runs.create({ projectId: 'project-1', agentTargetId: 'team:writer', provider: 'codex' });
       const runtime = createRecordingRuntime();
-      const composer = deferred<{
-        schemaVersion: 2;
+      const skillBundle = deferred<{
         source: 'standalone';
         agentTargetId: string;
         providerId: string;
-        effectiveSettings: Record<string, unknown>;
-        modelConfig: { configurable: boolean; currentValue: string; defaultValue: string; options: [] };
-        permissionConfig: { configurable: boolean; defaultValue: string; modes: [] };
-        reasoningConfig: { configurable: boolean; currentValue: string; defaultValue: string; options: [] };
-        speedConfig: { configurable: boolean; currentValue: string; defaultValue: string; options: [] };
+        skills: [];
+        skillManifest: [];
       }>();
-      const composerLoadStarted = deferred<void>();
-      const emptyConfig = { configurable: false, currentValue: '', defaultValue: '', options: [] as [] };
+      const skillLoadStarted = deferred<void>();
       const starting = startAgentRunWithDependencies({
         run,
         runs,
@@ -1339,37 +1280,20 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
         registry: createAgentRegistry([codexDef]),
         agentRuntime: runtime,
-        loadAgentCatalog: async () => ({
-          schemaVersion: 1,
-          source: 'standalone',
-          cliContract: 'agent-id',
-          defaultAgentTargetId: 'team:writer',
-          agents: [{
-            agentTargetId: 'team:writer', providerId: 'codex', displayName: 'Writer', runtimeSupported: true,
-            availability: { status: 'available', reasonCode: '', detail: '' },
-          }],
-        }),
-        loadAgentComposerOptions: () => {
-          composerLoadStarted.resolve(undefined);
-          return composer.promise;
+        resolveAgentSkillBundle: () => {
+          skillLoadStarted.resolve(undefined);
+          return skillBundle.promise;
         },
-        resolveAgentSkillBundle: async () => ({
-          source: 'standalone', agentTargetId: 'team:writer', providerId: 'codex', skills: [], skillManifest: [],
-        }),
       });
 
-      await composerLoadStarted.promise;
+      await skillLoadStarted.promise;
       runs.cancel(run);
-      composer.resolve({
-        schemaVersion: 2,
+      skillBundle.resolve({
         source: 'standalone',
         agentTargetId: 'team:writer',
         providerId: 'codex',
-        effectiveSettings: {},
-        modelConfig: emptyConfig,
-        permissionConfig: { configurable: false, defaultValue: '', modes: [] },
-        reasoningConfig: emptyConfig,
-        speedConfig: emptyConfig,
+        skills: [],
+        skillManifest: [],
       });
       await starting;
 
