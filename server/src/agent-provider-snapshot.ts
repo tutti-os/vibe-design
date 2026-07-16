@@ -92,7 +92,6 @@ export async function detectLocalAgentProviders(
 
 function resolveAgentCatalogCwd(context?: DetectContext): string {
   return context?.cwd?.trim()
-    || context?.managedAgentInvocation?.cwd?.trim()
     || context?.env?.TUTTI_WORKSPACE_ROOT?.trim()
     || context?.env?.VIBE_WORKSPACE_ROOT?.trim()
     || process.env.TUTTI_WORKSPACE_ROOT?.trim()
@@ -166,11 +165,7 @@ export function createAgentProviderSnapshotDetector(detectProviders: DetectAgent
 }
 
 function providerSnapshotKey(context?: DetectContext): string {
-  const managed = context?.managedAgentInvocation;
   const workspace = resolveAgentCatalogCwd(context);
-  const credentialFingerprint = managed?.credential
-    ? createHash('sha256').update(managed.credential).digest('hex')
-    : 'none';
   const environmentFingerprint = createHash('sha256')
     .update(
       Object.entries(context?.env ?? {})
@@ -181,10 +176,8 @@ function providerSnapshotKey(context?: DetectContext): string {
     )
     .digest('hex');
   return [
-    managed ? 'managed' : 'standalone',
     context?.refresh ? 'refresh' : 'normal',
     workspace,
-    credentialFingerprint,
     environmentFingerprint,
   ].join('\u0000');
 }
