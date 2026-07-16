@@ -1,6 +1,3 @@
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -99,122 +96,40 @@ describe('createAgentProviderSnapshotDetector', () => {
 });
 
 describe('detectLocalAgentProviders', () => {
-  it('detects once and keeps target-specific models when two targets share a provider', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'vibe-provider-snapshot-'));
-    try {
-      const cliPath = join(root, 'tutti-cli.mjs');
-      const invocationLog = join(root, 'cli-invocations.jsonl');
-      const workspaceCwd = join(root, 'workspace');
-      await writeFile(cliPath, [
-        '#!/usr/bin/env node',
-        'import { appendFileSync } from "node:fs";',
-        'const args = process.argv.slice(2);',
-        `appendFileSync(${JSON.stringify(invocationLog)}, JSON.stringify({ args, cwd: process.cwd() }) + "\\n");`,
-        'if (args.includes("list")) {',
-        '  process.stdout.write(JSON.stringify({ schemaVersion: 1, defaultAgentTargetId: "team:writer", agents: [',
-        '    { id: "team:writer", provider: "codex", name: "Writer", availability: { status: "available", reasonCode: "", detail: "" } },',
-        '    { id: "team:reviewer", provider: "codex", name: "Reviewer", availability: { status: "available", reasonCode: "", detail: "" } }',
-        '  ] }));',
-        '} else {',
-        '  const target = args[args.indexOf("--agent-id") + 1];',
-        '  const model = target === "team:writer" ? "writer-model" : "reviewer-model";',
-        '  const config = { configurable: true, currentValue: model, defaultValue: model, options: [{ id: model, value: model, label: model }] };',
-        '  const empty = { configurable: false, currentValue: "", defaultValue: "", options: [] };',
-        '  process.stdout.write(JSON.stringify({ schemaVersion: 2, agentTargetId: target, providerId: "codex", effectiveSettings: {},',
-        '    modelConfig: config, permissionConfig: { configurable: false, defaultValue: "", modes: [] }, reasoningConfig: empty, speedConfig: empty }));',
-        '}',
-      ].join('\n'));
-      await chmod(cliPath, 0o755);
-      await mkdir(workspaceCwd, { recursive: true });
-      process.env.TUTTI_CLI = cliPath;
-
-      const detect = vi.fn(async () => [{
-        provider: 'codex', displayName: 'Codex', supported: true, authState: 'ok', models: [],
-      }]);
-      const runtime = {
-        detect,
-        listProviders: () => [{ id: 'codex', displayName: 'Codex' }],
-        cancel: vi.fn(async () => undefined),
-        run: vi.fn(),
-      };
-
-      await expect(detectLocalAgentProviders({ cwd: workspaceCwd }, runtime as never)).resolves.toEqual([
-        expect.objectContaining({
-          agentTargetId: 'team:writer', providerId: 'codex', isDefault: true,
-          models: [{ id: 'writer-model', label: 'writer-model' }], defaultModelId: 'writer-model',
-        }),
-        expect.objectContaining({
-          agentTargetId: 'team:reviewer', providerId: 'codex',
-          models: [{ id: 'reviewer-model', label: 'reviewer-model' }], defaultModelId: 'reviewer-model',
-        }),
-      ]);
-      expect(detect).toHaveBeenCalledTimes(1);
-      expect(detect).toHaveBeenCalledWith({ cwd: workspaceCwd });
-      const canonicalWorkspaceCwd = await realpath(workspaceCwd);
-      const invocations = (await readFile(invocationLog, 'utf8'))
-        .trim()
-        .split('\n')
-        .map((line) => JSON.parse(line) as { args: string[]; cwd: string });
-      expect(invocations).toHaveLength(3);
-      expect(invocations.filter((invocation) => invocation.args.includes('list'))).toHaveLength(1);
-      expect(invocations.every((invocation) => invocation.cwd === canonicalWorkspaceCwd)).toBe(true);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it('isolates composer failures to the affected exact target', async () => {
-    const emptyConfig = { configurable: false, currentValue: '', defaultValue: '', options: [] };
+  it('projects target-specific models from one runtime detection when two targets share a provider', async () => {
     const runtime = {
-      detect: vi.fn(async () => [{
-        provider: 'codex', displayName: 'Codex', supported: true, authState: 'ok', models: [],
-      }]),
+      detect: vi.fn(async () => [
+        {
+          agentTargetId: 'team:writer', provider: 'codex', displayName: 'Writer', supported: true,
+          authState: 'ok', models: [{ id: 'writer-model', label: 'Writer Model' }],
+          defaultModelId: 'writer-model', isDefault: true as const,
+        },
+        {
+          agentTargetId: 'team:reviewer', provider: 'codex', displayName: 'Reviewer', supported: false,
+          authState: 'missing', models: [{ id: 'reviewer-model', label: 'Reviewer Model' }],
+          reason: 'Reviewer is unavailable.',
+        },
+      ]),
       listProviders: () => [{ id: 'codex', displayName: 'Codex' }],
       cancel: vi.fn(async () => undefined),
       run: vi.fn(),
     };
-    const loadComposerOptions = vi.fn(async (input: { agentTargetId?: string }) => {
-      if (input.agentTargetId === 'team:reviewer') throw new Error('invalid reviewer metadata');
-      return {
-        schemaVersion: 2 as const,
-        source: 'standalone' as const,
-        agentTargetId: 'team:writer',
-        providerId: 'codex',
-        effectiveSettings: {},
-        modelConfig: { ...emptyConfig, configurable: true, currentValue: 'deep', defaultValue: 'deep', options: [{ id: 'deep', value: 'deep', label: 'Deep' }] },
-        permissionConfig: { configurable: false, defaultValue: '', modes: [] },
-        reasoningConfig: emptyConfig,
-        speedConfig: emptyConfig,
-      };
-    });
 
-    await expect(detectLocalAgentProviders(
-      { cwd: '/workspace/project' },
-      runtime as never,
-      {
-        loadCatalog: vi.fn(async () => ({
-          schemaVersion: 1 as const,
-          source: 'standalone' as const,
-          cliContract: 'agent-id' as const,
-          defaultAgentTargetId: 'team:writer',
-          agents: [
-            { agentTargetId: 'team:writer', providerId: 'codex', displayName: 'Writer', runtimeSupported: true, availability: { status: 'available' as const, reasonCode: '', detail: '' } },
-            { agentTargetId: 'team:reviewer', providerId: 'codex', displayName: 'Reviewer', runtimeSupported: true, availability: { status: 'available' as const, reasonCode: '', detail: '' } },
-          ],
-        })),
-        loadComposerOptions: loadComposerOptions as never,
-      },
-    )).resolves.toEqual([
-      expect.objectContaining({ agentTargetId: 'team:writer', supported: true, defaultModelId: 'deep' }),
+    await expect(detectLocalAgentProviders({ cwd: '/workspace/project' }, runtime as never)).resolves.toEqual([
       expect.objectContaining({
-        agentTargetId: 'team:reviewer',
-        supported: false,
-        reason: expect.stringContaining('invalid reviewer metadata'),
+        agentTargetId: 'team:writer', providerId: 'codex', label: 'Writer', supported: true,
+        models: [{ id: 'writer-model', label: 'Writer Model' }], defaultModelId: 'writer-model', isDefault: true,
+      }),
+      expect.objectContaining({
+        agentTargetId: 'team:reviewer', providerId: 'codex', label: 'Reviewer', supported: false,
+        models: [{ id: 'reviewer-model', label: 'Reviewer Model' }], reason: 'Reviewer is unavailable.',
       }),
     ]);
+    expect(runtime.detect).toHaveBeenCalledTimes(1);
+    expect(runtime.detect).toHaveBeenCalledWith({ cwd: '/workspace/project' });
   });
 
-  it('uses VIBE_WORKSPACE_ROOT when no explicit catalog cwd is present', async () => {
+  it('uses VIBE_WORKSPACE_ROOT as the runtime detection cwd when none is explicit', async () => {
     const previous = process.env.VIBE_WORKSPACE_ROOT;
     process.env.VIBE_WORKSPACE_ROOT = '/workspace/from-vibe';
     try {
@@ -224,19 +139,26 @@ describe('detectLocalAgentProviders', () => {
         cancel: vi.fn(async () => undefined),
         run: vi.fn(),
       };
-      const loadCatalog = vi.fn(async (input: { cwd?: string }) => ({
-        schemaVersion: 1 as const,
-        source: 'standalone' as const,
-        cliContract: 'agent-id' as const,
-        defaultAgentTargetId: '',
-        agents: [],
-      }));
-      await detectLocalAgentProviders(undefined, runtime as never, { loadCatalog: loadCatalog as never });
-      expect(loadCatalog).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/workspace/from-vibe' }));
+      await detectLocalAgentProviders(undefined, runtime as never);
+      expect(runtime.detect).toHaveBeenCalledWith({ cwd: '/workspace/from-vibe' });
     } finally {
       if (previous === undefined) delete process.env.VIBE_WORKSPACE_ROOT;
       else process.env.VIBE_WORKSPACE_ROOT = previous;
     }
+  });
+
+  it('fails closed by omitting detections without an exact agent target id', async () => {
+    const runtime = {
+      detect: vi.fn(async () => [{
+        provider: 'codex', displayName: 'Codex', supported: false, authState: 'unknown', models: [],
+        reason: 'Tutti Agent catalog is unavailable.',
+      }]),
+      listProviders: () => [{ id: 'codex', displayName: 'Codex' }],
+      cancel: vi.fn(async () => undefined),
+      run: vi.fn(),
+    };
+
+    await expect(detectLocalAgentProviders({ cwd: '/workspace/project' }, runtime as never)).resolves.toEqual([]);
   });
 });
 
