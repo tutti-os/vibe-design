@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import initSqlJs from 'sql.js';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   bindConversationAgentTargetInStore,
   bindConversationProviderInStore,
@@ -29,7 +29,19 @@ import {
 const tempRoots: string[] = [];
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+describe('sqlitePathForProjectsDir', () => {
+  it('uses the dedicated VM-local database directory when provided', async () => {
+    const projectsDir = await createProjectsDir();
+    const databaseDir = await mkdtemp(join(tmpdir(), 'vibe-design-database-'));
+    tempRoots.push(databaseDir);
+    vi.stubEnv('TUTTI_APP_DATABASE_DIR', databaseDir);
+
+    expect(sqlitePathForProjectsDir(projectsDir)).toBe(join(databaseDir, 'vibe-design.sqlite'));
+  });
 });
 
 async function createProjectsDir(): Promise<string> {
