@@ -449,6 +449,27 @@ describe('createServer', () => {
     });
   });
 
+  it('returns a retriable error when model catalog detection fails', async () => {
+    const port = await listenOnRandomPort(
+      createTestServer({
+        runtimeDir: await createRuntimeDir(),
+        detectAgentProviders: async () => {
+          throw new Error('Tutti provider catalog timed out.');
+        },
+      }),
+    );
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/agents/models`);
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: {
+        code: 'AGENT_CATALOG_UNAVAILABLE',
+        message: 'Agent provider availability could not be verified: Tutti provider catalog timed out.',
+      },
+    });
+  });
+
   it('coalesces concurrent model and availability refreshes into one provider detection', async () => {
     let resolveDetection!: (providers: Array<{
       id: string;

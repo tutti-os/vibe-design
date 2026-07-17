@@ -252,6 +252,7 @@ export const zhCN = {
     creator: {
       createAction: '发送',
       createAria: '创建原型',
+      creatingProject: '创建中…',
       errorFallback: '创建项目失败，请稍后重试。',
       chooseFiles: '选择参考文件',
       heroTitle: '今天想做什么原型？',
@@ -259,7 +260,10 @@ export const zhCN = {
       modelLabel: '模型',
       projectNameLabel: '原型描述',
       projectNamePlaceholder: '描述你想创建的原型...',
+      openingProject: '正在打开…',
       removeFile: '移除文件 {{name}}',
+      uploadingContext: '上传中…',
+      validating: '校验中…',
       stagedFiles: '待发送参考文件',
       title: '新建原型',
       untitledProjectTitle: '未命名',

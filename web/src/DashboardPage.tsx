@@ -59,6 +59,7 @@ export interface DashboardProject {
 }
 
 const EMPTY_DASHBOARD_PROJECTS: DashboardProject[] = [];
+type ProjectCreationPhase = 'idle' | 'validating' | 'creating_project' | 'uploading_context' | 'opening_project';
 export function DashboardPage({
   openProject = openProjectInCurrentWindow,
   recentProjects = EMPTY_DASHBOARD_PROJECTS,
@@ -313,7 +314,7 @@ function ProjectCreator({
     loading: modelCatalogLoading,
     error: modelCatalogError,
   } = useServiceSnapshot(agentCatalog);
-  const [isCreating, setIsCreating] = React.useState(false);
+  const [creationPhase, setCreationPhase] = React.useState<ProjectCreationPhase>('idle');
   const [error, setError] = React.useState<string | null>(null);
   const formRef = React.useRef<HTMLFormElement | null>(null);
   const imageInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -353,7 +354,15 @@ function ProjectCreator({
   }, [agentModelCatalog]);
   const selectedModelAvailable = selectedModel !== null
     && modelOptions.some((model) => model.key === selectedModel.key);
+  const isCreating = creationPhase !== 'idle';
   const canCreate = projectPrompt.trim().length > 0 && selectedModelAvailable && !isCreating;
+
+  React.useEffect(() => {
+    // SSR intentionally caps catalog detection so the dashboard renders quickly.
+    // The client owns the complete load and therefore must not render an empty
+    // catalog as a failed request before it has made one.
+    void agentCatalog.ensureLoaded();
+  }, [agentCatalog]);
 
   React.useEffect(() => {
     if (!selectedModel) {
@@ -384,9 +393,10 @@ function ProjectCreator({
     const selectedSkillIds = context.buildRunContext()?.skillIds ?? [];
 
     createProjectInFlightRef.current = true;
-    setIsCreating(true);
+    setCreationPhase('validating');
     setError(null);
     try {
+      setCreationPhase('creating_project');
       const project = await projectService.createProject({
         title: t('dashboard.creator.untitledProjectTitle'),
         prompt: nextPrompt,
@@ -396,6 +406,7 @@ function ProjectCreator({
         ...(selectedModel.modelId ? { model: selectedModel.modelId } : {}),
       });
       try {
+        setCreationPhase('uploading_context');
         await uploadDashboardFiles(project.id, stagedFiles);
       } catch (uploadError) {
         setError(uploadError instanceof Error ? uploadError.message : t('dashboard.creator.errorFallback'));
@@ -414,12 +425,13 @@ function ProjectCreator({
       if (imageInputRef.current) {
         imageInputRef.current.value = '';
       }
+      setCreationPhase('opening_project');
       openProject(project.id);
     } catch (projectError) {
       setError(projectError instanceof Error ? projectError.message : t('dashboard.creator.errorFallback'));
     } finally {
       createProjectInFlightRef.current = false;
-      setIsCreating(false);
+      setCreationPhase('idle');
     }
   }
 
@@ -542,7 +554,7 @@ function ProjectCreator({
                     if (option) setSelectedModel(option);
                   }}
                 />
-              ) : (
+              ) : modelCatalogError ? (
                 <Button
                   type="button"
                   size="sm"
@@ -552,6 +564,10 @@ function ProjectCreator({
                 >
                   {modelCatalogLoading ? t('common.loading') : t('common.retry')}
                 </Button>
+              ) : (
+                <span className="text-xs text-[var(--text-secondary)]">
+                  {modelCatalogLoading ? t('common.loading') : t('chat.composer.modelUnavailable')}
+                </span>
               )}
               {modelCatalogError ? (
                 <span className="text-xs text-[var(--destructive)]" role="alert">
@@ -562,6 +578,7 @@ function ProjectCreator({
                 ariaLabel={t('dashboard.creator.createAria')}
                 disabled={!canCreate}
                 loading={isCreating}
+                loadingLabel={creationPhaseLabel(t, creationPhase)}
                 onClick={() => formRef.current?.requestSubmit()}
               >
                 {t('dashboard.creator.createAction')}
@@ -572,6 +589,16 @@ function ProjectCreator({
       </form>
     </section>
   );
+}
+
+function creationPhaseLabel(t: TranslateFn, phase: ProjectCreationPhase): string {
+  switch (phase) {
+    case 'validating': return t('dashboard.creator.validating');
+    case 'creating_project': return t('dashboard.creator.creatingProject');
+    case 'uploading_context': return t('dashboard.creator.uploadingContext');
+    case 'opening_project': return t('dashboard.creator.openingProject');
+    case 'idle': return t('dashboard.creator.createAction');
+  }
 }
 
 async function uploadDashboardFiles(projectId: string, files: File[]): Promise<void> {

@@ -250,6 +250,7 @@ export const en = {
     creator: {
       createAction: 'Send',
       createAria: 'Create prototype',
+      creatingProject: 'Creating…',
       errorFallback: 'Could not create the project. Please try again.',
       chooseFiles: 'Choose reference files',
       heroTitle: 'What will you prototype today?',
@@ -257,7 +258,10 @@ export const en = {
       modelLabel: 'Model',
       projectNameLabel: 'Prototype prompt',
       projectNamePlaceholder: 'Describe the prototype you want to create...',
+      openingProject: 'Opening…',
       removeFile: 'Remove file {{name}}',
+      uploadingContext: 'Uploading…',
+      validating: 'Validating…',
       stagedFiles: 'Staged reference files',
       title: 'New prototype',
       untitledProjectTitle: 'Untitled',

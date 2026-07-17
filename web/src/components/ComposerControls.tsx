@@ -147,6 +147,7 @@ export function ComposerSendButton({
   children,
   disabled = false,
   loading = false,
+  loadingLabel,
   onClick,
   stop = false,
   title,
@@ -155,6 +156,7 @@ export function ComposerSendButton({
   children: React.ReactNode;
   disabled?: boolean;
   loading?: boolean;
+  loadingLabel?: string;
   onClick?: () => void;
   stop?: boolean;
   title?: string;
@@ -170,8 +172,11 @@ export function ComposerSendButton({
       onClick={onClick}
     >
       {loading ? (
-        <span className="composer-send-loading-icon">
-          <LoadingIcon size={14} title={ariaLabel} />
+        <span className="inline-flex items-center gap-1.5">
+          <span className="composer-send-loading-icon">
+            <LoadingIcon size={14} title={ariaLabel} />
+          </span>
+          <span>{loadingLabel ?? children}</span>
         </span>
       ) : children}
     </Button>
