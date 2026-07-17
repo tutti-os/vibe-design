@@ -195,6 +195,18 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       });
       const run = runs.create({ projectId: 'project-1', agentId: 'codex' });
       const runtime = createRecordingRuntime([
+        {
+          type: 'status',
+          status: 'initializing',
+          message: 'agent_timing',
+          diagnostic: {
+            kind: 'timing',
+            phase: 'prepare',
+            stage: 'provider_plan',
+            elapsedMs: 12,
+            totalElapsedMs: 20,
+          },
+        },
         { type: 'text_delta', text: '流程已打通。' },
         { type: 'tool_call', id: 'cmd-1', name: 'Bash', input: { command: 'ls -la' } },
         { type: 'tool_result', id: 'cmd-1', name: 'Bash', output: { output: 'total 8\n' }, status: 'completed' },
@@ -226,6 +238,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         prompt: 'Reply and list files',
         model: 'gpt-5-codex',
         reasoning: 'high',
+        metadata: { timingDiagnostics: true },
       });
       expect(typeof runtime.inputs[0]?.systemPrompt).toBe('string');
       expect(run.events.map((event) => event.event)).toEqual(['start', 'text_delta', 'tool_use', 'tool_result', 'end']);
