@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -118,6 +118,59 @@ async function startAgentRun(input: StartAgentRunInput): Promise<void> {
 }
 
 describe('startAgentRun', { timeout: 10_000 }, () => {
+  it('reconciles project files before invoking an agent without a prior page load', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-preparation-'));
+    try {
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(root, 'projects');
+      const projectDir = join(projectsDir, 'project-1');
+      const assetsDir = join(projectDir, 'assets');
+      await Promise.all([
+        mkdir(builtInSkillsRoot, { recursive: true }),
+        mkdir(userSkillsRoot, { recursive: true }),
+        mkdir(assetsDir, { recursive: true }),
+      ]);
+      writeProjectToStore(projectsDir, {
+        id: 'project-1',
+        designSystemId: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        tabsState: { tabs: [], activeTabKey: null },
+        metadata: {},
+      });
+      const staleRoot = join(projectDir, 'index.html');
+      const currentAsset = join(assetsDir, 'index.html');
+      await writeFile(staleRoot, '<html>stale root</html>', 'utf8');
+      await writeFile(currentAsset, '<html>current asset</html>', 'utf8');
+      const now = Date.now() / 1000;
+      await utimes(staleRoot, now - 60, now - 60);
+      await utimes(currentAsset, now, now);
+
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({ projectId: 'project-1', agentId: 'codex' });
+      const runtime = createRecordingRuntime();
+
+      await startAgentRun({
+        run,
+        runs,
+        request: { projectId: 'project-1', prompt: 'Continue editing', agentId: 'codex' },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+      });
+
+      expect(runtime.inputs).toHaveLength(1);
+      await expect(readFile(staleRoot, 'utf8')).resolves.toBe('<html>current asset</html>');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('runs Codex through the ACP kit runtime and maps kit events into existing run events', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-'));
     try {

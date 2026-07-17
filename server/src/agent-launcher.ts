@@ -19,6 +19,7 @@ import {
 } from './conversations.js';
 import { composeSystemPrompt, type ComposeInput } from './prompts/system.js';
 import { localAgentRuntime } from './local-agent-runtime.js';
+import { prepareProjectFilesWithHistory } from './project-file-preparation.js';
 import { findSkillById, listSkills, type SkillInfo } from './skills.js';
 import { resolveTuttiAgentSkillBundle } from './tutti-agent-skill-bundle.js';
 import {
@@ -99,8 +100,21 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   const agentCwd = projectWorkspaceDir;
 
   const locale = readString(request.locale) ?? undefined;
-  const skill = await resolveRequestedSkill(request, paths);
-  const activeDesignSystem = await resolveProjectDesignSystem(projectId, paths, locale);
+  const [skill, activeDesignSystem, conversationMessages] = await Promise.all([
+    resolveRequestedSkill(request, paths),
+    resolveProjectDesignSystem(projectId, paths, locale),
+    projectId && run.conversationId
+      ? listConversationMessages(paths.projectsDir, projectId, run.conversationId)
+      : Promise.resolve(null),
+  ]);
+  if (projectId) {
+    await prepareProjectFilesWithHistory(
+      paths.projectsDir,
+      projectId,
+      (conversationMessages ?? []).flatMap((message) =>
+        Array.isArray(message.events) ? [message.events] : []),
+    );
+  }
   const systemPrompt = composeSystemPrompt({
     agentId: provider,
     skillBody: skill?.body,
@@ -125,7 +139,12 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     ...formatSelectedDesignFilesSection(request.context, projectWorkspaceDir, projectId, paths.projectsDir),
     ...formatAttachedPreviewCommentsSection(request.commentAttachments),
   ].join('\n');
-  const history = await buildConversationHistory(paths.projectsDir, run, userPrompt);
+  const history = await buildConversationHistory(
+    paths.projectsDir,
+    run,
+    userPrompt,
+    conversationMessages,
+  );
   const resume = buildProviderResume(run);
   const workspaceCwd = resolveTuttiWorkspaceCwd(projectWorkspaceDir);
   const requestedModel = readString(request.model) ?? undefined;
@@ -501,6 +520,7 @@ async function buildConversationHistory(
   projectsDir: string,
   run: ChatRun,
   currentPrompt: string,
+  preparedMessages?: StoredConversationMessage[] | null,
 ): Promise<AcpAgentRunMessage[]> {
   if (!run.projectId || !run.conversationId) {
     return [];
@@ -510,7 +530,9 @@ async function buildConversationHistory(
     return [];
   }
 
-  const messages = await listConversationMessages(projectsDir, run.projectId, run.conversationId);
+  const messages = preparedMessages === undefined
+    ? await listConversationMessages(projectsDir, run.projectId, run.conversationId)
+    : preparedMessages;
   if (!messages) {
     return [];
   }
