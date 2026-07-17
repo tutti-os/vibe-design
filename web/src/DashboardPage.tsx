@@ -410,6 +410,10 @@ function ProjectCreator({
         await uploadDashboardFiles(project.id, stagedFiles);
       } catch (uploadError) {
         setError(uploadError instanceof Error ? uploadError.message : t('dashboard.creator.errorFallback'));
+        // The project exists, but its reference context is incomplete. Keep the
+        // prompt and files in the dashboard so the user can retry deliberately
+        // instead of navigating away and silently losing the upload.
+        return;
       }
       stashInitialProjectPrompt(project.id, nextPrompt);
       stashInitialProjectSkills(project.id, selectedSkillIds);

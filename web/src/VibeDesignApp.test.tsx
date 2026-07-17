@@ -1767,7 +1767,7 @@ describe('VibeDesignApp', () => {
     }
   });
 
-  it('opens the created project when dashboard reference file upload fails', async () => {
+  it('keeps dashboard context when reference file upload fails', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } }),
     );
@@ -1809,7 +1809,10 @@ describe('VibeDesignApp', () => {
         method: 'POST',
         body: expect.any(FormData),
       });
-      expect(openedProjects).toEqual(['project-upload-failed']);
+      expect(openedProjects).toEqual([]);
+      expect(container.textContent).toContain('Could not upload reference files.');
+      expect(getByLabelText(container, 'Prototype prompt').textContent).toContain('参考 brief 做登录页');
+      expect(getByLabelText(container, 'Staged reference files').textContent).toContain('brief.md');
     } finally {
       cleanup(root, container);
       vi.unstubAllGlobals();
