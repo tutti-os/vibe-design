@@ -36,14 +36,20 @@ export function materializeArtifactRunEvent(projectsDir: string, run: ChatRun, e
   if (!run.projectId || !isRecord(event)) return Promise.resolve();
 
   const projectKey = materializerKey(projectsDir, run.projectId);
-  const materialization = (projectMaterializations.get(projectKey) ?? Promise.resolve())
+  const previous = projectMaterializations.get(projectKey) ?? Promise.resolve();
+  let materialization: Promise<void>;
+  materialization = previous
+    // One failed disk write must not poison every event already queued behind
+    // it. The failed caller still observes its own error, while the next event
+    // starts from a clean per-run parser state below.
+    .catch(() => undefined)
     .then(() => materializeArtifactRunEventNow(projectsDir, run, event));
-  projectMaterializations.set(projectKey, materialization);
-  void materialization.finally(() => {
+  materialization = materialization.finally(() => {
     if (projectMaterializations.get(projectKey) === materialization) {
       projectMaterializations.delete(projectKey);
     }
   });
+  projectMaterializations.set(projectKey, materialization);
   return materialization;
 }
 
@@ -58,7 +64,12 @@ async function materializeArtifactRunEventNow(projectsDir: string, run: ChatRun,
   const state = materializerStates.get(key) ?? createMaterializerState();
   materializerStates.set(key, state);
 
-  await materializeArtifactEvent(projectsDir, run.projectId, state, event, OVERWRITE_ARTIFACT);
+  try {
+    await materializeArtifactEvent(projectsDir, run.projectId, state, event, OVERWRITE_ARTIFACT);
+  } catch (error) {
+    materializerStates.delete(key);
+    throw error;
+  }
 
   if (event.type === 'end' || event.type === 'error') {
     materializerStates.delete(key);

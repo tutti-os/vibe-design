@@ -25,15 +25,21 @@ export function prepareProjectFilesWithHistory(
   const key = `${projectsDir}\0${projectId}`;
   const existing = historyPreparation.get(key);
   const liveMaterialization = waitForProjectArtifactMaterialization(projectsDir, projectId);
-  const historyBackfill = existing ?? liveMaterialization.then(async () => {
+  let historyBackfill = existing;
+  if (!historyBackfill) {
+    const preparation = liveMaterialization.then(async () => {
       for (const events of eventBatches) {
         await materializeProjectArtifactsFromEvents(projectsDir, projectId, events);
       }
-    })
-    .catch((error) => {
-      historyPreparation.delete(key);
-      throw error;
     });
-  if (!existing) historyPreparation.set(key, historyBackfill);
+    let trackedPreparation: Promise<void>;
+    trackedPreparation = preparation.finally(() => {
+      if (historyPreparation.get(key) === trackedPreparation) {
+        historyPreparation.delete(key);
+      }
+    });
+    historyBackfill = trackedPreparation;
+    historyPreparation.set(key, trackedPreparation);
+  }
   return historyBackfill.then(() => prepareProjectFilesFromDisk(projectsDir, projectId));
 }
