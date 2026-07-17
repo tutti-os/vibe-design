@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { upsertProjectFileInStore } from './sqlite-store.js';
 import type { ChatRun } from './types/run.js';
@@ -26,53 +26,73 @@ interface MaterializeOptions {
 }
 
 const materializerStates = new Map<string, MaterializerState>();
+const projectMaterializations = new Map<string, Promise<void>>();
 const OPEN_PREFIX = '<artifact';
 const CLOSE_TAG = '</artifact>';
 const OVERWRITE_ARTIFACT: MaterializeOptions = { overwriteExisting: true };
 const BACKFILL_ARTIFACT: MaterializeOptions = { overwriteExisting: false };
 
-export function materializeArtifactRunEvent(projectsDir: string, run: ChatRun, event: unknown): void {
-  if (!run.projectId || !isRecord(event)) return;
+export function materializeArtifactRunEvent(projectsDir: string, run: ChatRun, event: unknown): Promise<void> {
+  if (!run.projectId || !isRecord(event)) return Promise.resolve();
+
+  const projectKey = materializerKey(projectsDir, run.projectId);
+  const materialization = (projectMaterializations.get(projectKey) ?? Promise.resolve())
+    .then(() => materializeArtifactRunEventNow(projectsDir, run, event));
+  projectMaterializations.set(projectKey, materialization);
+  void materialization.finally(() => {
+    if (projectMaterializations.get(projectKey) === materialization) {
+      projectMaterializations.delete(projectKey);
+    }
+  });
+  return materialization;
+}
+
+export async function waitForProjectArtifactMaterialization(projectsDir: string, projectId: string): Promise<void> {
+  await projectMaterializations.get(materializerKey(projectsDir, projectId));
+}
+
+async function materializeArtifactRunEventNow(projectsDir: string, run: ChatRun, event: Record<string, unknown>): Promise<void> {
+  if (!run.projectId) return;
 
   const key = materializerKey(projectsDir, run.id);
   const state = materializerStates.get(key) ?? createMaterializerState();
   materializerStates.set(key, state);
 
-  materializeArtifactEvent(projectsDir, run.projectId, state, event, OVERWRITE_ARTIFACT);
+  await materializeArtifactEvent(projectsDir, run.projectId, state, event, OVERWRITE_ARTIFACT);
 
   if (event.type === 'end' || event.type === 'error') {
     materializerStates.delete(key);
   }
 }
 
-export function materializeProjectArtifactsFromEvents(
+export async function materializeProjectArtifactsFromEvents(
   projectsDir: string,
   projectId: string,
   events: unknown[],
-): void {
+): Promise<void> {
   const state = createMaterializerState();
   for (const event of events) {
     if (isRecord(event)) {
-      materializeArtifactEvent(projectsDir, projectId, state, event, BACKFILL_ARTIFACT);
+      await materializeArtifactEvent(projectsDir, projectId, state, event, BACKFILL_ARTIFACT);
     }
   }
   for (const parsed of state.parser.flush()) {
-    handleParserEvent(projectsDir, projectId, state, parsed, BACKFILL_ARTIFACT);
+    await handleParserEvent(projectsDir, projectId, state, parsed, BACKFILL_ARTIFACT);
   }
 }
 
-function materializeArtifactEvent(
+async function materializeArtifactEvent(
   projectsDir: string,
   projectId: string,
   state: MaterializerState,
   event: Record<string, unknown>,
   options: MaterializeOptions,
-): void {
+): Promise<void> {
   if (event.type === 'text_delta') {
     const delta = typeof event.delta === 'string' ? event.delta : typeof event.text === 'string' ? event.text : '';
     if (delta) {
       for (const parsed of state.parser.feed(delta)) {
-        handleParserEvent(projectsDir, projectId, state, parsed, options);
+        await handleParserEvent(projectsDir, projectId, state, parsed, options);
       }
     }
     return;
@@ -80,7 +100,7 @@ function materializeArtifactEvent(
 
   if (event.type === 'end' || event.type === 'error') {
     for (const parsed of state.parser.flush()) {
-      handleParserEvent(projectsDir, projectId, state, parsed, options);
+      await handleParserEvent(projectsDir, projectId, state, parsed, options);
     }
   }
 }
@@ -92,13 +112,13 @@ function createMaterializerState(): MaterializerState {
   };
 }
 
-function handleParserEvent(
+async function handleParserEvent(
   projectsDir: string,
   projectId: string,
   state: MaterializerState,
   event: ArtifactParserEvent,
   options: MaterializeOptions,
-): void {
+): Promise<void> {
   if (event.type === 'text') return;
 
   if (event.type === 'artifact:start') {
@@ -129,12 +149,17 @@ function handleParserEvent(
   const content = Buffer.from(artifact.html, 'utf8');
   const assetDir = path.join(projectsDir, projectId, 'assets');
   const assetPath = path.join(assetDir, name);
-  mkdirSync(assetDir, { recursive: true });
-  const fileSize = !options.overwriteExisting && existsSync(assetPath)
-    ? statSync(assetPath).size
-    : content.length;
-  if (options.overwriteExisting || !existsSync(assetPath)) {
-    writeFileSync(assetPath, content);
+  await mkdir(assetDir, { recursive: true });
+  let fileSize = content.length;
+  if (options.overwriteExisting) {
+    await writeFile(assetPath, content);
+  } else {
+    try {
+      await writeFile(assetPath, content, { flag: 'wx' });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      fileSize = (await stat(assetPath)).size;
+    }
   }
   upsertProjectFileInStore(projectsDir, projectId, {
     name,

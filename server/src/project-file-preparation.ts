@@ -1,4 +1,4 @@
-import { materializeProjectArtifactsFromEvents } from './artifact-materializer.js';
+import { materializeProjectArtifactsFromEvents, waitForProjectArtifactMaterialization } from './artifact-materializer.js';
 import { reconcileProjectFilesFromDisk } from './project-file-reconciler.js';
 
 const diskPreparation = new Map<string, Promise<void>>();
@@ -7,11 +7,14 @@ const historyPreparation = new Map<string, Promise<void>>();
 export function prepareProjectFilesFromDisk(projectsDir: string, projectId: string): Promise<void> {
   const key = `${projectsDir}\0${projectId}`;
   const existing = diskPreparation.get(key);
-  if (existing) return existing;
-  const preparation = reconcileProjectFilesFromDisk(projectsDir, projectId).catch((error) => {
-    diskPreparation.delete(key);
-    throw error;
-  });
+  const liveMaterialization = waitForProjectArtifactMaterialization(projectsDir, projectId);
+  if (existing) return liveMaterialization.then(() => existing);
+  const preparation = liveMaterialization
+    .then(() => reconcileProjectFilesFromDisk(projectsDir, projectId))
+    .catch((error) => {
+      diskPreparation.delete(key);
+      throw error;
+    });
   diskPreparation.set(key, preparation);
   return preparation;
 }
@@ -23,11 +26,12 @@ export function prepareProjectFilesWithHistory(
 ): Promise<void> {
   const key = `${projectsDir}\0${projectId}`;
   const existing = historyPreparation.get(key);
-  if (existing) return existing;
-  const preparation = Promise.resolve()
-    .then(() => {
+  const liveMaterialization = waitForProjectArtifactMaterialization(projectsDir, projectId);
+  if (existing) return liveMaterialization.then(() => existing);
+  const preparation = liveMaterialization
+    .then(async () => {
       for (const events of eventBatches) {
-        materializeProjectArtifactsFromEvents(projectsDir, projectId, events);
+        await materializeProjectArtifactsFromEvents(projectsDir, projectId, events);
       }
     })
     .then(() => prepareProjectFilesFromDisk(projectsDir, projectId))
