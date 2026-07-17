@@ -10,7 +10,13 @@ import {
 import { createAgentRegistry, type RuntimeAgentDef } from './agents.js';
 import { createConversation, upsertConversationMessage } from './conversations.js';
 import { createChatRunService } from './runs.js';
-import { listProjectFilesFromStore, upsertProjectFileInStore, writeProjectToStore } from './sqlite-store.js';
+import { prepareProjectFilesFromDisk } from './project-file-preparation.js';
+import {
+  getProjectFilePreparationState,
+  listProjectFilesFromStore,
+  upsertProjectFileInStore,
+  writeProjectToStore,
+} from './sqlite-store.js';
 import type { SseResponse } from './http/sse.js';
 
 function createNoopSseResponse(): SseResponse {
@@ -165,7 +171,9 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       });
 
       expect(runtime.inputs).toHaveLength(1);
-      await expect(readFile(staleRoot, 'utf8')).resolves.toBe('<html>current asset</html>');
+      // assets/ is canonical. The legacy root copy remains untouched as a
+      // compatibility/rollback fallback and is no longer synchronized back.
+      await expect(readFile(staleRoot, 'utf8')).resolves.toBe('<html>stale root</html>');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -187,6 +195,18 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       });
       const run = runs.create({ projectId: 'project-1', agentId: 'codex' });
       const runtime = createRecordingRuntime([
+        {
+          type: 'status',
+          status: 'initializing',
+          message: 'agent_timing',
+          diagnostic: {
+            kind: 'timing',
+            phase: 'prepare',
+            stage: 'provider_plan',
+            elapsedMs: 12,
+            totalElapsedMs: 20,
+          },
+        },
         { type: 'text_delta', text: '流程已打通。' },
         { type: 'tool_call', id: 'cmd-1', name: 'Bash', input: { command: 'ls -la' } },
         { type: 'tool_result', id: 'cmd-1', name: 'Bash', output: { output: 'total 8\n' }, status: 'completed' },
@@ -218,6 +238,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         prompt: 'Reply and list files',
         model: 'gpt-5-codex',
         reasoning: 'high',
+        metadata: { timingDiagnostics: true },
       });
       expect(typeof runtime.inputs[0]?.systemPrompt).toBe('string');
       expect(run.events.map((event) => event.event)).toEqual(['start', 'text_delta', 'tool_use', 'tool_result', 'end']);
@@ -1978,6 +1999,57 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       expect(run.errorCode).toBe('AGENT_EXECUTION_FAILED');
       expect(run.error).toBe('Codex auth failed: missing OPENAI_API_KEY');
       expect(run.events.map((event) => event.event)).toEqual(['start', 'stderr', 'error', 'end']);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a successful provider result when the terminal scan fails and recovers from the dirty marker', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-scan-recovery-'));
+    try {
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(root, 'projects');
+      const projectId = 'project-1';
+      const assetsPath = join(projectsDir, projectId, 'assets');
+      await Promise.all([mkdir(builtInSkillsRoot, { recursive: true }), mkdir(userSkillsRoot, { recursive: true })]);
+      writeProjectToStore(projectsDir, {
+        id: projectId,
+        designSystemId: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        tabsState: { tabs: [], activeTabKey: null },
+        metadata: {},
+      });
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({ projectId, agentId: 'codex' });
+      const runtime: LocalAgentRuntime = {
+        async cancel() {},
+        async *run() {
+          await rm(assetsPath, { recursive: true, force: true });
+          await writeFile(assetsPath, 'blocks directory creation', 'utf8');
+          yield { type: 'done', status: 'completed', exitCode: 0 } as never;
+        },
+      };
+
+      await startAgentRun({
+        run,
+        runs,
+        request: { projectId, prompt: 'Finish successfully', agentId: 'codex' },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+      });
+
+      expect(run.status).toBe('succeeded');
+      expect(getProjectFilePreparationState(projectsDir, projectId)?.scanDirty).toBe(true);
+      await rm(assetsPath, { force: true });
+      await prepareProjectFilesFromDisk(projectsDir, projectId);
+      expect(getProjectFilePreparationState(projectsDir, projectId)?.scanDirty).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

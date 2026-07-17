@@ -971,7 +971,8 @@ async function createProjectEditorInitialData(
   await prepareProjectFilesWithHistory(
     projectsDir,
     project.id,
-    (messages ?? []).flatMap((message) => Array.isArray(message.events) ? [message.events] : []),
+    (messages ?? []).flatMap((message) =>
+      Array.isArray(message.events) ? [{ id: message.id, events: message.events }] : []),
   );
   const files = await Promise.all(listProjectFilesFromStore(projectsDir, project.id).map(async (file) => {
     const kind = workspaceFileKind(file.kind);

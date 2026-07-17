@@ -7,6 +7,7 @@ import {
   type DetectContext,
 } from '@tutti-os/agent-acp-kit';
 import { type AgentRegistry } from './agents.js';
+import { createAgentRunTimingLogger } from './agent-run-timing.js';
 import {
   createFileOutputProtocolParser,
   type FileOutputProtocolEvent,
@@ -19,7 +20,12 @@ import {
 } from './conversations.js';
 import { composeSystemPrompt, type ComposeInput } from './prompts/system.js';
 import { localAgentRuntime } from './local-agent-runtime.js';
-import { prepareProjectFilesWithHistory } from './project-file-preparation.js';
+import { enqueueProjectFileOperation } from './project-file-coordinator.js';
+import {
+  markProjectFilesDirty,
+  prepareProjectFilesWithHistory,
+  scanProjectFilesAfterRun,
+} from './project-file-preparation.js';
 import { findSkillById, listSkills, type SkillInfo } from './skills.js';
 import { resolveTuttiAgentSkillBundle } from './tutti-agent-skill-bundle.js';
 import {
@@ -75,6 +81,32 @@ const MAX_AGENT_STDERR_REASON_CHARS = 4_000;
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_HISTORY_MESSAGE_CHARS = 6_000;
 
+type AgentTimingDiagnostic = {
+  kind: 'timing';
+  phase: 'prepare' | 'run';
+  stage: string;
+  elapsedMs: number;
+  totalElapsedMs: number;
+  outcome?: 'completed' | 'failed' | 'canceled';
+};
+
+function readAgentTimingDiagnostic(event: AcpAgentEvent): AgentTimingDiagnostic | undefined {
+  if (event.type !== 'status') return undefined;
+  const diagnostic = (event as unknown as { diagnostic?: unknown }).diagnostic;
+  if (!diagnostic || typeof diagnostic !== 'object') return undefined;
+  const candidate = diagnostic as Partial<AgentTimingDiagnostic>;
+  if (
+    candidate.kind !== 'timing'
+    || (candidate.phase !== 'prepare' && candidate.phase !== 'run')
+    || typeof candidate.stage !== 'string'
+    || typeof candidate.elapsedMs !== 'number'
+    || typeof candidate.totalElapsedMs !== 'number'
+  ) {
+    return undefined;
+  }
+  return candidate as AgentTimingDiagnostic;
+}
+
 export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   const { run, runs, request, paths } = input;
   const registry = input.registry ?? defaultAgentRegistry;
@@ -94,26 +126,39 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     return;
   }
 
+  const timing = createAgentRunTimingLogger({
+    runId: run.id,
+    provider,
+    agentTargetId,
+  });
+  timing.emit('agent_prepare_started');
+
   const projectId = readString(request.projectId) ?? run.projectId;
   const projectWorkspaceDir = projectId ? join(paths.projectsDir, projectId) : paths.projectsDir;
-  await mkdir(projectWorkspaceDir, { recursive: true });
+  await timing.measure('prepare', 'project_directory', () =>
+    mkdir(projectWorkspaceDir, { recursive: true }));
   const agentCwd = projectWorkspaceDir;
 
   const locale = readString(request.locale) ?? undefined;
+  const conversationId = run.conversationId;
   const [skill, activeDesignSystem, conversationMessages] = await Promise.all([
-    resolveRequestedSkill(request, paths),
-    resolveProjectDesignSystem(projectId, paths, locale),
-    projectId && run.conversationId
-      ? listConversationMessages(paths.projectsDir, projectId, run.conversationId)
+    timing.measure('prepare', 'requested_skill', () =>
+      resolveRequestedSkill(request, paths)),
+    timing.measure('prepare', 'design_system', () =>
+      resolveProjectDesignSystem(projectId, paths, locale)),
+    projectId && conversationId
+      ? timing.measure('prepare', 'conversation_messages', () =>
+          listConversationMessages(paths.projectsDir, projectId, conversationId))
       : Promise.resolve(null),
   ]);
   if (projectId) {
-    await prepareProjectFilesWithHistory(
-      paths.projectsDir,
-      projectId,
-      (conversationMessages ?? []).flatMap((message) =>
-        Array.isArray(message.events) ? [message.events] : []),
-    );
+    await timing.measure('prepare', 'project_files_reconcile', () =>
+      prepareProjectFilesWithHistory(
+        paths.projectsDir,
+        projectId,
+        (conversationMessages ?? []).flatMap((message) =>
+          Array.isArray(message.events) ? [{ id: message.id, events: message.events }] : []),
+      ));
   }
   const systemPrompt = composeSystemPrompt({
     agentId: provider,
@@ -139,12 +184,13 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     ...formatSelectedDesignFilesSection(request.context, projectWorkspaceDir, projectId, paths.projectsDir),
     ...formatAttachedPreviewCommentsSection(request.commentAttachments),
   ].join('\n');
-  const history = await buildConversationHistory(
-    paths.projectsDir,
-    run,
-    userPrompt,
-    conversationMessages,
-  );
+  const history = await timing.measure('prepare', 'conversation_history', () =>
+    buildConversationHistory(
+      paths.projectsDir,
+      run,
+      userPrompt,
+      conversationMessages,
+    ));
   const resume = buildProviderResume(run);
   const workspaceCwd = resolveTuttiWorkspaceCwd(projectWorkspaceDir);
   const requestedModel = readString(request.model) ?? undefined;
@@ -152,12 +198,13 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     ...(input.detectContext ?? {}),
     ...(!input.detectContext?.cwd ? { cwd: agentCwd } : {}),
   };
-  const tuttiSkillBundle = await (input.resolveAgentSkillBundle ?? resolveTuttiAgentSkillBundle)({
-    agentSessionId: run.id,
-    cwd: workspaceCwd,
-    detectContext: skillDetectContext,
-    agentTargetId,
-  });
+  const tuttiSkillBundle = await timing.measure('prepare', 'tutti_skill_context', () =>
+    (input.resolveAgentSkillBundle ?? resolveTuttiAgentSkillBundle)({
+      agentSessionId: run.id,
+      cwd: workspaceCwd,
+      detectContext: skillDetectContext,
+      agentTargetId,
+    }));
   if (run.cancelRequested || runs.isTerminal(run.status)) {
     return;
   }
@@ -172,9 +219,20 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     systemPrompt,
     tuttiSkillBundle.recommendedSystemPrompt?.content,
   ].filter((part): part is string => typeof part === 'string' && part.trim().length > 0).join('\n\n');
+  timing.emit('agent_prepare_done', {
+    phase: 'prepare',
+    history_count: history.length,
+    skill_count: tuttiSkillBundle.skillManifest.length,
+    has_design_system: activeDesignSystem != null,
+  });
 
   run.status = 'running';
   run.updatedAt = Date.now();
+  if (projectId) {
+    // A durable dirty marker makes a crashed provider run recoverable on the
+    // next file read or agent start.
+    markProjectFilesDirty(paths.projectsDir, projectId, run.id);
+  }
   runs.emit(run, 'start', {
     runId: run.id,
     agentTargetId,
@@ -266,9 +324,73 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       ...(tuttiSkillBundle.skillManifest.length > 0 ? { skillManifest: tuttiSkillBundle.skillManifest } : {}),
       signal: controller.signal,
       resume,
+      metadata: { timingDiagnostics: true },
     };
 
+    const executionStartedAt = Date.now();
+    let eventCount = 0;
+    let toolCallCount = 0;
+    let toolResultCount = 0;
+    let firstEventSeen = false;
+    let firstTextSeen = false;
+    let firstToolSeen = false;
+    const toolStartedAt = new Map<string, number>();
+    timing.emit('agent_execution_started', {
+      phase: 'run',
+      model: normalizedModel ?? 'default',
+      resume_mode: resume?.mode ?? 'fresh',
+    });
     for await (const event of agentRuntime.run(agentRunInput)) {
+      const timingDiagnostic = readAgentTimingDiagnostic(event);
+      if (timingDiagnostic) {
+        timing.emit('agent_kit_timing', {
+          phase: timingDiagnostic.phase,
+          stage: timingDiagnostic.stage,
+          elapsed_ms: timingDiagnostic.elapsedMs,
+          kit_total_elapsed_ms: timingDiagnostic.totalElapsedMs,
+          ...(timingDiagnostic.outcome ? { outcome: timingDiagnostic.outcome } : {}),
+        });
+        continue;
+      }
+      eventCount += 1;
+      if (!firstEventSeen) {
+        firstEventSeen = true;
+        timing.emit('agent_execution_first_event', {
+          phase: 'run',
+          elapsed_ms: Date.now() - executionStartedAt,
+          event_type: event.type,
+        });
+      }
+      if (!firstTextSeen && event.type === 'text_delta') {
+        firstTextSeen = true;
+        timing.emit('agent_execution_first_text', {
+          phase: 'run',
+          elapsed_ms: Date.now() - executionStartedAt,
+        });
+      }
+      if (event.type === 'tool_call') {
+        toolCallCount += 1;
+        toolStartedAt.set(event.id, Date.now());
+        if (!firstToolSeen) {
+          firstToolSeen = true;
+          timing.emit('agent_execution_first_tool', {
+            phase: 'run',
+            elapsed_ms: Date.now() - executionStartedAt,
+            tool_name: event.name,
+          });
+        }
+      }
+      if (event.type === 'tool_result') {
+        toolResultCount += 1;
+        const startedAt = toolStartedAt.get(event.id);
+        timing.emit('agent_tool_done', {
+          phase: 'run',
+          tool_name: event.name ?? 'unknown',
+          status: event.status ?? (event.isError ? 'failed' : 'completed'),
+          ...(startedAt ? { elapsed_ms: Date.now() - startedAt } : {}),
+        });
+        toolStartedAt.delete(event.id);
+      }
       if (event.type === 'file_write') {
         const materializedFile = await materializeAcpFileWrite(
           paths.projectsDir,
@@ -337,6 +459,15 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
           providerSessionId: projected.providerSessionId,
           resumeToken: projected.resumeToken,
         });
+        timing.emit('agent_execution_done', {
+          phase: 'run',
+          outcome: projected.status,
+          elapsed_ms: Date.now() - executionStartedAt,
+          event_count: eventCount,
+          tool_call_count: toolCallCount,
+          tool_result_count: toolResultCount,
+          unfinished_tool_count: toolStartedAt.size,
+        });
         runs.finish(run, projected.status, projected.exitCode);
         return;
       }
@@ -375,6 +506,15 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       return;
     }
 
+    timing.emit('agent_execution_done', {
+      phase: 'run',
+      outcome: run.cancelRequested ? 'canceled' : 'succeeded',
+      elapsed_ms: Date.now() - executionStartedAt,
+      event_count: eventCount,
+      tool_call_count: toolCallCount,
+      tool_result_count: toolResultCount,
+      unfinished_tool_count: toolStartedAt.size,
+    });
     runs.finish(run, run.cancelRequested ? 'canceled' : 'succeeded', 0);
   } catch (error) {
     if (runs.isTerminal(run.status)) {
@@ -382,13 +522,36 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     }
 
     if (controller.signal.aborted || run.cancelRequested) {
+      timing.emit('agent_execution_error', {
+        phase: 'run',
+        outcome: 'canceled',
+        error_name: error instanceof Error ? error.name : 'unknown',
+      });
       runs.finish(run, 'canceled', null, 'SIGTERM');
       return;
     }
 
+    timing.emit('agent_execution_error', {
+      phase: 'run',
+      outcome: 'failed',
+      error_name: error instanceof Error ? error.name : 'unknown',
+    }, 'ERROR');
     runs.fail(run, 'AGENT_EXECUTION_FAILED', error instanceof Error ? error.message : String(error));
   } finally {
+    if (projectId) {
+      // Provider success/failure/cancellation must not be rewritten because a
+      // best-effort NFS metadata projection failed. The dirty marker remains
+      // set and the next request performs recovery.
+      await timing.measure('cleanup', 'project_files_scan', () =>
+        scanProjectFilesAfterRun(paths.projectsDir, projectId, run.id)).catch((error) => {
+          console.warn(`[vibe-design] project file scan deferred: ${error instanceof Error ? error.message : String(error)}`);
+        });
+    }
     run.acpSession = null;
+    timing.emit('agent_run_done', {
+      phase: 'cleanup',
+      outcome: run.status,
+    });
   }
 }
 
@@ -664,6 +827,18 @@ async function materializeAcpFileWrite(
     return null;
   }
 
+  return enqueueProjectFileOperation(projectsDir, projectId, () =>
+    materializeAcpFileWriteNow(projectsDir, projectId, cwd, rawPath, mimeOverride));
+}
+
+async function materializeAcpFileWriteNow(
+  projectsDir: string,
+  projectId: string,
+  cwd: string,
+  rawPath: string,
+  mimeOverride?: string | null,
+): Promise<{ name: string; mime: string } | null> {
+
   const sourcePath = resolveWorkspaceWritePath(cwd, rawPath);
   if (!sourcePath) {
     return null;
@@ -710,9 +885,16 @@ async function materializeProjectFileContent(
     return null;
   }
 
-  await mkdir(dirname(sourcePath), { recursive: true });
-  await writeFile(sourcePath, content, 'utf8');
-  return materializeAcpFileWrite(projectsDir, projectId, cwd, sourcePath, mimeOverride);
+  if (!projectId) {
+    await mkdir(dirname(sourcePath), { recursive: true });
+    await writeFile(sourcePath, content, 'utf8');
+    return null;
+  }
+  return enqueueProjectFileOperation(projectsDir, projectId, async () => {
+    await mkdir(dirname(sourcePath), { recursive: true });
+    await writeFile(sourcePath, content, 'utf8');
+    return materializeAcpFileWriteNow(projectsDir, projectId, cwd, sourcePath, mimeOverride);
+  });
 }
 
 async function materializeAcpWriteToolCall(

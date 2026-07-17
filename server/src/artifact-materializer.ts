@@ -1,6 +1,11 @@
 import { mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { upsertProjectFileInStore } from './sqlite-store.js';
+import { enqueueProjectFileOperation } from './project-file-coordinator.js';
+import {
+  getProjectFileFromStore,
+  isProjectFileTombstoned,
+  upsertProjectArtifactFileInStore,
+} from './sqlite-store.js';
 import type { ChatRun } from './types/run.js';
 
 type ArtifactParserEvent =
@@ -23,38 +28,21 @@ interface MaterializerState {
 
 interface MaterializeOptions {
   overwriteExisting: boolean;
+  preserveExistingNames?: ReadonlySet<string>;
+  clearTombstone?: boolean;
 }
 
 const materializerStates = new Map<string, MaterializerState>();
-const projectMaterializations = new Map<string, Promise<void>>();
 const OPEN_PREFIX = '<artifact';
 const CLOSE_TAG = '</artifact>';
-const OVERWRITE_ARTIFACT: MaterializeOptions = { overwriteExisting: true };
+const OVERWRITE_ARTIFACT: MaterializeOptions = { overwriteExisting: true, clearTombstone: true };
 const BACKFILL_ARTIFACT: MaterializeOptions = { overwriteExisting: false };
 
 export function materializeArtifactRunEvent(projectsDir: string, run: ChatRun, event: unknown): Promise<void> {
   if (!run.projectId || !isRecord(event)) return Promise.resolve();
 
-  const projectKey = materializerKey(projectsDir, run.projectId);
-  const previous = projectMaterializations.get(projectKey) ?? Promise.resolve();
-  let materialization: Promise<void>;
-  materialization = previous
-    // One failed disk write must not poison every event already queued behind
-    // it. The failed caller still observes its own error, while the next event
-    // starts from a clean per-run parser state below.
-    .catch(() => undefined)
-    .then(() => materializeArtifactRunEventNow(projectsDir, run, event));
-  materialization = materialization.finally(() => {
-    if (projectMaterializations.get(projectKey) === materialization) {
-      projectMaterializations.delete(projectKey);
-    }
-  });
-  projectMaterializations.set(projectKey, materialization);
-  return materialization;
-}
-
-export async function waitForProjectArtifactMaterialization(projectsDir: string, projectId: string): Promise<void> {
-  await projectMaterializations.get(materializerKey(projectsDir, projectId));
+  return enqueueProjectFileOperation(projectsDir, run.projectId, () =>
+    materializeArtifactRunEventNow(projectsDir, run, event));
 }
 
 async function materializeArtifactRunEventNow(projectsDir: string, run: ChatRun, event: Record<string, unknown>): Promise<void> {
@@ -80,15 +68,16 @@ export async function materializeProjectArtifactsFromEvents(
   projectsDir: string,
   projectId: string,
   events: unknown[],
+  options: MaterializeOptions = BACKFILL_ARTIFACT,
 ): Promise<void> {
   const state = createMaterializerState();
   for (const event of events) {
     if (isRecord(event)) {
-      await materializeArtifactEvent(projectsDir, projectId, state, event, BACKFILL_ARTIFACT);
+      await materializeArtifactEvent(projectsDir, projectId, state, event, options);
     }
   }
   for (const parsed of state.parser.flush()) {
-    await handleParserEvent(projectsDir, projectId, state, parsed, BACKFILL_ARTIFACT);
+    await handleParserEvent(projectsDir, projectId, state, parsed, options);
   }
 }
 
@@ -157,28 +146,34 @@ async function handleParserEvent(
   if (!isCompleteHtmlDocument(artifact.html)) return;
 
   const name = artifactFileName(artifact);
+  // Durable history is replayed after restarts and must not undo an explicit
+  // user delete/rename. Only a new live provider event can revive the name.
+  if (!options.clearTombstone && isProjectFileTombstoned(projectsDir, projectId, name)) return;
   const content = Buffer.from(artifact.html, 'utf8');
   const assetDir = path.join(projectsDir, projectId, 'assets');
   const assetPath = path.join(assetDir, name);
   await mkdir(assetDir, { recursive: true });
   let fileSize = content.length;
-  if (options.overwriteExisting) {
+  if (options.overwriteExisting && !options.preserveExistingNames?.has(name)) {
     await writeFile(assetPath, content);
   } else {
     try {
       await writeFile(assetPath, content, { flag: 'wx' });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      fileSize = (await stat(assetPath)).size;
+      // The canonical asset was already indexed by the live materializer or
+      // one-time migration. Avoid another remote stat during history backfill.
+      fileSize = getProjectFileFromStore(projectsDir, projectId, name)?.size
+        ?? (await stat(assetPath)).size;
     }
   }
-  upsertProjectFileInStore(projectsDir, projectId, {
+  upsertProjectArtifactFileInStore(projectsDir, projectId, {
     name,
     path: `assets/${name}`,
     size: fileSize,
     kind: 'html',
     mime: artifact.artifactType || 'text/html',
-  });
+  }, { clearTombstone: options.clearTombstone });
 }
 
 function materializerKey(projectsDir: string, runId: string): string {
