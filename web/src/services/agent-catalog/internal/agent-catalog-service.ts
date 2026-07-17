@@ -44,7 +44,7 @@ export class AgentCatalogService implements IAgentCatalogService {
     if (this.inFlight) return this.inFlight;
 
     this.setSnapshot({ loading: true, error: null });
-    const request = fetchAgentModelCatalog()
+    const request = fetchAgentModelCatalog({ refresh: force })
       .then((catalog) => {
         this.loaded = true;
         this.setSnapshot({ catalog, loading: false, error: null });

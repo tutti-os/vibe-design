@@ -518,7 +518,7 @@ describe('createServer', () => {
       }),
     );
 
-    const response = await fetch(`http://127.0.0.1:${port}/api/agents/models`, {
+    const response = await fetch(`http://127.0.0.1:${port}/api/agents/models?refresh=1`, {
       headers: { 'X-TSH-Managed-Agent-Credential': 'credential-models-1' },
     });
     const body = await response.json();
@@ -958,7 +958,7 @@ describe('createServer', () => {
 
     expect(started.status).toBe(200);
     expect(startedContext).toBeUndefined();
-    expect(observedContexts).toContainEqual({ refresh: true });
+    expect(observedContexts).toContainEqual(undefined);
     expect(childEnv?.TSH_MANAGED_AGENT_INVOCATION_CREDENTIAL).toBeUndefined();
     expect(childEnv?.TSH_REVERSE_CAPABILITY_INVOCATION_CREDENTIAL).toBeUndefined();
     expect(JSON.stringify(started.body)).not.toContain('credential-session-start-1');
@@ -1272,13 +1272,14 @@ describe('createServer', () => {
     expect(dashboardResponse.status).toBe(200);
     expect(await dashboardResponse.text()).toContain('"supported":false');
     expect((await fetch(`http://127.0.0.1:${port}/index.html`)).status).toBe(200);
-    expect(detectContexts).toHaveLength(2);
+    expect(detectContexts).toHaveLength(1);
     expect(detectContexts[0]?.refresh).not.toBe(true);
-    expect(detectContexts[1]?.refresh).not.toBe(true);
 
     expect((await fetch(`http://127.0.0.1:${port}/api/agents/models`)).status).toBe(200);
-    expect(detectContexts).toHaveLength(3);
-    expect(detectContexts[2]?.refresh).toBe(true);
+    expect(detectContexts).toHaveLength(1);
+    expect((await fetch(`http://127.0.0.1:${port}/api/agents/models?refresh=1`)).status).toBe(200);
+    expect(detectContexts).toHaveLength(2);
+    expect(detectContexts[1]?.refresh).toBe(true);
   });
 
   it('serves the project editor page under /project/:projectId', async () => {
@@ -1964,7 +1965,7 @@ describe('createServer', () => {
     expect(createResponse.status).toBe(202);
     const created = await createResponse.json() as { runId: string };
     expect(started).toHaveLength(1);
-    expect(observedContexts[0]).toEqual({ refresh: true });
+    expect(observedContexts[0]).toBeUndefined();
     expect(started[0]?.detectContext).toBeUndefined();
 
     const statusResponse = await fetch(`http://127.0.0.1:${port}/api/runs/${created.runId}`);
@@ -2013,7 +2014,7 @@ describe('createServer', () => {
 
     expect(response.status).toBe(200);
     expect(started).toHaveLength(1);
-    expect(observedContexts[0]).toEqual({ refresh: true });
+    expect(observedContexts[0]).toBeUndefined();
     expect(started[0]?.detectContext).toBeUndefined();
     expect(streamText).not.toContain('credential-chat-header-1');
   });
@@ -2110,7 +2111,7 @@ describe('createServer', () => {
       },
     });
     expect(startedRequests).toEqual([]);
-    expect(detectContexts.at(-1)).toMatchObject({ refresh: true });
+    expect(detectContexts.at(-1)).toBeUndefined();
   });
 
   it('fails runs closed on catalog detection errors without exposing a sentinel provider', async () => {

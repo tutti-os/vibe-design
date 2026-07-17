@@ -132,7 +132,6 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   const skillDetectContext: DetectContext = {
     ...(input.detectContext ?? {}),
     ...(!input.detectContext?.cwd ? { cwd: agentCwd } : {}),
-    refresh: true,
   };
   const tuttiSkillBundle = await (input.resolveAgentSkillBundle ?? resolveTuttiAgentSkillBundle)({
     agentSessionId: run.id,

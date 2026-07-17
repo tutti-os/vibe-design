@@ -8,8 +8,8 @@ import {
   resolveLegacyProviderAgentTargetId,
 } from './agent-catalog-types';
 
-export async function fetchAgentModelCatalog(): Promise<AgentModelCatalogEntry[]> {
-  const response = await fetch('/api/agents/models');
+export async function fetchAgentModelCatalog(options: { refresh?: boolean } = {}): Promise<AgentModelCatalogEntry[]> {
+  const response = await fetch(`/api/agents/models${options.refresh ? '?refresh=1' : ''}`);
   const data = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(readApiErrorMessage(data) ?? 'Agent model catalog request failed.');
@@ -17,10 +17,11 @@ export async function fetchAgentModelCatalog(): Promise<AgentModelCatalogEntry[]
   return readAgentModelCatalog(data);
 }
 
-export async function fetchAgentAvailability(): Promise<AgentAvailability[]> {
+export async function fetchAgentAvailability(options: { refresh?: boolean } = {}): Promise<AgentAvailability[]> {
+  const suffix = options.refresh ? '?refresh=1' : '';
   const [availabilityResponse, catalog] = await Promise.all([
-    fetch('/api/agents/availability'),
-    fetchAgentModelCatalog().catch(() => []),
+    fetch(`/api/agents/availability${suffix}`),
+    fetchAgentModelCatalog(options).catch(() => []),
   ]);
   const data = await availabilityResponse.json().catch(() => null);
   return availabilityResponse.ok ? readAgentAvailability(data, catalog) : [];

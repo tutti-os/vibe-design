@@ -182,7 +182,7 @@ export async function persistRunEventToConversation(
     event,
     record.timestamp,
   );
-  materializeArtifactRunEvent(projectsDir, run, event);
+  await materializeArtifactRunEvent(projectsDir, run, event);
 }
 
 function conversationEventFromRunRecord(record: EventRecord): unknown | null {

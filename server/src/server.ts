@@ -24,8 +24,7 @@ import {
 } from './agent-provider-snapshot.js';
 import { createSseErrorPayload, createSseResponse } from './http/sse.js';
 import { startAgentRun, type StartAgentRunInput } from './agent-launcher.js';
-import { materializeProjectArtifactsFromEvents } from './artifact-materializer.js';
-import { reconcileProjectFilesFromDisk } from './project-file-reconciler.js';
+import { prepareProjectFilesWithHistory } from './project-file-preparation.js';
 import {
   bindConversationAgentTarget,
   createAssistantMessageId,
@@ -331,7 +330,7 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     }
     let agentAvailability: AgentAvailability[];
     try {
-      agentAvailability = await detectAgentAvailability({ ...detectContext, refresh: true });
+      agentAvailability = await detectAgentAvailability(detectContext);
     } catch (error) {
       return {
         ok: false,
@@ -778,8 +777,10 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     runs.start(run, (startedRun) => startRunFromRequest(startedRun, persistentBody));
   });
 
-  app.get('/api/agents/models', async (_req: Request, res: Response): Promise<void> => {
-    const modelCatalog = await detectAgentModelCatalog({ refresh: true }).catch(() => []);
+  app.get('/api/agents/models', async (req: Request, res: Response): Promise<void> => {
+    const modelCatalog = await detectAgentModelCatalog(
+      req.query.refresh === '1' ? { refresh: true } : undefined,
+    ).catch(() => []);
     res.json({
       agents: modelCatalog.map((agent) => ({
         agentTargetId: agent.agentTargetId,
@@ -796,9 +797,11 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     });
   });
 
-  app.get('/api/agents/availability', async (_req: Request, res: Response): Promise<void> => {
+  app.get('/api/agents/availability', async (req: Request, res: Response): Promise<void> => {
     res.json({
-      agentAvailability: await detectAgentAvailability({ refresh: true }).catch(() => []),
+      agentAvailability: await detectAgentAvailability(
+        req.query.refresh === '1' ? { refresh: true } : undefined,
+      ).catch(() => []),
     });
   });
 
@@ -883,8 +886,11 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   });
 
   app.get(['/', '/index.html'], async (_req: Request, res: Response) => {
-    const recentProjects = await listProjectSummaries(projectsDir, 20);
-    const agentModelCatalog = (await detectAgentModelCatalog().catch(() => []))
+    const [recentProjects, detectedCatalog] = await Promise.all([
+      listProjectSummaries(projectsDir, 20),
+      settleWithin(detectAgentModelCatalog().catch(() => []), 250, []),
+    ]);
+    const agentModelCatalog = detectedCatalog
       .map((entry) => ({
         agentTargetId: entry.agentTargetId,
         providerId: entry.providerId,
@@ -904,13 +910,14 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       return;
     }
 
-    const project = await ensureProject(ctx, route.projectId);
+    const [project, agentAvailability] = await Promise.all([
+      ensureProject(ctx, route.projectId),
+      settleWithin(detectAgentAvailability().catch(() => []), 250, []),
+    ]);
     const projectEditor = await createProjectEditorInitialData(
       projectsDir,
       project,
-      await detectAgentAvailability(
-        undefined,
-      ).catch(() => []),
+      agentAvailability,
       runs,
     );
     sendNoStore(res);
@@ -938,6 +945,16 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   return http.createServer(app);
 }
 
+function settleWithin<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve(fallback), timeoutMs);
+    void promise.then((value) => {
+      clearTimeout(timeout);
+      resolve(value);
+    });
+  });
+}
+
 function readBody(value: unknown): Record<string, unknown> | null {
   return isRecord(value) ? value : null;
 }
@@ -951,13 +968,11 @@ async function createProjectEditorInitialData(
   const conversations = await listConversations(projectsDir, project.id);
   const activeConversation = conversations[0] ?? (await ensureDefaultConversation(projectsDir, project.id, readProjectTitle(project)));
   const messages = await listConversationMessages(projectsDir, project.id, activeConversation.id);
-  for (const message of messages ?? []) {
-    if (Array.isArray(message.events)) {
-      materializeProjectArtifactsFromEvents(projectsDir, project.id, message.events);
-    }
-  }
-  await reconcileProjectFilesFromDisk(projectsDir, project.id);
-
+  await prepareProjectFilesWithHistory(
+    projectsDir,
+    project.id,
+    (messages ?? []).flatMap((message) => Array.isArray(message.events) ? [message.events] : []),
+  );
   const files = await Promise.all(listProjectFilesFromStore(projectsDir, project.id).map(async (file) => {
     const kind = workspaceFileKind(file.kind);
     const url = `/api/projects/${encodeURIComponent(project.id)}/files/${encodeURIComponent(file.name)}`;
