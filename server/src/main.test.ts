@@ -2360,7 +2360,8 @@ describe('createServer', () => {
   });
 
   it('persists project tabs-state and supports flat project file CRUD', async () => {
-    const port = await listenOnRandomPort(createTestServer({ runtimeDir: await createRuntimeDir() }));
+    const runtimeDir = await createRuntimeDir();
+    const port = await listenOnRandomPort(createTestServer({ runtimeDir }));
     const baseUrl = `http://127.0.0.1:${port}/api/projects/project-1`;
 
     const tabsState = {
@@ -2489,6 +2490,10 @@ describe('createServer', () => {
     expect(previewHtml).toContain('scrollbar-width:none');
     expect(previewHtml).toContain("thumb.setAttribute('data-vd-preview-scrollbar','thumb')");
 
+    const legacyRoot = join(runtimeDir, 'projects', 'project-1');
+    await writeFile(join(legacyRoot, 'index.html'), '<main>legacy stale copy</main>', 'utf8');
+    await writeFile(join(legacyRoot, 'home.html'), '<main>legacy target collision</main>', 'utf8');
+
     const renameResponse = await fetch(`${baseUrl}/files/${encodeURIComponent('index.html')}`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
@@ -2498,12 +2503,17 @@ describe('createServer', () => {
     expect(await renameResponse.json()).toMatchObject({
       file: { name: 'home.html', kind: 'html' },
     });
+    await expect(readFile(join(legacyRoot, 'index.html'), 'utf8')).rejects.toThrow();
+    await expect(readFile(join(legacyRoot, 'home.html'), 'utf8')).resolves.toContain('legacy target collision');
+
+    await writeFile(join(legacyRoot, 'home.html'), '<main>new legacy copy</main>', 'utf8');
 
     const deleteResponse = await fetch(`${baseUrl}/files/${encodeURIComponent('home.html')}`, {
       method: 'DELETE',
     });
     expect(deleteResponse.status).toBe(200);
     expect(await deleteResponse.json()).toEqual({ ok: true });
+    await expect(readFile(join(legacyRoot, 'home.html'), 'utf8')).rejects.toThrow();
   });
 
   it('stores uploaded file contents under project assets and keeps only metadata in sqlite', async () => {

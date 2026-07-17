@@ -19,7 +19,12 @@ import {
 } from './conversations.js';
 import { composeSystemPrompt, type ComposeInput } from './prompts/system.js';
 import { localAgentRuntime } from './local-agent-runtime.js';
-import { prepareProjectFilesWithHistory } from './project-file-preparation.js';
+import { enqueueProjectFileOperation } from './project-file-coordinator.js';
+import {
+  markProjectFilesDirty,
+  prepareProjectFilesWithHistory,
+  scanProjectFilesAfterRun,
+} from './project-file-preparation.js';
 import { findSkillById, listSkills, type SkillInfo } from './skills.js';
 import { resolveTuttiAgentSkillBundle } from './tutti-agent-skill-bundle.js';
 import {
@@ -112,7 +117,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       paths.projectsDir,
       projectId,
       (conversationMessages ?? []).flatMap((message) =>
-        Array.isArray(message.events) ? [message.events] : []),
+        Array.isArray(message.events) ? [{ id: message.id, events: message.events }] : []),
     );
   }
   const systemPrompt = composeSystemPrompt({
@@ -175,6 +180,11 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
 
   run.status = 'running';
   run.updatedAt = Date.now();
+  if (projectId) {
+    // A durable dirty marker makes a crashed provider run recoverable on the
+    // next file read or agent start.
+    markProjectFilesDirty(paths.projectsDir, projectId, run.id);
+  }
   runs.emit(run, 'start', {
     runId: run.id,
     agentTargetId,
@@ -388,6 +398,14 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
 
     runs.fail(run, 'AGENT_EXECUTION_FAILED', error instanceof Error ? error.message : String(error));
   } finally {
+    if (projectId) {
+      // Provider success/failure/cancellation must not be rewritten because a
+      // best-effort NFS metadata projection failed. The dirty marker remains
+      // set and the next request performs recovery.
+      await scanProjectFilesAfterRun(paths.projectsDir, projectId, run.id).catch((error) => {
+        console.warn(`[vibe-design] project file scan deferred: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
     run.acpSession = null;
   }
 }
@@ -664,6 +682,18 @@ async function materializeAcpFileWrite(
     return null;
   }
 
+  return enqueueProjectFileOperation(projectsDir, projectId, () =>
+    materializeAcpFileWriteNow(projectsDir, projectId, cwd, rawPath, mimeOverride));
+}
+
+async function materializeAcpFileWriteNow(
+  projectsDir: string,
+  projectId: string,
+  cwd: string,
+  rawPath: string,
+  mimeOverride?: string | null,
+): Promise<{ name: string; mime: string } | null> {
+
   const sourcePath = resolveWorkspaceWritePath(cwd, rawPath);
   if (!sourcePath) {
     return null;
@@ -710,9 +740,16 @@ async function materializeProjectFileContent(
     return null;
   }
 
-  await mkdir(dirname(sourcePath), { recursive: true });
-  await writeFile(sourcePath, content, 'utf8');
-  return materializeAcpFileWrite(projectsDir, projectId, cwd, sourcePath, mimeOverride);
+  if (!projectId) {
+    await mkdir(dirname(sourcePath), { recursive: true });
+    await writeFile(sourcePath, content, 'utf8');
+    return null;
+  }
+  return enqueueProjectFileOperation(projectsDir, projectId, async () => {
+    await mkdir(dirname(sourcePath), { recursive: true });
+    await writeFile(sourcePath, content, 'utf8');
+    return materializeAcpFileWriteNow(projectsDir, projectId, cwd, sourcePath, mimeOverride);
+  });
 }
 
 async function materializeAcpWriteToolCall(

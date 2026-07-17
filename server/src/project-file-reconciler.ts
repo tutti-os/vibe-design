@@ -1,135 +1,228 @@
-import type { Stats } from 'node:fs';
-import { copyFile, mkdir, readFile, readdir, stat } from 'node:fs/promises';
+import type { Dirent, Stats } from 'node:fs';
+import { copyFile, mkdir, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { getProjectFileFromStore, upsertProjectFileInStore, type ProjectFileKind } from './sqlite-store.js';
+import {
+  clearProjectFileTombstone,
+  deleteProjectFileFromStore,
+  getLegacyRootFileBaseline,
+  getProjectFileFromStore,
+  getProjectFileTombstone,
+  listProjectFilesFromStore,
+  markLegacyRootFileBaseline,
+  upsertProjectFileMetadataInStore,
+  type ProjectFileKind,
+  type ProjectFileIdentity,
+} from './sqlite-store.js';
 
-export async function reconcileProjectFilesFromDisk(projectsDir: string, projectId: string): Promise<void> {
-  const projectDir = path.join(projectsDir, projectId);
-  const assetsDir = path.join(projectDir, 'assets');
-
-  await reconcileAssetDirectory(projectsDir, projectId, assetsDir);
-  await reconcileProjectRootFiles(projectsDir, projectId, projectDir, assetsDir);
-}
-
-async function reconcileAssetDirectory(projectsDir: string, projectId: string, assetsDir: string): Promise<void> {
-  const entries = await readdir(assetsDir, { withFileTypes: true }).catch(() => []);
-  for (const entry of entries) {
-    if (!entry.isFile() || !isSafeDesignFileName(entry.name)) {
-      continue;
-    }
-
-    if (getProjectFileFromStore(projectsDir, projectId, entry.name)) {
-      continue;
-    }
-
-    const assetPath = path.join(assetsDir, entry.name);
-    const assetStats = await stat(assetPath).catch(() => null);
-    if (!assetStats?.isFile()) {
-      continue;
-    }
-
-    upsertProjectFileInStore(projectsDir, projectId, {
-      name: entry.name,
-      path: projectAssetRelativePath(entry.name),
-      size: assetStats.size,
-      mime: getContentType(entry.name),
-      kind: getFileKind(entry.name),
-    });
-  }
-}
-
-async function reconcileProjectRootFiles(
+/**
+ * `assets/` is the canonical design-file location. The project root remains a
+ * compatibility ingress for older projects and providers that wrote files
+ * relative to the old cwd. Reconciliation compares metadata only; it never
+ * reads both copies to compare their contents.
+ *
+ * This function is intended for the one-time canonical migration and a single
+ * post-run scan, never for GET /files or other polling request paths.
+ */
+export async function reconcileProjectFilesFromDisk(
   projectsDir: string,
   projectId: string,
-  projectDir: string,
-  assetsDir: string,
+  options: { pruneMissing?: boolean; reviveTombstones?: boolean } = {},
 ): Promise<void> {
-  const entries = await readdir(projectDir, { withFileTypes: true }).catch(() => []);
-  for (const entry of entries) {
-    if (!entry.isFile() || !isSafeDesignFileName(entry.name)) {
-      continue;
-    }
+  const projectDir = path.join(projectsDir, projectId);
+  const assetsDir = path.join(projectDir, 'assets');
+  await mkdir(assetsDir, { recursive: true });
 
-    const sourcePath = path.join(projectDir, entry.name);
-    const sourceStats = await stat(sourcePath).catch(() => null);
-    if (!sourceStats?.isFile()) {
-      continue;
-    }
-
-    const assetPath = path.join(assetsDir, entry.name);
-    const existingAssetStats = await stat(assetPath).catch(() => null);
-
-    // Keep the served asset copy in sync with the project-root source file.
-    // The agent edits one copy in the workspace (the project root, or the
-    // assets/ copy it was handed as context); whichever was touched most
-    // recently is the source of truth and the other copy is refreshed from it.
-    // Without this, an Edit to an already-materialized file never reaches the
-    // preview — which reads from assets/ — so the agent reports success while
-    // the rendered file stays unchanged.
-    const assetStats = await syncProjectRootAndAsset(
-      sourcePath,
-      sourceStats,
-      assetPath,
-      existingAssetStats,
-      assetsDir,
-    );
-
-    const indexedSize = assetStats?.isFile() ? assetStats.size : sourceStats.size;
-    upsertProjectFileInStore(projectsDir, projectId, {
-      name: entry.name,
-      path: projectAssetRelativePath(entry.name),
-      size: indexedSize,
-      mime: getContentType(entry.name),
-      kind: getFileKind(entry.name),
-    });
-  }
-}
-
-// Reconcile the project-root source file and its served assets/ copy. When the
-// asset is missing it is created from the root. When both exist and their
-// contents diverge, the more recently modified file wins and is copied over the
-// other so the preview, the store, and the next agent run all read the same
-// bytes. Returns the stats of the asset copy after syncing.
-async function syncProjectRootAndAsset(
-  sourcePath: string,
-  sourceStats: Stats,
-  assetPath: string,
-  existingAssetStats: Stats | null,
-  assetsDir: string,
-): Promise<Stats | null> {
-  if (!existingAssetStats?.isFile()) {
-    await mkdir(assetsDir, { recursive: true });
-    await copyFile(sourcePath, assetPath);
-    return stat(assetPath).catch(() => null);
-  }
-
-  if (await filesHaveSameContent(sourcePath, assetPath)) {
-    return existingAssetStats;
-  }
-
-  if (sourceStats.mtimeMs >= existingAssetStats.mtimeMs) {
-    await copyFile(sourcePath, assetPath);
-    return stat(assetPath).catch(() => null);
-  }
-
-  await copyFile(assetPath, sourcePath);
-  return existingAssetStats;
-}
-
-async function filesHaveSameContent(left: string, right: string): Promise<boolean> {
-  const [leftBuffer, rightBuffer] = await Promise.all([
-    readFile(left).catch(() => null),
-    readFile(right).catch(() => null),
+  const [rootEntries, initialAssetEntries] = await Promise.all([
+    readDesignEntries(projectDir),
+    readDesignEntries(assetsDir),
   ]);
-  if (!leftBuffer || !rightBuffer) {
-    return false;
+  const initialAssetNames = new Set(initialAssetEntries.map((entry) => entry.name));
+  const canonicalNames = new Set(initialAssetNames);
+  const rootIdentities = new Map<string, ProjectFileIdentity>();
+  const assetIdentities = new Map<string, ProjectFileIdentity>();
+
+  // Legacy root files are imported only when the canonical asset is missing or
+  // the root copy is newer. The root copy is deliberately retained as a safe
+  // rollback/compatibility fallback, but is no longer served or copied back
+  // from assets.
+  await mapWithConcurrency(rootEntries, filesystemConcurrency, async (entry) => {
+    const sourcePath = path.join(projectDir, entry.name);
+    const assetPath = path.join(assetsDir, entry.name);
+    const [sourceStats, assetStats] = await Promise.all([
+      statFile(sourcePath),
+      initialAssetNames.has(entry.name) ? statFile(assetPath) : Promise.resolve(null),
+    ]);
+    if (!sourceStats) return;
+    rootIdentities.set(entry.name, identityFromStats(sourceStats));
+    const tombstoneDisposition = acceptRootTombstoneReplacement(
+      projectsDir,
+      projectId,
+      entry.name,
+      sourceStats,
+      assetStats,
+      options,
+    );
+    if (tombstoneDisposition === 'blocked') return;
+    const baseline = getLegacyRootFileBaseline(projectsDir, projectId, entry.name);
+    const hasIdentityBaseline = Boolean(baseline && (baseline.ctimeMs > 0 || baseline.ino > 0));
+    const changedFromBaseline = !baseline
+      || !sameTimestamp(baseline.mtimeMs, sourceStats.mtimeMs)
+      || baseline.size !== sourceStats.size
+      || (hasIdentityBaseline && baseline.ctimeMs !== sourceStats.ctimeMs)
+      || (hasIdentityBaseline && baseline.ino !== sourceStats.ino);
+    const inodeChangedFromBaseline = Boolean(hasIdentityBaseline && baseline && baseline.ino !== sourceStats.ino);
+    const sameCanonicalMtime = assetStats ? sameTimestamp(sourceStats.mtimeMs, assetStats.mtimeMs) : false;
+    const winsCanonicalSelection = !assetStats ||
+      sourceStats.mtimeMs > assetStats.mtimeMs + timestampToleranceMs ||
+      (sameCanonicalMtime && (
+        sourceStats.size !== assetStats.size
+        || sourceStats.ctimeMs > assetStats.ctimeMs
+        || inodeChangedFromBaseline
+      ));
+    if (tombstoneDisposition === 'revived-root' || (changedFromBaseline && winsCanonicalSelection)) {
+      await copyFile(sourcePath, assetPath);
+    }
+    markLegacyRootFileBaseline(projectsDir, projectId, entry.name, {
+      mtimeMs: sourceStats.mtimeMs,
+      size: sourceStats.size,
+      ctimeMs: sourceStats.ctimeMs,
+      ino: sourceStats.ino,
+    });
+    canonicalNames.add(entry.name);
+  });
+
+  const indexedCanonicalNames = new Set<string>();
+  await mapWithConcurrency([...canonicalNames], filesystemConcurrency, async (name) => {
+    const assetStats = await statFile(path.join(assetsDir, name));
+    if (!assetStats) return;
+    assetIdentities.set(name, identityFromStats(assetStats));
+    if (!acceptAssetTombstoneReplacement(projectsDir, projectId, name, assetStats, options)) return;
+    indexedCanonicalNames.add(name);
+    indexAsset(projectsDir, projectId, name, assetStats);
+  });
+
+  if (options.pruneMissing) {
+    for (const file of listProjectFilesFromStore(projectsDir, projectId)) {
+      if (!indexedCanonicalNames.has(file.name)) {
+        deleteProjectFileFromStore(projectsDir, projectId, file.name, {
+          assetIdentity: assetIdentities.get(file.name) ?? null,
+          rootIdentity: rootIdentities.get(file.name) ?? null,
+        });
+      }
+    }
   }
-  return leftBuffer.equals(rightBuffer);
 }
 
-function projectAssetRelativePath(name: string): string {
-  return `assets/${name}`;
+async function readDesignEntries(directory: string): Promise<Dirent[]> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if (isMissingError(error)) return [];
+    throw error;
+  }
+  return entries.filter((entry) => entry.isFile() && isSafeDesignFileName(entry.name));
 }
+
+async function statFile(filePath: string): Promise<Stats | null> {
+  let result: Stats;
+  try {
+    result = await stat(filePath);
+  } catch (error) {
+    if (isMissingError(error)) return null;
+    throw error;
+  }
+  return result?.isFile() ? result : null;
+}
+
+function isMissingError(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException)?.code === 'ENOENT';
+}
+
+function acceptRootTombstoneReplacement(
+  projectsDir: string,
+  projectId: string,
+  name: string,
+  rootStats: Stats,
+  assetStats: Stats | null,
+  options: { reviveTombstones?: boolean },
+): 'normal' | 'revived-root' | 'blocked' {
+  const tombstone = getProjectFileTombstone(projectsDir, projectId, name);
+  if (!tombstone) return 'normal';
+  if (!options.reviveTombstones || !tombstone.snapshotComplete) return 'blocked';
+  if (assetStats && identityChanged(tombstone.assetIdentity, identityFromStats(assetStats))) {
+    clearProjectFileTombstone(projectsDir, projectId, name);
+    return 'normal';
+  }
+  if (!identityChanged(tombstone.rootIdentity, identityFromStats(rootStats))) return 'blocked';
+  clearProjectFileTombstone(projectsDir, projectId, name);
+  return 'revived-root';
+}
+
+function acceptAssetTombstoneReplacement(
+  projectsDir: string,
+  projectId: string,
+  name: string,
+  stats: Stats,
+  options: { reviveTombstones?: boolean },
+): boolean {
+  const tombstone = getProjectFileTombstone(projectsDir, projectId, name);
+  if (!tombstone) return true;
+  if (!options.reviveTombstones || !tombstone.snapshotComplete) return false;
+  // Compare two snapshots from the same filesystem clock domain. Date.now is
+  // deliberately not involved: VM/NFS clocks may be offset from desktopd.
+  // An absent deleted-side snapshot followed by a present file is also an
+  // unambiguous new materialization.
+  if (!identityChanged(tombstone.assetIdentity, identityFromStats(stats))) return false;
+  clearProjectFileTombstone(projectsDir, projectId, name);
+  return true;
+}
+
+function identityChanged(deleted: ProjectFileIdentity | null | undefined, current: ProjectFileIdentity): boolean {
+  return !deleted || !sameFileIdentity(deleted, current);
+}
+
+function identityFromStats(stats: Stats): ProjectFileIdentity {
+  return { ino: stats.ino, size: stats.size, mtimeMs: stats.mtimeMs, ctimeMs: stats.ctimeMs };
+}
+
+function sameFileIdentity(left: ProjectFileIdentity, right: ProjectFileIdentity): boolean {
+  return left.ino === right.ino
+    && left.size === right.size
+    && left.mtimeMs === right.mtimeMs
+    && left.ctimeMs === right.ctimeMs;
+}
+
+function sameTimestamp(left: number, right: number): boolean {
+  return Math.abs(left - right) <= timestampToleranceMs;
+}
+
+const timestampToleranceMs = 1;
+
+function indexAsset(projectsDir: string, projectId: string, name: string, stats: Stats): void {
+  const existing = getProjectFileFromStore(projectsDir, projectId, name);
+  upsertProjectFileMetadataInStore(projectsDir, projectId, {
+    name,
+    path: `assets/${name}`,
+    size: stats.size,
+    mime: existing?.mime ?? getContentType(name),
+    kind: existing?.kind ?? getFileKind(name),
+    sourceMtimeMs: stats.mtimeMs,
+  });
+}
+
+async function mapWithConcurrency<T>(items: readonly T[], concurrency: number, work: (item: T) => Promise<void>): Promise<void> {
+  let nextIndex = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const item = items[nextIndex];
+      nextIndex += 1;
+      await work(item);
+    }
+  }));
+}
+
+const filesystemConcurrency = 8;
 
 function isSafeDesignFileName(name: string): boolean {
   return (
@@ -149,16 +242,7 @@ function getFileKind(name: string): ProjectFileKind {
   if (extension === '.js' || extension === '.mjs' || extension === '.ts' || extension === '.tsx') return 'code';
   if (extension === '.json') return 'json';
   if (extension === '.md' || extension === '.markdown') return 'text';
-  if (
-    extension === '.png' ||
-    extension === '.jpg' ||
-    extension === '.jpeg' ||
-    extension === '.gif' ||
-    extension === '.webp' ||
-    extension === '.svg'
-  ) {
-    return 'image';
-  }
+  if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'].includes(extension)) return 'image';
   return 'file';
 }
 

@@ -6,9 +6,11 @@ import type { Express, Request, Response } from 'express';
 import { ensureDefaultConversation } from '../conversations.js';
 import { listAvailableDesignSystems } from '../design-systems.js';
 import { prepareProjectFilesFromDisk } from '../project-file-preparation.js';
+import { enqueueProjectFileOperation } from '../project-file-coordinator.js';
 import type { RouteDeps } from '../server-context.js';
 import {
   deleteProjectFileFromStore,
+  deleteLegacyRootFileBaseline,
   deleteProjectFromStore,
   getProjectFileFromStore,
   getProjectFromStore,
@@ -18,10 +20,13 @@ import {
   listProjectSummariesFromStore,
   renameProjectFileInStore,
   sqlitePathForProjectsDir,
+  markLegacyRootFileBaseline,
   upsertProjectFileInStore,
   upsertPublicAssetInStore,
   writeProjectToStore,
   type ProjectFileKind,
+  type ProjectFileIdentity,
+  type ProjectFileTombstoneIdentities,
   type ProjectSummary,
   type ProjectTabsState,
   type ProjectTab,
@@ -379,15 +384,21 @@ export function registerProjectRoutes(app: Express, ctx: ProjectRouteDeps): void
 
     try {
       await ensureProject(ctx, safeParams.id);
-      const file = getProjectFileFromStore(ctx.paths.projectsDir, safeParams.id, safeParams.name);
-      if (!deleteProjectFileFromStore(ctx.paths.projectsDir, safeParams.id, safeParams.name)) {
-        sendApiError(res, 404, 'FILE_NOT_FOUND', 'file not found');
-        return;
-      }
-      if (file) {
-        await deleteProjectAsset(ctx.paths.projectsDir, safeParams.id, file.name);
-      }
-      res.json({ ok: true });
+      await enqueueProjectFileOperation(ctx.paths.projectsDir, safeParams.id, async () => {
+        const file = getProjectFileFromStore(ctx.paths.projectsDir, safeParams.id, safeParams.name);
+        const identities = await readProjectFileIdentities(ctx.paths.projectsDir, safeParams.id, safeParams.name);
+        if (!deleteProjectFileFromStore(ctx.paths.projectsDir, safeParams.id, safeParams.name, identities)) {
+          sendApiError(res, 404, 'FILE_NOT_FOUND', 'file not found');
+          return;
+        }
+        if (file) {
+          await Promise.all([
+            deleteProjectAsset(ctx.paths.projectsDir, safeParams.id, file.name),
+            deleteLegacyRootProjectFile(ctx.paths.projectsDir, safeParams.id, file.name),
+          ]);
+        }
+        res.json({ ok: true });
+      });
     } catch (error) {
       sendInternalError(ctx, res, error, 'project file delete failed');
     }
@@ -408,39 +419,58 @@ export function registerProjectRoutes(app: Express, ctx: ProjectRouteDeps): void
 
     try {
       await ensureProject(ctx, safeParams.id);
-      const currentFile = getProjectFileFromStore(ctx.paths.projectsDir, safeParams.id, safeParams.name);
-      if (!currentFile) {
-        sendApiError(res, 404, 'FILE_NOT_FOUND', 'file not found');
-        return;
-      }
-      if (getProjectFileFromStore(ctx.paths.projectsDir, safeParams.id, nextName)) {
-        sendApiError(res, 409, 'FILE_EXISTS', 'target file already exists');
-        return;
-      }
-      if (await projectAssetExists(ctx.paths.projectsDir, safeParams.id, nextName)) {
-        sendApiError(res, 409, 'FILE_EXISTS', 'target file already exists');
-        return;
-      }
-      await renameProjectAsset(ctx.paths.projectsDir, safeParams.id, safeParams.name, nextName);
-      const result = renameProjectFileInStore(ctx.paths.projectsDir, safeParams.id, safeParams.name, nextName);
-      if (result.status === 'exists') {
-        await renameProjectAsset(ctx.paths.projectsDir, safeParams.id, nextName, safeParams.name).catch(() => undefined);
-        sendApiError(res, 409, 'FILE_EXISTS', 'target file already exists');
-        return;
-      }
+      await enqueueProjectFileOperation(ctx.paths.projectsDir, safeParams.id, async () => {
+        const currentFile = getProjectFileFromStore(ctx.paths.projectsDir, safeParams.id, safeParams.name);
+        if (!currentFile) {
+          sendApiError(res, 404, 'FILE_NOT_FOUND', 'file not found');
+          return;
+        }
+        if (getProjectFileFromStore(ctx.paths.projectsDir, safeParams.id, nextName)) {
+          sendApiError(res, 409, 'FILE_EXISTS', 'target file already exists');
+          return;
+        }
+        if (await projectAssetExists(ctx.paths.projectsDir, safeParams.id, nextName)) {
+          sendApiError(res, 409, 'FILE_EXISTS', 'target file already exists');
+          return;
+        }
+        const deletedIdentities = await readProjectFileIdentities(
+          ctx.paths.projectsDir,
+          safeParams.id,
+          safeParams.name,
+        );
+        // Remove compatibility ingress copies before renaming the canonical
+        // asset so an old root file cannot resurrect either name later.
+        await Promise.all([
+          deleteLegacyRootProjectFile(ctx.paths.projectsDir, safeParams.id, safeParams.name),
+          suppressLegacyRootProjectFile(ctx.paths.projectsDir, safeParams.id, nextName),
+        ]);
+        await renameProjectAsset(ctx.paths.projectsDir, safeParams.id, safeParams.name, nextName);
+        const result = renameProjectFileInStore(
+          ctx.paths.projectsDir,
+          safeParams.id,
+          safeParams.name,
+          nextName,
+          deletedIdentities,
+        );
+        if (result.status === 'exists') {
+          await renameProjectAsset(ctx.paths.projectsDir, safeParams.id, nextName, safeParams.name).catch(() => undefined);
+          sendApiError(res, 409, 'FILE_EXISTS', 'target file already exists');
+          return;
+        }
 
-      if (result.status === 'missing') {
-        await renameProjectAsset(ctx.paths.projectsDir, safeParams.id, nextName, safeParams.name).catch(() => undefined);
-        sendApiError(res, 404, 'FILE_NOT_FOUND', 'file not found');
-        return;
-      }
+        if (result.status === 'missing') {
+          await renameProjectAsset(ctx.paths.projectsDir, safeParams.id, nextName, safeParams.name).catch(() => undefined);
+          sendApiError(res, 404, 'FILE_NOT_FOUND', 'file not found');
+          return;
+        }
 
-      if (result.status !== 'renamed') {
-        sendApiError(res, 500, 'INTERNAL', 'project file rename failed');
-        return;
-      }
+        if (result.status !== 'renamed') {
+          sendApiError(res, 500, 'INTERNAL', 'project file rename failed');
+          return;
+        }
 
-      res.json({ file: withProjectFileUrl(req, safeParams.id, result.file) });
+        res.json({ file: withProjectFileUrl(req, safeParams.id, result.file) });
+      });
     } catch (error) {
       sendInternalError(ctx, res, error, 'project file rename failed');
     }
@@ -522,17 +552,21 @@ export async function saveProjectFile(
   fileWrite: ProjectFileWrite,
 ) {
   await ensureProject(ctx, projectId);
-  const content = Buffer.isBuffer(fileWrite.content)
-    ? fileWrite.content
-    : Buffer.from(fileWrite.content, fileWrite.encoding ?? 'utf8');
-  const name = fileWrite.uniqueName ? await uniqueProjectFileName(ctx.paths.projectsDir, projectId, fileWrite.name) : fileWrite.name;
-  const relativePath = projectAssetRelativePath(name);
-  await writeProjectAsset(ctx.paths.projectsDir, projectId, name, content);
-  return upsertProjectFileInStore(ctx.paths.projectsDir, projectId, {
-    name,
-    path: relativePath,
-    size: content.length,
-    mime: fileWrite.mime ?? getContentType(name),
+  return enqueueProjectFileOperation(ctx.paths.projectsDir, projectId, async () => {
+    const content = Buffer.isBuffer(fileWrite.content)
+      ? fileWrite.content
+      : Buffer.from(fileWrite.content, fileWrite.encoding ?? 'utf8');
+    const name = fileWrite.uniqueName
+      ? await uniqueProjectFileName(ctx.paths.projectsDir, projectId, fileWrite.name)
+      : fileWrite.name;
+    const relativePath = projectAssetRelativePath(name);
+    await writeProjectAsset(ctx.paths.projectsDir, projectId, name, content);
+    return upsertProjectFileInStore(ctx.paths.projectsDir, projectId, {
+      name,
+      path: relativePath,
+      size: content.length,
+      mime: fileWrite.mime ?? getContentType(name),
+    });
   });
 }
 
@@ -826,6 +860,25 @@ async function deleteProjectAsset(projectsDir: string, projectId: string, name: 
   await rm(projectAssetPath(projectsDir, projectId, name), { force: true });
 }
 
+async function deleteLegacyRootProjectFile(projectsDir: string, projectId: string, name: string): Promise<void> {
+  await rm(path.join(projectsDir, projectId, name), { force: true });
+  deleteLegacyRootFileBaseline(projectsDir, projectId, name);
+}
+
+async function suppressLegacyRootProjectFile(projectsDir: string, projectId: string, name: string): Promise<void> {
+  const info = await stat(path.join(projectsDir, projectId, name)).catch(() => null);
+  if (!info?.isFile()) return;
+  // Keep an unindexed compatibility file recoverable, but record it as the
+  // durable baseline so it cannot overwrite the newly renamed canonical file
+  // unless a provider truly changes it later.
+  markLegacyRootFileBaseline(projectsDir, projectId, name, {
+    mtimeMs: info.mtimeMs,
+    size: info.size,
+    ctimeMs: info.ctimeMs,
+    ino: info.ino,
+  });
+}
+
 async function renameProjectAsset(projectsDir: string, projectId: string, name: string, nextName: string): Promise<void> {
   await rename(projectAssetPath(projectsDir, projectId, name), projectAssetPath(projectsDir, projectId, nextName));
 }
@@ -835,6 +888,29 @@ async function projectAssetExists(projectsDir: string, projectId: string, name: 
     return (await stat(projectAssetPath(projectsDir, projectId, name))).isFile();
   } catch {
     return false;
+  }
+}
+
+async function readProjectFileIdentities(
+  projectsDir: string,
+  projectId: string,
+  name: string,
+): Promise<ProjectFileTombstoneIdentities> {
+  const [assetIdentity, rootIdentity] = await Promise.all([
+    readOptionalProjectFileIdentity(projectAssetPath(projectsDir, projectId, name)),
+    readOptionalProjectFileIdentity(path.join(projectsDir, projectId, name)),
+  ]);
+  return { assetIdentity, rootIdentity };
+}
+
+async function readOptionalProjectFileIdentity(filePath: string): Promise<ProjectFileIdentity | null> {
+  try {
+    const info = await stat(filePath);
+    if (!info.isFile()) return null;
+    return { ino: info.ino, size: info.size, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
   }
 }
 

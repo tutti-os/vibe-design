@@ -175,6 +175,42 @@ interface ProjectFileRow {
   mime: string;
   kind: ProjectFileKind;
   updated_at: number;
+  source_mtime_ms?: number | null;
+  artifact_managed?: number;
+}
+
+export interface ProjectFilePreparationState {
+  canonicalVersion: number;
+  scanDirty: boolean;
+}
+
+export interface LegacyRootFileBaseline {
+  mtimeMs: number;
+  size: number;
+  ctimeMs: number;
+  ino: number;
+}
+
+export interface ArtifactBackfillWatermark {
+  eventCount: number;
+  lastEventId: string | null;
+}
+
+export interface ProjectFileIdentity {
+  ino: number;
+  size: number;
+  mtimeMs: number;
+  ctimeMs: number;
+}
+
+export interface ProjectFileTombstoneIdentities {
+  assetIdentity?: ProjectFileIdentity | null;
+  rootIdentity?: ProjectFileIdentity | null;
+}
+
+export interface ProjectFileTombstone extends ProjectFileTombstoneIdentities {
+  generation: number;
+  snapshotComplete: boolean;
 }
 
 interface ConversationRow {
@@ -347,24 +383,92 @@ export function upsertProjectFileInStore(
     mime?: string;
     kind?: ProjectFileKind;
   },
+  options: { clearTombstone?: boolean } = { clearTombstone: true },
 ): StoredProjectFile {
   const now = Date.now();
   const kind = file.kind ?? getFileKind(file.name);
   const mime = file.mime ?? getFileMime(file.name, kind);
   getStore(projectsDir)
     .prepare(
-      `INSERT INTO project_files (project_id, name, path, size, mime, kind, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO project_files (project_id, name, path, size, mime, kind, updated_at, artifact_managed)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0)
        ON CONFLICT(project_id, name) DO UPDATE SET
          path = excluded.path,
          size = excluded.size,
          mime = excluded.mime,
          kind = excluded.kind,
+         source_mtime_ms = NULL,
+         artifact_managed = 0,
          updated_at = excluded.updated_at`,
     )
     .run(projectId, file.name, file.path, file.size, mime, kind, now);
 
+  if (options.clearTombstone !== false) {
+    clearProjectFileTombstone(projectsDir, projectId, file.name);
+  }
+
   return { name: file.name, path: file.path, size: file.size, mtime: new Date(now).toISOString(), kind, mime };
+}
+
+export function upsertProjectArtifactFileInStore(
+  projectsDir: string,
+  projectId: string,
+  file: Parameters<typeof upsertProjectFileInStore>[2],
+  options?: { clearTombstone?: boolean },
+): StoredProjectFile {
+  const stored = upsertProjectFileInStore(projectsDir, projectId, file, options);
+  getStore(projectsDir).prepare(
+    'UPDATE project_files SET artifact_managed = 1 WHERE project_id = ? AND name = ?',
+  ).run(projectId, file.name);
+  return stored;
+}
+
+export function listNonArtifactManagedProjectFileNames(projectsDir: string, projectId: string): string[] {
+  const rows = getStore(projectsDir).prepare(
+    'SELECT name FROM project_files WHERE project_id = ? AND artifact_managed = 0',
+  ).all(projectId) as Array<{ name: string }>;
+  return rows.map((row) => row.name);
+}
+
+export function upsertProjectFileMetadataInStore(
+  projectsDir: string,
+  projectId: string,
+  file: {
+    name: string;
+    path: string;
+    size: number;
+    mime: string;
+    kind: ProjectFileKind;
+    sourceMtimeMs: number;
+  },
+): boolean {
+  const db = getStore(projectsDir);
+  const existing = db.prepare(
+    `SELECT path, size, mime, kind, source_mtime_ms
+     FROM project_files WHERE project_id = ? AND name = ?`,
+  ).get(projectId, file.name) as Pick<ProjectFileRow, 'path' | 'size' | 'mime' | 'kind' | 'source_mtime_ms'> | undefined;
+  if (
+    existing?.path === file.path &&
+    existing.size === file.size &&
+    existing.mime === file.mime &&
+    existing.kind === file.kind &&
+    existing.source_mtime_ms === file.sourceMtimeMs
+  ) {
+    return false;
+  }
+  const now = Date.now();
+  db.prepare(
+    `INSERT INTO project_files (project_id, name, path, size, mime, kind, updated_at, source_mtime_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(project_id, name) DO UPDATE SET
+       path = excluded.path,
+       size = excluded.size,
+       mime = excluded.mime,
+       kind = excluded.kind,
+       updated_at = excluded.updated_at,
+       source_mtime_ms = excluded.source_mtime_ms`,
+  ).run(projectId, file.name, file.path, file.size, file.mime, file.kind, now, file.sourceMtimeMs);
+  return true;
 }
 
 export function upsertPublicAssetInStore(
@@ -414,11 +518,217 @@ export function getPublicAssetFromStore(projectsDir: string, name: string): Stor
   return row ? { name: row.name, path: row.path, size: row.size, mime: row.mime, kind: row.kind } : null;
 }
 
-export function deleteProjectFileFromStore(projectsDir: string, projectId: string, name: string): boolean {
-  const result = getStore(projectsDir)
-    .prepare('DELETE FROM project_files WHERE project_id = ? AND name = ?')
-    .run(projectId, name);
-  return result.changes > 0;
+export function deleteProjectFileFromStore(
+  projectsDir: string,
+  projectId: string,
+  name: string,
+  identities: ProjectFileTombstoneIdentities = {},
+): boolean {
+  const db = getStore(projectsDir);
+  return db.transaction(() => {
+    const result = db.prepare('DELETE FROM project_files WHERE project_id = ? AND name = ?').run(projectId, name);
+    if (result.changes > 0) {
+      writeProjectFileTombstone(db, projectId, name, identities);
+    }
+    return result.changes > 0;
+  })();
+}
+
+export function isProjectFileTombstoned(projectsDir: string, projectId: string, name: string): boolean {
+  return getProjectFileTombstone(projectsDir, projectId, name) !== null;
+}
+
+export function getProjectFileTombstone(
+  projectsDir: string,
+  projectId: string,
+  name: string,
+): ProjectFileTombstone | null {
+  const row = getStore(projectsDir).prepare(
+    `SELECT generation, snapshot_complete, asset_identity_json, root_identity_json
+     FROM project_file_tombstones WHERE project_id = ? AND name = ?`,
+  ).get(projectId, name) as {
+    generation: number;
+    snapshot_complete: number;
+    asset_identity_json: string | null;
+    root_identity_json: string | null;
+  } | undefined;
+  if (!row) return null;
+  const assetIdentity = parseProjectFileIdentity(row.asset_identity_json);
+  const rootIdentity = parseProjectFileIdentity(row.root_identity_json);
+  return {
+    generation: row.generation,
+    snapshotComplete: row.snapshot_complete !== 0
+      && (row.asset_identity_json === null || assetIdentity !== null)
+      && (row.root_identity_json === null || rootIdentity !== null),
+    assetIdentity,
+    rootIdentity,
+  };
+}
+
+export function markProjectFileTombstone(
+  projectsDir: string,
+  projectId: string,
+  name: string,
+  identities: ProjectFileTombstoneIdentities = {},
+): void {
+  writeProjectFileTombstone(getStore(projectsDir), projectId, name, identities);
+}
+
+export function clearProjectFileTombstone(projectsDir: string, projectId: string, name: string): void {
+  getStore(projectsDir).prepare(
+    'DELETE FROM project_file_tombstones WHERE project_id = ? AND name = ?',
+  ).run(projectId, name);
+}
+
+function writeProjectFileTombstone(
+  db: SqliteDatabase,
+  projectId: string,
+  name: string,
+  identities: ProjectFileTombstoneIdentities,
+): void {
+  db.prepare(
+    `INSERT INTO project_file_tombstones (
+       project_id, name, deleted_at, generation, snapshot_complete, asset_identity_json, root_identity_json
+     ) VALUES (?, ?, ?, 1, 1, ?, ?)
+     ON CONFLICT(project_id, name) DO UPDATE SET
+       deleted_at = excluded.deleted_at,
+       generation = project_file_tombstones.generation + 1,
+       snapshot_complete = 1,
+       asset_identity_json = excluded.asset_identity_json,
+       root_identity_json = excluded.root_identity_json`,
+  ).run(
+    projectId,
+    name,
+    Date.now(),
+    identities.assetIdentity ? JSON.stringify(identities.assetIdentity) : null,
+    identities.rootIdentity ? JSON.stringify(identities.rootIdentity) : null,
+  );
+}
+
+function parseProjectFileIdentity(value: string | null): ProjectFileIdentity | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<ProjectFileIdentity>;
+    if (
+      typeof parsed.ino === 'number'
+      && typeof parsed.size === 'number'
+      && typeof parsed.mtimeMs === 'number'
+      && typeof parsed.ctimeMs === 'number'
+    ) {
+      return {
+        ino: parsed.ino,
+        size: parsed.size,
+        mtimeMs: parsed.mtimeMs,
+        ctimeMs: parsed.ctimeMs,
+      };
+    }
+  } catch {
+    // An unreadable legacy snapshot is deliberately non-revivable. Explicit
+    // live writes still clear the tombstone through their normal store upsert.
+  }
+  return null;
+}
+
+export function getProjectFilePreparationState(
+  projectsDir: string,
+  projectId: string,
+): ProjectFilePreparationState | null {
+  const row = getStore(projectsDir)
+    .prepare('SELECT canonical_version, scan_dirty FROM project_file_preparation WHERE project_id = ?')
+    .get(projectId) as { canonical_version: number; scan_dirty: number } | undefined;
+  return row ? { canonicalVersion: row.canonical_version, scanDirty: row.scan_dirty !== 0 } : null;
+}
+
+export function markProjectCanonicalPreparation(
+  projectsDir: string,
+  projectId: string,
+  canonicalVersion: number,
+): void {
+  getStore(projectsDir)
+    .prepare(
+      `INSERT INTO project_file_preparation (project_id, canonical_version, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(project_id) DO UPDATE SET
+         canonical_version = excluded.canonical_version,
+         updated_at = excluded.updated_at`,
+    )
+    .run(projectId, canonicalVersion, Date.now());
+}
+
+export function markProjectFileScanDirty(projectsDir: string, projectId: string, dirty: boolean): void {
+  getStore(projectsDir).prepare(
+    `INSERT INTO project_file_preparation (project_id, canonical_version, scan_dirty, updated_at)
+     VALUES (?, 0, ?, ?)
+     ON CONFLICT(project_id) DO UPDATE SET scan_dirty = excluded.scan_dirty, updated_at = excluded.updated_at`,
+  ).run(projectId, dirty ? 1 : 0, Date.now());
+}
+
+export function getLegacyRootFileBaseline(
+  projectsDir: string,
+  projectId: string,
+  name: string,
+): LegacyRootFileBaseline | null {
+  const row = getStore(projectsDir).prepare(
+    `SELECT mtime_ms, size, ctime_ms, ino FROM project_legacy_root_files WHERE project_id = ? AND name = ?`,
+  ).get(projectId, name) as { mtime_ms: number; size: number; ctime_ms: number; ino: number } | undefined;
+  return row ? { mtimeMs: row.mtime_ms, size: row.size, ctimeMs: row.ctime_ms, ino: row.ino } : null;
+}
+
+export function markLegacyRootFileBaseline(
+  projectsDir: string,
+  projectId: string,
+  name: string,
+  baseline: LegacyRootFileBaseline,
+): void {
+  getStore(projectsDir).prepare(
+    `INSERT INTO project_legacy_root_files (project_id, name, mtime_ms, size, ctime_ms, ino, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(project_id, name) DO UPDATE SET
+       mtime_ms = excluded.mtime_ms,
+       size = excluded.size,
+       ctime_ms = excluded.ctime_ms,
+       ino = excluded.ino,
+       updated_at = excluded.updated_at`,
+  ).run(projectId, name, baseline.mtimeMs, baseline.size, baseline.ctimeMs, baseline.ino, Date.now());
+}
+
+export function deleteLegacyRootFileBaseline(projectsDir: string, projectId: string, name: string): void {
+  getStore(projectsDir).prepare(
+    'DELETE FROM project_legacy_root_files WHERE project_id = ? AND name = ?',
+  ).run(projectId, name);
+}
+
+export function getArtifactBackfillWatermark(
+  projectsDir: string,
+  projectId: string,
+  batchId: string,
+): ArtifactBackfillWatermark | null {
+  const row = getStore(projectsDir)
+    .prepare(
+      `SELECT event_count, last_event_id
+       FROM project_artifact_backfills
+       WHERE project_id = ? AND batch_id = ?`,
+    )
+    .get(projectId, batchId) as { event_count: number; last_event_id: string | null } | undefined;
+  return row ? { eventCount: row.event_count, lastEventId: row.last_event_id } : null;
+}
+
+export function markArtifactBackfillWatermark(
+  projectsDir: string,
+  projectId: string,
+  batchId: string,
+  watermark: ArtifactBackfillWatermark,
+): void {
+  getStore(projectsDir)
+    .prepare(
+      `INSERT INTO project_artifact_backfills (project_id, batch_id, event_count, last_event_id, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(project_id, batch_id) DO UPDATE SET
+         event_count = excluded.event_count,
+         last_event_id = excluded.last_event_id,
+         updated_at = excluded.updated_at`,
+    )
+    .run(projectId, batchId, watermark.eventCount, watermark.lastEventId, Date.now());
 }
 
 export function renameProjectFileInStore(
@@ -426,6 +736,7 @@ export function renameProjectFileInStore(
   projectId: string,
   name: string,
   nextName: string,
+  identities: ProjectFileTombstoneIdentities = {},
 ): { status: 'renamed'; file: StoredProjectFile } | { status: 'missing' | 'exists' } {
   const db = getStore(projectsDir);
   const tx = db.transaction(() => {
@@ -456,6 +767,8 @@ export function renameProjectFileInStore(
       projectId,
       name,
     );
+    writeProjectFileTombstone(db, projectId, name, identities);
+    db.prepare('DELETE FROM project_file_tombstones WHERE project_id = ? AND name = ?').run(projectId, nextName);
     return {
       status: 'renamed' as const,
       file: { name: nextName, path: nextPath, size: existing.size, mtime: new Date(now).toISOString(), kind, mime },
@@ -1093,6 +1406,50 @@ function migrate(db: SqliteDatabase): void {
       mime TEXT NOT NULL,
       kind TEXT NOT NULL,
       updated_at INTEGER NOT NULL,
+      source_mtime_ms REAL,
+      artifact_managed INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (project_id, name),
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS project_file_preparation (
+      project_id TEXT PRIMARY KEY,
+      canonical_version INTEGER NOT NULL,
+      scan_dirty INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS project_legacy_root_files (
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      mtime_ms REAL NOT NULL,
+      size INTEGER NOT NULL,
+      ctime_ms REAL NOT NULL DEFAULT 0,
+      ino INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (project_id, name),
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS project_artifact_backfills (
+      project_id TEXT NOT NULL,
+      batch_id TEXT NOT NULL,
+      event_count INTEGER NOT NULL,
+      last_event_id TEXT,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (project_id, batch_id),
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS project_file_tombstones (
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      deleted_at INTEGER NOT NULL,
+      generation INTEGER NOT NULL DEFAULT 1,
+      snapshot_complete INTEGER NOT NULL DEFAULT 0,
+      asset_identity_json TEXT,
+      root_identity_json TEXT,
       PRIMARY KEY (project_id, name),
       FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
@@ -1178,6 +1535,38 @@ function migrate(db: SqliteDatabase): void {
   }
   if (!messageColumns.some((column) => column.name === 'context_json')) {
     db.exec("ALTER TABLE messages ADD COLUMN context_json TEXT NOT NULL DEFAULT 'null'");
+  }
+
+  const projectFileColumns = db.prepare('PRAGMA table_info(project_files)').all() as Array<{ name: string }>;
+  if (!projectFileColumns.some((column) => column.name === 'source_mtime_ms')) {
+    db.exec('ALTER TABLE project_files ADD COLUMN source_mtime_ms REAL');
+  }
+  if (!projectFileColumns.some((column) => column.name === 'artifact_managed')) {
+    db.exec('ALTER TABLE project_files ADD COLUMN artifact_managed INTEGER NOT NULL DEFAULT 0');
+  }
+  const preparationColumns = db.prepare('PRAGMA table_info(project_file_preparation)').all() as Array<{ name: string }>;
+  if (!preparationColumns.some((column) => column.name === 'scan_dirty')) {
+    db.exec('ALTER TABLE project_file_preparation ADD COLUMN scan_dirty INTEGER NOT NULL DEFAULT 0');
+  }
+  const legacyRootColumns = db.prepare('PRAGMA table_info(project_legacy_root_files)').all() as Array<{ name: string }>;
+  if (!legacyRootColumns.some((column) => column.name === 'ctime_ms')) {
+    db.exec('ALTER TABLE project_legacy_root_files ADD COLUMN ctime_ms REAL NOT NULL DEFAULT 0');
+  }
+  if (!legacyRootColumns.some((column) => column.name === 'ino')) {
+    db.exec('ALTER TABLE project_legacy_root_files ADD COLUMN ino INTEGER NOT NULL DEFAULT 0');
+  }
+  const tombstoneColumns = db.prepare('PRAGMA table_info(project_file_tombstones)').all() as Array<{ name: string }>;
+  if (!tombstoneColumns.some((column) => column.name === 'generation')) {
+    db.exec('ALTER TABLE project_file_tombstones ADD COLUMN generation INTEGER NOT NULL DEFAULT 1');
+  }
+  if (!tombstoneColumns.some((column) => column.name === 'snapshot_complete')) {
+    db.exec('ALTER TABLE project_file_tombstones ADD COLUMN snapshot_complete INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!tombstoneColumns.some((column) => column.name === 'asset_identity_json')) {
+    db.exec('ALTER TABLE project_file_tombstones ADD COLUMN asset_identity_json TEXT');
+  }
+  if (!tombstoneColumns.some((column) => column.name === 'root_identity_json')) {
+    db.exec('ALTER TABLE project_file_tombstones ADD COLUMN root_identity_json TEXT');
   }
 
   const conversationColumns = db.prepare('PRAGMA table_info(conversations)').all() as Array<{ name: string }>;
