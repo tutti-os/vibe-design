@@ -238,7 +238,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       expect(skillInputs).toEqual([expect.objectContaining({
         cwd: agentCwd,
         agentTargetId: 'team:writer',
-        detectContext: expect.objectContaining({ cwd: agentCwd, refresh: true }),
+        detectContext: { cwd: agentCwd },
       })]);
       expect(runtime.inputs[0]).toMatchObject({
         cwd: agentCwd,

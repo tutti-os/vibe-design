@@ -57,15 +57,26 @@ export function createAgentProviderSnapshotDetector(detectProviders: DetectAgent
   detect(context?: DetectContext): Promise<AgentProviderSnapshot[]>;
 } {
   const inFlight = new Map<string, Promise<AgentProviderSnapshot[]>>();
+  const resolved = new Map<string, AgentProviderSnapshot[]>();
 
   return {
     detect(context?: DetectContext): Promise<AgentProviderSnapshot[]> {
       const key = providerSnapshotKey(context);
+      if (!context?.refresh) {
+        const cached = resolved.get(key);
+        if (cached) return Promise.resolve(cached.map(cloneProvider));
+      }
       const existing = inFlight.get(key);
       if (existing) return existing;
 
       const detection = Promise.resolve()
         .then(() => detectProviders(context))
+        .then((providers) => {
+          const normalKey = providerSnapshotKey({ ...context, refresh: false });
+          const snapshot = providers.map(cloneProvider);
+          resolved.set(normalKey, snapshot);
+          return snapshot.map(cloneProvider);
+        })
         .finally(() => {
           if (inFlight.get(key) === detection) {
             inFlight.delete(key);
@@ -75,6 +86,10 @@ export function createAgentProviderSnapshotDetector(detectProviders: DetectAgent
       return detection;
     },
   };
+}
+
+function cloneProvider(provider: AgentProviderSnapshot): AgentProviderSnapshot {
+  return { ...provider, models: provider.models.map((model) => ({ ...model })) };
 }
 
 function providerSnapshotKey(context?: DetectContext): string {

@@ -5,7 +5,7 @@ import path from 'node:path';
 import type { Express, Request, Response } from 'express';
 import { ensureDefaultConversation } from '../conversations.js';
 import { listAvailableDesignSystems } from '../design-systems.js';
-import { reconcileProjectFilesFromDisk } from '../project-file-reconciler.js';
+import { prepareProjectFilesFromDisk } from '../project-file-preparation.js';
 import type { RouteDeps } from '../server-context.js';
 import {
   deleteProjectFileFromStore,
@@ -281,7 +281,7 @@ export function registerProjectRoutes(app: Express, ctx: ProjectRouteDeps): void
 
     try {
       await ensureProject(ctx, id);
-      await reconcileProjectFilesFromDisk(ctx.paths.projectsDir, id);
+      await prepareProjectFilesFromDisk(ctx.paths.projectsDir, id);
       const files: ProjectFile[] = listProjectFilesFromStore(ctx.paths.projectsDir, id)
         .map((file) => withProjectFileUrl(req, id, file));
       res.json({ files });

@@ -1945,7 +1945,7 @@ describe('VibeDesignApp', () => {
   it('lets an empty dashboard catalog recover by loading the authoritative catalog', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      if (url === '/api/agents/models') {
+      if (url === '/api/agents/models?refresh=1') {
         return Response.json({
           agents: [
             {
@@ -1981,7 +1981,7 @@ describe('VibeDesignApp', () => {
         expect(getByLabelText(container, 'Model').textContent).toContain('Tutti Agent');
       });
       expect(container.textContent).not.toContain('Claude Code');
-      expect(fetch).toHaveBeenCalledWith('/api/agents/models');
+      expect(fetch).toHaveBeenCalledWith('/api/agents/models?refresh=1');
     } finally {
       cleanup(root, container);
       vi.unstubAllGlobals();
