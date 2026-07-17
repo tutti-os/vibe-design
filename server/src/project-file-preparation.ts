@@ -10,13 +10,11 @@ export function prepareProjectFilesFromDisk(projectsDir: string, projectId: stri
   const liveMaterialization = waitForProjectArtifactMaterialization(projectsDir, projectId);
   if (existing) return liveMaterialization.then(() => existing);
   const preparation = liveMaterialization
-    .then(() => reconcileProjectFilesFromDisk(projectsDir, projectId))
-    .catch((error) => {
-      diskPreparation.delete(key);
-      throw error;
-    });
+    .then(() => reconcileProjectFilesFromDisk(projectsDir, projectId));
   diskPreparation.set(key, preparation);
-  return preparation;
+  return preparation.finally(() => {
+    if (diskPreparation.get(key) === preparation) diskPreparation.delete(key);
+  });
 }
 
 export function prepareProjectFilesWithHistory(
@@ -27,18 +25,15 @@ export function prepareProjectFilesWithHistory(
   const key = `${projectsDir}\0${projectId}`;
   const existing = historyPreparation.get(key);
   const liveMaterialization = waitForProjectArtifactMaterialization(projectsDir, projectId);
-  if (existing) return liveMaterialization.then(() => existing);
-  const preparation = liveMaterialization
-    .then(async () => {
+  const historyBackfill = existing ?? liveMaterialization.then(async () => {
       for (const events of eventBatches) {
         await materializeProjectArtifactsFromEvents(projectsDir, projectId, events);
       }
     })
-    .then(() => prepareProjectFilesFromDisk(projectsDir, projectId))
     .catch((error) => {
       historyPreparation.delete(key);
       throw error;
     });
-  historyPreparation.set(key, preparation);
-  return preparation;
+  if (!existing) historyPreparation.set(key, historyBackfill);
+  return historyBackfill.then(() => prepareProjectFilesFromDisk(projectsDir, projectId));
 }
