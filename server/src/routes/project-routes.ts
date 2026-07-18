@@ -512,14 +512,32 @@ async function createUniqueProjectId(projectsDir: string): Promise<string> {
 }
 
 export async function createProject(ctx: ProjectRouteDeps, input: ProjectCreateInput): Promise<StoredProject> {
-  const id = await createUniqueProjectId(ctx.paths.projectsDir);
-  const project = createDefaultProject(id, {
-    title: input.title,
-    prompt: input.prompt,
-    projectKind: input.projectKind,
-  }, input.designSystemId);
-  writeProjectToStore(ctx.paths.projectsDir, project);
-  return project;
+  const startedAt = Date.now();
+  try {
+    const id = await createUniqueProjectId(ctx.paths.projectsDir);
+    const project = createDefaultProject(id, {
+      title: input.title,
+      prompt: input.prompt,
+      projectKind: input.projectKind,
+    }, input.designSystemId);
+    writeProjectToStore(ctx.paths.projectsDir, project);
+    console.info(JSON.stringify({
+      event: 'vibe.project.create',
+      outcome: 'succeeded',
+      project_id: project.id,
+      elapsed_ms: Date.now() - startedAt,
+    }));
+    return project;
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: 'vibe.project.create',
+      outcome: 'failed',
+      elapsed_ms: Date.now() - startedAt,
+      error_name: error instanceof Error ? error.name : 'unknown',
+      error_message: error instanceof Error ? error.message : String(error),
+    }));
+    throw error;
+  }
 }
 
 export async function initializeProjectConversation(

@@ -1767,7 +1767,7 @@ describe('VibeDesignApp', () => {
     }
   });
 
-  it('opens the created project when dashboard reference file upload fails', async () => {
+  it('keeps dashboard context when reference file upload fails', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
       new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } }),
     );
@@ -1809,7 +1809,10 @@ describe('VibeDesignApp', () => {
         method: 'POST',
         body: expect.any(FormData),
       });
-      expect(openedProjects).toEqual(['project-upload-failed']);
+      expect(openedProjects).toEqual([]);
+      expect(container.textContent).toContain('Could not upload reference files.');
+      expect(getByLabelText(container, 'Prototype prompt').textContent).toContain('参考 brief 做登录页');
+      expect(getByLabelText(container, 'Staged reference files').textContent).toContain('brief.md');
     } finally {
       cleanup(root, container);
       vi.unstubAllGlobals();
@@ -1942,10 +1945,10 @@ describe('VibeDesignApp', () => {
     }
   });
 
-  it('lets an empty dashboard catalog recover by loading the authoritative catalog', async () => {
+  it('loads the authoritative catalog when the dashboard SSR catalog is empty', async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      if (url === '/api/agents/models?refresh=1') {
+      if (url === '/api/agents/models') {
         return Response.json({
           agents: [
             {
@@ -1975,13 +1978,11 @@ describe('VibeDesignApp', () => {
       expect(container.querySelector('[aria-label="Model"]')).toBeNull();
       expect(container.textContent).not.toContain('Codex');
 
-      await act(async () => buttonByText(container, 'Retry').click());
-
       await waitFor(() => {
         expect(getByLabelText(container, 'Model').textContent).toContain('Tutti Agent');
       });
       expect(container.textContent).not.toContain('Claude Code');
-      expect(fetch).toHaveBeenCalledWith('/api/agents/models?refresh=1');
+      expect(fetch).toHaveBeenCalledWith('/api/agents/models');
     } finally {
       cleanup(root, container);
       vi.unstubAllGlobals();

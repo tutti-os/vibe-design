@@ -778,23 +778,41 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   });
 
   app.get('/api/agents/models', async (req: Request, res: Response): Promise<void> => {
-    const modelCatalog = await detectAgentModelCatalog(
-      req.query.refresh === '1' ? { refresh: true } : undefined,
-    ).catch(() => []);
-    res.json({
-      agents: modelCatalog.map((agent) => ({
-        agentTargetId: agent.agentTargetId,
-        providerId: agent.providerId,
-        label: agent.label,
-        supported: agent.supported,
-        ...(agent.isDefault ? { isDefault: true } : {}),
-        models: agent.models.map((model) => ({
-          id: model.id,
-          label: model.label,
-          ...(model.description ? { description: model.description } : {}),
+    const startedAt = Date.now();
+    const refresh = req.query.refresh === '1';
+    try {
+      const modelCatalog = await detectAgentModelCatalog(refresh ? { refresh: true } : undefined);
+      console.info(JSON.stringify({
+        event: 'vibe.agent_catalog.loaded',
+        refresh,
+        elapsed_ms: Date.now() - startedAt,
+        agent_count: modelCatalog.length,
+        model_count: modelCatalog.reduce((total, agent) => total + agent.models.length, 0),
+      }));
+      res.json({
+        agents: modelCatalog.map((agent) => ({
+          agentTargetId: agent.agentTargetId,
+          providerId: agent.providerId,
+          label: agent.label,
+          supported: agent.supported,
+          ...(agent.isDefault ? { isDefault: true } : {}),
+          models: agent.models.map((model) => ({
+            id: model.id,
+            label: model.label,
+            ...(model.description ? { description: model.description } : {}),
+          })),
         })),
-      })),
-    });
+      });
+    } catch (error) {
+      console.error(JSON.stringify({
+        event: 'vibe.agent_catalog.failed',
+        refresh,
+        elapsed_ms: Date.now() - startedAt,
+        error_name: error instanceof Error ? error.name : 'unknown',
+        error_message: error instanceof Error ? error.message : String(error),
+      }));
+      sendApiError(res, 503, 'AGENT_CATALOG_UNAVAILABLE', agentDetectionFailureReason(error));
+    }
   });
 
   app.get('/api/agents/availability', async (req: Request, res: Response): Promise<void> => {
