@@ -280,7 +280,7 @@ describe('ChatPane', () => {
       const userText = container.querySelector('.msg.user .user-text');
       const mention = userText?.querySelector('.tutti-rich-text-mention');
 
-      expect(userText?.textContent).toBe('Ask @群聊 for context');
+      expect(userText?.textContent).toBe('Ask 群聊 for context');
       expect(userText?.textContent).not.toContain('mention://workspace-app');
       expect(mention?.getAttribute('data-provider-id')).toBe('workspace-app');
     } finally {
