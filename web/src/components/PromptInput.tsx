@@ -10,7 +10,6 @@ import React, {
   useState,
 } from 'react';
 import { type TranslateFn, useTranslation } from '../i18n';
-import { createTuttiExternalAtTriggerProviders } from '../lib/tuttiExternalAt';
 
 export interface PromptInputHandle {
   focus(): void;
@@ -61,7 +60,6 @@ export const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(
     const onEditorPasteRef = useRef(onEditorPaste);
     const [focusSignal, setFocusSignal] = useState<object | null>(null);
     const mentionPalette = useMemo(() => createMentionPalette(t), [t]);
-    const triggerProviders = useMemo(() => createTuttiExternalAtTriggerProviders(), []);
     const editorValue = encodeTrailingLineBreaks(value);
 
     useEffect(() => {
@@ -222,7 +220,6 @@ export const PromptInput = forwardRef<PromptInputHandle, PromptInputProps>(
         <RichTextTriggerEditor
           value={editorValue}
           onChange={handleChange}
-          triggerProviders={triggerProviders}
           placeholder={placeholder}
           disabled={disabled}
           textareaClassName={['prompt-input__editor', editorClassName].filter(Boolean).join(' ')}

@@ -4,6 +4,7 @@ import { fireEvent, waitFor } from '@testing-library/react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import { ChatComposer as ChatComposerBase } from './ChatComposer';
+import { TuttiExternalMentionServiceRoot } from './TuttiExternalMentionServiceRoot';
 import type {
   ContextPickerSnapshot,
 } from '../services/context-picker/context-picker-types';
@@ -27,11 +28,13 @@ const TEST_AGENT_MODEL_CATALOG = [
 
 function ChatComposer(props: React.ComponentProps<typeof ChatComposerBase>): React.ReactElement {
   return (
-    <ChatComposerBase
-      {...props}
-      agentAvailability={props.agentAvailability ?? TEST_AGENT_AVAILABILITY}
-      agentModelCatalog={props.agentModelCatalog ?? TEST_AGENT_MODEL_CATALOG}
-    />
+    <TuttiExternalMentionServiceRoot>
+      <ChatComposerBase
+        {...props}
+        agentAvailability={props.agentAvailability ?? TEST_AGENT_AVAILABILITY}
+        agentModelCatalog={props.agentModelCatalog ?? TEST_AGENT_MODEL_CATALOG}
+      />
+    </TuttiExternalMentionServiceRoot>
   );
 }
 
@@ -1381,6 +1384,7 @@ describe('ChatComposer', () => {
       const image = new File(['pasted image'], 'clipboard.png', { type: 'image/png' });
       const text = new File(['not image'], 'notes.txt', { type: 'text/plain' });
       const clipboardData = {
+        getData: () => '',
         items: [
           { kind: 'file', type: 'image/png', getAsFile: () => image },
           { kind: 'file', type: 'text/plain', getAsFile: () => text },
