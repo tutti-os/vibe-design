@@ -129,22 +129,15 @@ describe('detectLocalAgentProviders', () => {
     expect(runtime.detect).toHaveBeenCalledWith({ cwd: '/workspace/project' });
   });
 
-  it('uses VIBE_WORKSPACE_ROOT as the runtime detection cwd when none is explicit', async () => {
-    const previous = process.env.VIBE_WORKSPACE_ROOT;
-    process.env.VIBE_WORKSPACE_ROOT = '/workspace/from-vibe';
-    try {
-      const runtime = {
-        detect: vi.fn(async () => []),
-        listProviders: () => [],
-        cancel: vi.fn(async () => undefined),
-        run: vi.fn(),
-      };
-      await detectLocalAgentProviders(undefined, runtime as never);
-      expect(runtime.detect).toHaveBeenCalledWith({ cwd: '/workspace/from-vibe' });
-    } finally {
-      if (previous === undefined) delete process.env.VIBE_WORKSPACE_ROOT;
-      else process.env.VIBE_WORKSPACE_ROOT = previous;
-    }
+  it('uses the process cwd when none is explicit', async () => {
+    const runtime = {
+      detect: vi.fn(async () => []),
+      listProviders: () => [],
+      cancel: vi.fn(async () => undefined),
+      run: vi.fn(),
+    };
+    await detectLocalAgentProviders(undefined, runtime as never);
+    expect(runtime.detect).toHaveBeenCalledWith({ cwd: process.cwd() });
   });
 
   it('fails closed by omitting detections without an exact agent target id', async () => {

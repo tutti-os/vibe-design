@@ -192,7 +192,7 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       conversationMessages,
     ));
   const resume = buildProviderResume(run);
-  const workspaceCwd = resolveTuttiWorkspaceCwd(projectWorkspaceDir);
+  const workspaceCwd = projectWorkspaceDir;
   const requestedModel = readString(request.model) ?? undefined;
   const skillDetectContext: DetectContext = {
     ...(input.detectContext ?? {}),
@@ -673,10 +673,6 @@ function buildProviderResume(run: ChatRun): AcpAgentRunInput['resume'] {
     ...(providerSessionId ? { providerSessionId } : {}),
     ...(resumeToken ? { resumeToken } : {}),
   };
-}
-
-function resolveTuttiWorkspaceCwd(fallback: string): string {
-  return process.env.TUTTI_WORKSPACE_ROOT?.trim() || process.env.VIBE_WORKSPACE_ROOT?.trim() || fallback;
 }
 
 async function buildConversationHistory(

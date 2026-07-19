@@ -150,14 +150,14 @@ createManagedAgentDetectContext({ credential, cwd: detectCwd })
 当前位置：
 
 ```ts
-const MANAGED_WORKSPACE_ROOT = '/workspace';
+const MANAGED_WORKSPACE_ALIAS = '/workspace';
 ```
 
 判断：
 
 - 这类常量可以暂时留在 helper 内部，因为它属于 managed invocation 协议映射。
 - 但它不应该扩散到 `agent-launcher.ts`、`server.ts` 等业务流程。
-- 当前 helper 还读取 `NEXTOP_WORKSPACE_ROOT`、`NEXTOP_APP_DATA_DIR`、`NEXTOP_WORKSPACE_ID`。这些不属于当前 Tutti app package contract，应该作为遗留兼容清理掉，或下沉到 agent-acp-kit 的平台兼容层。
+- 当前 helper 还读取旧 Nextop workspace-root fallback、`NEXTOP_APP_DATA_DIR`、`NEXTOP_WORKSPACE_ID`。这些不属于当前 Tutti app package contract，应该作为遗留兼容清理掉，或下沉到 agent-acp-kit 的平台兼容层。
 
 目标：
 
