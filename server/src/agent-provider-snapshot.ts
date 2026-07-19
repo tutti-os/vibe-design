@@ -45,12 +45,7 @@ export async function detectLocalAgentProviders(
 }
 
 function resolveAgentCatalogCwd(context?: DetectContext): string {
-  return context?.cwd?.trim()
-    || context?.env?.TUTTI_WORKSPACE_ROOT?.trim()
-    || context?.env?.VIBE_WORKSPACE_ROOT?.trim()
-    || process.env.TUTTI_WORKSPACE_ROOT?.trim()
-    || process.env.VIBE_WORKSPACE_ROOT?.trim()
-    || process.cwd();
+  return context?.cwd?.trim() || process.cwd();
 }
 
 export function createAgentProviderSnapshotDetector(detectProviders: DetectAgentProviders): {

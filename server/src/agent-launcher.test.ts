@@ -45,14 +45,10 @@ const codexDef: RuntimeAgentDef = {
 type RuntimeInput = Parameters<LocalAgentRuntime['run']>[0];
 const originalTuttiCli = process.env.TUTTI_CLI;
 const originalTuttiAppId = process.env.TUTTI_APP_ID;
-const originalTuttiWorkspaceRoot = process.env.TUTTI_WORKSPACE_ROOT;
-const originalVibeWorkspaceRoot = process.env.VIBE_WORKSPACE_ROOT;
 
 beforeEach(() => {
   delete process.env.TUTTI_CLI;
   delete process.env.TUTTI_APP_ID;
-  delete process.env.TUTTI_WORKSPACE_ROOT;
-  delete process.env.VIBE_WORKSPACE_ROOT;
 });
 
 function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
@@ -66,8 +62,6 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
 afterEach(() => {
   restoreOptionalEnv('TUTTI_CLI', originalTuttiCli);
   restoreOptionalEnv('TUTTI_APP_ID', originalTuttiAppId);
-  restoreOptionalEnv('TUTTI_WORKSPACE_ROOT', originalTuttiWorkspaceRoot);
-  restoreOptionalEnv('VIBE_WORKSPACE_ROOT', originalVibeWorkspaceRoot);
 });
 
 function restoreOptionalEnv(key: string, value: string | undefined): void {
@@ -331,11 +325,9 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       const userSkillsRoot = join(root, 'user-skills');
       const projectsDir = join(root, 'projects');
       const cliPath = join(root, 'tutti-cli.mjs');
-      const workspaceCwd = join(root, 'workspace-context');
       const cliInvocationLog = join(root, 'tutti-cli-invocations.jsonl');
       await mkdir(builtInSkillsRoot, { recursive: true });
       await mkdir(userSkillsRoot, { recursive: true });
-      await mkdir(workspaceCwd, { recursive: true });
       await writeFile(cliPath, [
         '#!/usr/bin/env node',
         'import { appendFileSync } from "node:fs";',
@@ -361,7 +353,6 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       ].join('\n'));
       await chmod(cliPath, 0o755);
       process.env.TUTTI_CLI = cliPath;
-      process.env.TUTTI_WORKSPACE_ROOT = workspaceCwd;
 
       const runs = createChatRunService({
         createSseResponse: createNoopSseResponse,
@@ -400,7 +391,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         .map((line) => JSON.parse(line) as { args: string[]; cwd: string });
       expect(cliInvocations.length).toBeGreaterThan(0);
       expect(cliInvocations.some((invocation) => invocation.args.includes('composer-options'))).toBe(false);
-      const canonicalWorkspaceCwd = await realpath(workspaceCwd);
+      const canonicalWorkspaceCwd = await realpath(join(projectsDir, 'project-1'));
       expect(cliInvocations.map((invocation) => ({
         command: invocation.args.slice(1, 3).join(' '),
         cwd: invocation.cwd,
