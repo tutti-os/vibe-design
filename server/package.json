@@ -11,7 +11,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@tutti-os/agent-acp-kit": "0.7.5",
+    "@tutti-os/agent-acp-kit": "0.7.6",
     "@vibe-design/web": "workspace:*",
     "express": "^5.2.1",
     "sql.js": "^1.14.1"
