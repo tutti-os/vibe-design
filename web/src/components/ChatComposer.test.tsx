@@ -501,6 +501,88 @@ describe('ChatComposer', () => {
     }
   });
 
+  it('renders host icons by exact agent target id', async () => {
+    const { container, root } = renderComponent(
+      <ChatComposer
+        streaming={false}
+        agentAvailability={[
+          {
+            agentTargetId: 'team:alpha',
+            providerId: 'codex',
+            label: 'Alpha',
+            supported: true,
+            authState: 'ok',
+          },
+          {
+            agentTargetId: 'team:beta',
+            providerId: 'codex',
+            label: 'Beta',
+            supported: true,
+            authState: 'ok',
+          },
+        ]}
+        agentModelCatalog={[
+          {
+            agentTargetId: 'team:alpha',
+            providerId: 'codex',
+            label: 'Alpha',
+            supported: true,
+            iconUrl: 'data:image/webp;base64,alpha',
+            models: [],
+          },
+          {
+            agentTargetId: 'team:beta',
+            providerId: 'codex',
+            label: 'Beta',
+            supported: true,
+            iconUrl: 'data:image/webp;base64,beta',
+            models: [],
+          },
+        ]}
+        context={{
+          search: async () => ({ items: [] }),
+          selectResult: vi.fn(),
+          snapshot: { selectedSkills: [], selectedDesignFiles: [] },
+        }}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+      />,
+    );
+
+    try {
+      const selectedIcon = getByLabelText(container, 'Agent and model').querySelector<HTMLImageElement>(
+        '[data-provider-icon="codex"]',
+      );
+      expect(selectedIcon?.getAttribute('src')).toBe('data:image/webp;base64,alpha');
+      if (!selectedIcon) throw new Error('Missing selected Host icon');
+
+      await act(async () => {
+        fireEvent.error(selectedIcon);
+      });
+      const staticFallback = getByLabelText(container, 'Agent and model').querySelector<HTMLImageElement>(
+        '[data-provider-icon="codex"]',
+      );
+      expect(staticFallback?.getAttribute('src')).toContain('workspace-dock-agent-codex');
+      if (!staticFallback) throw new Error('Missing static icon fallback');
+
+      await act(async () => {
+        fireEvent.error(staticFallback);
+      });
+      const textFallback = getByLabelText(container, 'Agent and model').querySelector(
+        '[data-provider-icon="codex"]',
+      );
+      expect(textFallback).toBeInstanceOf(HTMLSpanElement);
+      expect(textFallback?.textContent).toBe('CO');
+
+      await openModelMenu(container);
+
+      const betaIcon = menuItemByName('Beta').querySelector<HTMLImageElement>('[data-provider-icon="codex"]');
+      expect(betaIcon?.getAttribute('src')).toBe('data:image/webp;base64,beta');
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('lets the user select a Codex model and sends it with the turn', async () => {
     const onSend = vi.fn();
     const { container, root } = renderComponent(

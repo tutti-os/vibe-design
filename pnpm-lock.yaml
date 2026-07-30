@@ -94,8 +94,8 @@ importers:
         specifier: 0.0.137
         version: 0.0.137(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       '@tutti-os/workspace-external-core':
-        specifier: 0.0.125
-        version: 0.0.125(@floating-ui/dom@1.7.6)(@tiptap/pm@3.24.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(valtio@2.3.2(@types/react@19.2.15)(react@19.2.6))
+        specifier: 0.0.253
+        version: 0.0.253(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/react@3.24.0(@floating-ui/dom@1.7.6)(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(valtio@2.3.2(@types/react@19.2.15)(react@19.2.6))
       codemirror:
         specifier: ^6.0.2
         version: 6.0.2
@@ -314,6 +314,34 @@ packages:
   '@csstools/css-tokenizer@4.0.0':
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
+
+  '@dnd-kit/accessibility@3.1.1':
+    resolution: {integrity: sha512-2P+YgaXF+gRsIihwwY1gCsQSYnu9Zyj2py8kY5fFvUM1qm2WA2u639R6YNVfU4GWr+ZM5mqEsfHZZLoRONbemw==}
+    peerDependencies:
+      react: '>=16.8.0'
+
+  '@dnd-kit/core@6.3.1':
+    resolution: {integrity: sha512-xkGBRQQab4RLwgXxoqETICr6S5JlogafbhNsidmrkVv2YRs5MLwpjoF2qpiGjQt8S9AoxtIV603s0GIUpY5eYQ==}
+    peerDependencies:
+      react: '>=16.8.0'
+      react-dom: '>=16.8.0'
+
+  '@dnd-kit/modifiers@9.0.0':
+    resolution: {integrity: sha512-ybiLc66qRGuZoC20wdSSG6pDXFikui/dCNGthxv4Ndy8ylErY0N3KVxY2bgo7AWwIbxDmXDg3ylAFmnrjcbVvw==}
+    peerDependencies:
+      '@dnd-kit/core': ^6.3.0
+      react: '>=16.8.0'
+
+  '@dnd-kit/sortable@10.0.0':
+    resolution: {integrity: sha512-+xqhmIIzvAYMGfBYYnbKuNicfSsk4RksY2XdmJhT+HAC01nix6fHCztU68jooFiMUB01Ky3F0FyOvhG/BZrWkg==}
+    peerDependencies:
+      '@dnd-kit/core': ^6.3.0
+      react: '>=16.8.0'
+
+  '@dnd-kit/utilities@3.2.2':
+    resolution: {integrity: sha512-+MKAJEOfaBe5SmV6t34p80MMKhjvUz0vRrvVJbPT0WElzaOJ/1xs+D+KDv+tD/NE5ujfrChEcshd4fLn0wpiqg==}
+    peerDependencies:
+      react: '>=16.8.0'
 
   '@emnapi/core@1.10.0':
     resolution: {integrity: sha512-yq6OkJ4p82CAfPl0u9mQebQHKPJkY7WrIuk205cTYnYe+k2Z8YBh11FrbRG/H6ihirqcacOgl2BIO8oyMQLeXw==}
@@ -1706,6 +1734,9 @@ packages:
     resolution: {integrity: sha512-9m+a2HtSLGXOgi1qgibMWwy0r+2JoAY/efzkv7L/krGqBveYyRXcK2oXeWorSUN1d3NkVW0g1wmgYORRZSKj9w==}
     engines: {node: '>=22'}
 
+  '@tutti-os/agent-activity-core@0.0.253':
+    resolution: {integrity: sha512-w8rXpv5Qcq65QwNDMrVD8Bc7O2dUXa2IcP/uFZD8+ovGrTqXcXbI/FuFRqztS7LhkVo3J5Qa1o199oBB2+O6Zg==}
+
   '@tutti-os/infra@0.1.0':
     resolution: {integrity: sha512-lywyLaQq+qTA+OizLZrjsZd6miidybpXph99BPg9bWIZcDE2T2Ux0vfTYj+yGGGB3kF6+bz1ZQf56tXKl9IdPw==}
     peerDependencies:
@@ -1720,22 +1751,16 @@ packages:
       react:
         optional: true
 
-  '@tutti-os/ui-i18n-runtime@0.0.125':
-    resolution: {integrity: sha512-P3SkowizIrswDP746J26Khp/4ZH/EkszuFEOz087rxsMpcaqd/deV28RboFFzeUFzn1mIcC52z1MPJQQmOfLZA==}
-
   '@tutti-os/ui-i18n-runtime@0.0.137':
     resolution: {integrity: sha512-rKsHysPwBZKnKNOknFLHzFwUyoqN1yQ0IN4IpoLmYEh2D1CK0tUvjmpYhK4IgRWVvKKqKImGm2wXn23vPO6nUA==}
 
-  '@tutti-os/ui-react-hooks@0.0.125':
-    resolution: {integrity: sha512-MGY/zeVerfr4Fg5G13jjyzi+DBCm5nTaHKSVjjzS5ELAIt5e7pLeSyx4sUNcOcmDNkU2fKG1CYPyBOtarUdxmA==}
-    peerDependencies:
-      react: ^19.1.0
+  '@tutti-os/ui-i18n-runtime@0.0.253':
+    resolution: {integrity: sha512-G8C4KNXQnaaO/oLdoEZif44tsW1A2lgPJtlLPRDmHF6PNWeAV6Tx9brEAHAbKr4enHT0IcTXRzjFGiKKrdgBFg==}
 
-  '@tutti-os/ui-rich-text@0.0.125':
-    resolution: {integrity: sha512-GsaoJJkeHAC+7GysyPskbkBUfmVtrozSpc4pj06xdcxHXeMau9I99Oy+MLVX05aAxJZAe6Ar8Wnfc5GZ46Z/4Q==}
+  '@tutti-os/ui-react-hooks@0.0.253':
+    resolution: {integrity: sha512-5MTSGWfZ9/B5BEdx2O4zLtCWYNZWeU7aMZXoANZE/rp3ip5KP7jfRWqL/4inoZoKtBpRz9glkGxJgLLzx2Xljw==}
     peerDependencies:
       react: ^19.1.0
-      react-dom: ^19.1.0
 
   '@tutti-os/ui-rich-text@0.0.137':
     resolution: {integrity: sha512-z5Bvln2LufwlUQMuaeP8NoNyZcsHMC5ka+kpz9eYlbLPh2kZR5MGDqdaKk2siY4+FldioGLJA+4YJOd7fEABHA==}
@@ -1743,10 +1768,11 @@ packages:
       react: ^19.1.0
       react-dom: ^19.1.0
 
-  '@tutti-os/ui-system@0.0.125':
-    resolution: {integrity: sha512-83YZ2zj9i0huFt5MsQTBNGNYHfS9DMvnQCaKP4lV5CdQfBsyCPnmB5Msz5Ueg3wVtYr4C8lzHLMhhtMIcaGCKQ==}
-    hasBin: true
+  '@tutti-os/ui-rich-text@0.0.253':
+    resolution: {integrity: sha512-lvNI57dqDYBcjbVfepshAVrM4QJiyIVB1VTo88rxM+1JYve7bzsfUQdB0NuMkkZEyJGedWksWBGvRK3aGM//kw==}
     peerDependencies:
+      '@tiptap/core': ^3.23.6
+      '@tiptap/react': ^3.23.6
       react: ^19.1.0
       react-dom: ^19.1.0
 
@@ -1757,30 +1783,43 @@ packages:
       react: ^19.1.0
       react-dom: ^19.1.0
 
-  '@tutti-os/workspace-external-core@0.0.125':
-    resolution: {integrity: sha512-atDsp8hfSPCwTbT6hQxwvlhTpNedylSU7CKg887YZENALUSHi8q870IrR7VaWtbCe/NLRIK5NvKIR/54cuqg0w==}
+  '@tutti-os/ui-system@0.0.253':
+    resolution: {integrity: sha512-CDxQSLmGhLgmDzRwxVSa38bOkq7zmQxbjJ4zj0Cb7BtwVMA3fNpUpuDYCfPXXr48GNbLqwbGYhjHx3ddiMnnFQ==}
+    hasBin: true
+    peerDependencies:
+      react: ^19.1.0
+      react-dom: ^19.1.0
+      react-native: '>=0.86 <0.87'
+    peerDependenciesMeta:
+      react-dom:
+        optional: true
+      react-native:
+        optional: true
 
-  '@tutti-os/workspace-file-manager@0.0.125':
-    resolution: {integrity: sha512-pv4qQ5FB3NHe5weJ5t+T5AR0suYdBtZfk9LWPRNb/sNIMn/UhZXI31/BN5CsEkwd6ZW3+/5hYF5/BcIsQAaDhA==}
+  '@tutti-os/workspace-external-core@0.0.253':
+    resolution: {integrity: sha512-MLy5CfoR8Yc18HXKECc14d41+7j6jXKoXmDPJrW/EJXL+ecLhS//YvB2IkEdSp2l5Wq5Ni03dMLVDg8fjBbY6Q==}
+
+  '@tutti-os/workspace-file-manager@0.0.253':
+    resolution: {integrity: sha512-UYVm3yjUTaYAM3+Uhw32hXpLmsWF/bOR3OXHTi4BjRQJwu2hTWeDBGF3RQXPAvbYmKqO2JAQ6SZ6P9b305Ixtg==}
     peerDependencies:
       react: ^19.1.0
       react-dom: ^19.1.0
       valtio: ^2.3.2
 
-  '@tutti-os/workspace-file-preview@0.0.125':
-    resolution: {integrity: sha512-cuIqb3fSQnnvTPGxdYjXyNIpHyG2xAWSXsx7VnsR+ilir1Q53jGk9/JZj8gYL3p+iT9+87+PyLFPhHfoXw7FTQ==}
+  '@tutti-os/workspace-file-preview@0.0.253':
+    resolution: {integrity: sha512-q7c/6ixjkXZSiy/nJq54I0WMDw7F6sgoNZXIe9li7DYKBiC1nbXDLkyP/O3hAfvUf92QUelVL7fPJP3pyMhmxQ==}
     peerDependencies:
       react: ^19.1.0
 
-  '@tutti-os/workspace-file-reference@0.0.125':
-    resolution: {integrity: sha512-BgaF27EyxkTM8acAWp5Wft5g5ZGHooQPBLuR1ZHXE8jWE+S6RiXrLJgTyCTq46U4RbEPyzY6jIP8qr6dFkhHGg==}
+  '@tutti-os/workspace-file-reference@0.0.253':
+    resolution: {integrity: sha512-KM/+J39mHrhH0/nvHRd/LSZFzeN0lzUmFhsc4SIf58S7a/tpVLJ91yPUA0PujKZRZO4/hmkjsJMlsgXWzaaqQw==}
     peerDependencies:
       react: ^19.1.0
       react-dom: ^19.1.0
       valtio: ^2.3.2
 
-  '@tutti-os/workspace-user-project@0.0.125':
-    resolution: {integrity: sha512-mgyvUkNCuqmCGBDxfXTg1LS+t9rbnZR1v/iPTltIBbuyyBwnTFCE1mSwvSnVVF7fi3WuBypzBroKqfig1SuJiQ==}
+  '@tutti-os/workspace-user-project@0.0.253':
+    resolution: {integrity: sha512-yUdAzPW3CteAQxLvosH7JAQGsNcArwXJIKzjzZjjC+ZeSw14lFIx6Ur4gCVL44Bx48ofV1nBXvtRHCAwDtmnew==}
     peerDependencies:
       react: ^19.1.0
       react-dom: ^19.1.0
@@ -3406,6 +3445,38 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
+  '@dnd-kit/accessibility@3.1.1(react@19.2.6)':
+    dependencies:
+      react: 19.2.6
+      tslib: 2.8.1
+
+  '@dnd-kit/core@6.3.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
+    dependencies:
+      '@dnd-kit/accessibility': 3.1.1(react@19.2.6)
+      '@dnd-kit/utilities': 3.2.2(react@19.2.6)
+      react: 19.2.6
+      react-dom: 19.2.6(react@19.2.6)
+      tslib: 2.8.1
+
+  '@dnd-kit/modifiers@9.0.0(@dnd-kit/core@6.3.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(react@19.2.6)':
+    dependencies:
+      '@dnd-kit/core': 6.3.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@dnd-kit/utilities': 3.2.2(react@19.2.6)
+      react: 19.2.6
+      tslib: 2.8.1
+
+  '@dnd-kit/sortable@10.0.0(@dnd-kit/core@6.3.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(react@19.2.6)':
+    dependencies:
+      '@dnd-kit/core': 6.3.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@dnd-kit/utilities': 3.2.2(react@19.2.6)
+      react: 19.2.6
+      tslib: 2.8.1
+
+  '@dnd-kit/utilities@3.2.2(react@19.2.6)':
+    dependencies:
+      react: 19.2.6
+      tslib: 2.8.1
+
   '@emnapi/core@1.10.0':
     dependencies:
       '@emnapi/wasi-threads': 1.2.1
@@ -4750,37 +4821,19 @@ snapshots:
       - '@cfworker/json-schema'
       - supports-color
 
+  '@tutti-os/agent-activity-core@0.0.253': {}
+
   '@tutti-os/infra@0.1.0(react@19.2.6)':
     optionalDependencies:
       react: 19.2.6
 
-  '@tutti-os/ui-i18n-runtime@0.0.125': {}
-
   '@tutti-os/ui-i18n-runtime@0.0.137': {}
 
-  '@tutti-os/ui-react-hooks@0.0.125(react@19.2.6)':
-    dependencies:
-      react: 19.2.6
+  '@tutti-os/ui-i18n-runtime@0.0.253': {}
 
-  '@tutti-os/ui-rich-text@0.0.125(@floating-ui/dom@1.7.6)(@tiptap/pm@3.24.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
+  '@tutti-os/ui-react-hooks@0.0.253(react@19.2.6)':
     dependencies:
-      '@tiptap/core': 3.24.0(@tiptap/pm@3.24.0)
-      '@tiptap/extension-document': 3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))
-      '@tiptap/extension-hard-break': 3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))
-      '@tiptap/extension-paragraph': 3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))
-      '@tiptap/extension-text': 3.24.0(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))
-      '@tiptap/react': 3.24.0(@floating-ui/dom@1.7.6)(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
-      '@tutti-os/ui-i18n-runtime': 0.0.125
-      '@tutti-os/ui-system': 0.0.125(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       react: 19.2.6
-      react-dom: 19.2.6(react@19.2.6)
-    transitivePeerDependencies:
-      - '@floating-ui/dom'
-      - '@tiptap/pm'
-      - '@types/react'
-      - '@types/react-dom'
-      - bufferutil
-      - utf-8-validate
 
   '@tutti-os/ui-rich-text@0.0.137(@floating-ui/dom@1.7.6)(@tiptap/pm@3.24.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
     dependencies:
@@ -4802,24 +4855,19 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@tutti-os/ui-system@0.0.125(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
+  '@tutti-os/ui-rich-text@0.0.253(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/react@3.24.0(@floating-ui/dom@1.7.6)(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
     dependencies:
-      '@fontsource-variable/lexend': 5.2.11
-      class-variance-authority: 0.7.1
-      clsx: 2.1.1
-      radix-ui: 1.4.3(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@tiptap/core': 3.24.0(@tiptap/pm@3.24.0)
+      '@tiptap/react': 3.24.0(@floating-ui/dom@1.7.6)(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@tutti-os/ui-i18n-runtime': 0.0.253
+      '@tutti-os/ui-system': 0.0.253(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
-      react-resizable-panels: 4.11.2(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
-      sonner: 2.0.7(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
-      tailwind-merge: 3.6.0
-      tw-animate-css: 1.4.0
-      vaul: 1.1.2(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
-      ws: 8.21.0
     transitivePeerDependencies:
       - '@types/react'
       - '@types/react-dom'
       - bufferutil
+      - react-native
       - utf-8-validate
 
   '@tutti-os/ui-system@0.0.137(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
@@ -4842,27 +4890,55 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@tutti-os/workspace-external-core@0.0.125(@floating-ui/dom@1.7.6)(@tiptap/pm@3.24.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(valtio@2.3.2(@types/react@19.2.15)(react@19.2.6))':
+  '@tutti-os/ui-system@0.0.253(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
     dependencies:
-      '@tutti-os/ui-rich-text': 0.0.125(@floating-ui/dom@1.7.6)(@tiptap/pm@3.24.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
-      '@tutti-os/workspace-file-reference': 0.0.125(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(valtio@2.3.2(@types/react@19.2.15)(react@19.2.6))
-      '@tutti-os/workspace-user-project': 0.0.125(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(valtio@2.3.2(@types/react@19.2.15)(react@19.2.6))
+      '@dnd-kit/core': 6.3.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@dnd-kit/modifiers': 9.0.0(@dnd-kit/core@6.3.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(react@19.2.6)
+      '@dnd-kit/sortable': 10.0.0(@dnd-kit/core@6.3.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(react@19.2.6)
+      '@dnd-kit/utilities': 3.2.2(react@19.2.6)
+      '@fontsource-variable/lexend': 5.2.11
+      class-variance-authority: 0.7.1
+      clsx: 2.1.1
+      radix-ui: 1.4.3(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      react: 19.2.6
+      react-resizable-panels: 4.11.2(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      sonner: 2.0.7(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      tailwind-merge: 3.6.0
+      tw-animate-css: 1.4.0
+      vaul: 1.1.2(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      ws: 8.21.0
+    optionalDependencies:
+      react-dom: 19.2.6(react@19.2.6)
     transitivePeerDependencies:
-      - '@floating-ui/dom'
-      - '@tiptap/pm'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - utf-8-validate
+
+  '@tutti-os/workspace-external-core@0.0.253(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/react@3.24.0(@floating-ui/dom@1.7.6)(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(valtio@2.3.2(@types/react@19.2.15)(react@19.2.6))':
+    dependencies:
+      '@tutti-os/agent-activity-core': 0.0.253
+      '@tutti-os/ui-rich-text': 0.0.253(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/react@3.24.0(@floating-ui/dom@1.7.6)(@tiptap/core@3.24.0(@tiptap/pm@3.24.0))(@tiptap/pm@3.24.0)(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@tutti-os/workspace-file-reference': 0.0.253(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(valtio@2.3.2(@types/react@19.2.15)(react@19.2.6))
+      '@tutti-os/workspace-user-project': 0.0.253(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(valtio@2.3.2(@types/react@19.2.15)(react@19.2.6))
+    transitivePeerDependencies:
+      - '@tiptap/core'
+      - '@tiptap/react'
       - '@types/react'
       - '@types/react-dom'
       - bufferutil
       - react
       - react-dom
+      - react-native
       - utf-8-validate
       - valtio
 
-  '@tutti-os/workspace-file-manager@0.0.125(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(valtio@2.3.2(@types/react@19.2.15)(react@19.2.6))':
+  '@tutti-os/workspace-file-manager@0.0.253(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(valtio@2.3.2(@types/react@19.2.15)(react@19.2.6))':
     dependencies:
-      '@tutti-os/ui-i18n-runtime': 0.0.125
-      '@tutti-os/ui-system': 0.0.125(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
-      '@tutti-os/workspace-file-preview': 0.0.125(react@19.2.6)
+      '@tutti-os/ui-i18n-runtime': 0.0.253
+      '@tutti-os/ui-react-hooks': 0.0.253(react@19.2.6)
+      '@tutti-os/ui-system': 0.0.253(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@tutti-os/workspace-file-preview': 0.0.253(react@19.2.6)
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
       valtio: 2.3.2(@types/react@19.2.15)(react@19.2.6)
@@ -4870,18 +4946,19 @@ snapshots:
       - '@types/react'
       - '@types/react-dom'
       - bufferutil
+      - react-native
       - utf-8-validate
 
-  '@tutti-os/workspace-file-preview@0.0.125(react@19.2.6)':
+  '@tutti-os/workspace-file-preview@0.0.253(react@19.2.6)':
     dependencies:
       react: 19.2.6
 
-  '@tutti-os/workspace-file-reference@0.0.125(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(valtio@2.3.2(@types/react@19.2.15)(react@19.2.6))':
+  '@tutti-os/workspace-file-reference@0.0.253(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(valtio@2.3.2(@types/react@19.2.15)(react@19.2.6))':
     dependencies:
-      '@tutti-os/ui-react-hooks': 0.0.125(react@19.2.6)
-      '@tutti-os/ui-system': 0.0.125(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
-      '@tutti-os/workspace-file-manager': 0.0.125(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(valtio@2.3.2(@types/react@19.2.15)(react@19.2.6))
-      '@tutti-os/workspace-file-preview': 0.0.125(react@19.2.6)
+      '@tutti-os/ui-react-hooks': 0.0.253(react@19.2.6)
+      '@tutti-os/ui-system': 0.0.253(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@tutti-os/workspace-file-manager': 0.0.253(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(valtio@2.3.2(@types/react@19.2.15)(react@19.2.6))
+      '@tutti-os/workspace-file-preview': 0.0.253(react@19.2.6)
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
       valtio: 2.3.2(@types/react@19.2.15)(react@19.2.6)
@@ -4889,12 +4966,13 @@ snapshots:
       - '@types/react'
       - '@types/react-dom'
       - bufferutil
+      - react-native
       - utf-8-validate
 
-  '@tutti-os/workspace-user-project@0.0.125(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(valtio@2.3.2(@types/react@19.2.15)(react@19.2.6))':
+  '@tutti-os/workspace-user-project@0.0.253(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(valtio@2.3.2(@types/react@19.2.15)(react@19.2.6))':
     dependencies:
-      '@tutti-os/ui-i18n-runtime': 0.0.125
-      '@tutti-os/ui-system': 0.0.125(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@tutti-os/ui-i18n-runtime': 0.0.253
+      '@tutti-os/ui-system': 0.0.253(@types/react-dom@19.2.3(@types/react@19.2.15))(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
       valtio: 2.3.2(@types/react@19.2.15)(react@19.2.6)
@@ -4902,6 +4980,7 @@ snapshots:
       - '@types/react'
       - '@types/react-dom'
       - bufferutil
+      - react-native
       - utf-8-validate
 
   '@tybys/wasm-util@0.10.2':

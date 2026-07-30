@@ -32,7 +32,7 @@
     "@tutti-os/infra": "0.1.0",
     "@tutti-os/ui-rich-text": "0.0.137",
     "@tutti-os/ui-system": "0.0.137",
-    "@tutti-os/workspace-external-core": "0.0.125",
+    "@tutti-os/workspace-external-core": "0.0.253",
     "codemirror": "^6.0.2",
     "inline-style-parser": "^0.2.7",
     "lucide-react": "^1.17.0",

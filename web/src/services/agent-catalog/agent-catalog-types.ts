@@ -17,6 +17,7 @@ export interface AgentModelOption {
 export interface AgentModelCatalogEntry {
   agentTargetId: string;
   providerId?: string;
+  iconUrl?: string;
   label: string;
   supported: boolean;
   isDefault?: true;

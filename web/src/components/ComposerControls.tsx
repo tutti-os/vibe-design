@@ -22,8 +22,8 @@ const MODEL_PROVIDER_ICON_URLS: Record<string, string> = {
   openclaw: '/assets/agent-icons/openclaw-rounded.png',
 };
 
-function modelProviderIconUrl(provider: ComposerModelProvider): string {
-  return MODEL_PROVIDER_ICON_URLS[provider] ?? MODEL_PROVIDER_ICON_URLS.tutti;
+function modelProviderIconUrl(provider: ComposerModelProvider): string | undefined {
+  return MODEL_PROVIDER_ICON_URLS[provider];
 }
 
 export function ComposerDesignSystemTrigger({
@@ -80,6 +80,7 @@ export function ComposerIconButton({
 export interface ComposerModelTriggerProps
   extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'aria-label'> {
   ariaLabel: string;
+  iconUrl?: string;
   modelLabel?: string | null;
   provider: ComposerModelProvider;
   providerLabel: string;
@@ -90,6 +91,7 @@ export const ComposerModelTrigger = React.forwardRef<HTMLButtonElement, Composer
     {
       ariaLabel,
       className,
+      iconUrl,
       modelLabel,
       provider,
       providerLabel,
@@ -106,7 +108,7 @@ export const ComposerModelTrigger = React.forwardRef<HTMLButtonElement, Composer
         aria-label={ariaLabel}
         className={['composer-model-menu-trigger', className].filter(Boolean).join(' ')}
       >
-        <ComposerModelProviderIcon provider={provider} />
+        <ComposerModelProviderIcon provider={provider} iconUrl={iconUrl} />
         <span className="composer-model-menu-trigger-provider">{providerLabel}</span>
         {modelLabel ? (
           <span className="composer-model-menu-trigger-model">{modelLabel}</span>
@@ -118,25 +120,50 @@ export const ComposerModelTrigger = React.forwardRef<HTMLButtonElement, Composer
 );
 
 export function ComposerModelProviderIcon({
+  iconUrl,
   provider,
 }: {
+  iconUrl?: string;
   provider: ComposerModelProvider;
 }) {
-  const iconUrl = modelProviderIconUrl(provider);
+  const fallbackIconUrl = modelProviderIconUrl(provider);
+  const resolvedIconUrl = iconUrl?.trim() || fallbackIconUrl;
+  const [failedUrls, setFailedUrls] = React.useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const visibleIconUrl = resolvedIconUrl && !failedUrls.has(resolvedIconUrl)
+    ? resolvedIconUrl
+    : fallbackIconUrl && !failedUrls.has(fallbackIconUrl)
+      ? fallbackIconUrl
+      : null;
+  if (!visibleIconUrl) {
+    return (
+      <span
+        aria-hidden
+        className="composer-model-provider-icon composer-model-provider-icon--fallback"
+        data-provider-icon={provider}
+        title={provider}
+      >
+        {provider.trim().slice(0, 2).toUpperCase() || 'AI'}
+      </span>
+    );
+  }
   return (
     <img
-      key={iconUrl}
-      src={iconUrl}
+      key={visibleIconUrl}
+      src={visibleIconUrl}
       alt=""
       aria-hidden
       className="composer-model-provider-icon"
       data-provider-icon={provider}
       title={provider}
-      onError={(event) => {
-        const image = event.currentTarget;
-        if (image.dataset.fallbackApplied === 'true') return;
-        image.dataset.fallbackApplied = 'true';
-        image.src = MODEL_PROVIDER_ICON_URLS.tutti;
+      onError={() => {
+        setFailedUrls((current) => {
+          if (current.has(visibleIconUrl)) return current;
+          const next = new Set(current);
+          next.add(visibleIconUrl);
+          return next;
+        });
       }}
     />
   );
@@ -185,6 +212,7 @@ export function ComposerSendButton({
 
 export interface ComposerModelGroup {
   provider: ComposerModelProvider;
+  iconUrl?: string;
   iconProvider?: ComposerModelProvider;
   providerLabel: string;
   models: Array<{
@@ -200,6 +228,7 @@ export function ComposerModelPicker({
   selectedKey,
   selectedProvider,
   selectedIconProvider,
+  selectedIconUrl,
   selectedProviderLabel,
   selectedModelLabel,
   menuClassName,
@@ -212,6 +241,7 @@ export function ComposerModelPicker({
   selectedKey: string;
   selectedProvider: ComposerModelProvider;
   selectedIconProvider?: ComposerModelProvider;
+  selectedIconUrl?: string;
   selectedProviderLabel: string;
   selectedModelLabel: string | null;
   menuClassName?: string;
@@ -224,6 +254,7 @@ export function ComposerModelPicker({
       <DropdownMenuTrigger asChild>
         <ComposerModelTrigger
           ariaLabel={ariaLabel}
+          iconUrl={selectedIconUrl}
           provider={selectedIconProvider ?? selectedProvider}
           providerLabel={selectedProviderLabel}
           modelLabel={selectedModelLabel}
@@ -244,7 +275,10 @@ export function ComposerModelPicker({
                   data-provider-option={group.provider}
                   onSelect={() => onSelect(group.provider, '')}
                 >
-                  <ComposerModelProviderIcon provider={group.iconProvider ?? group.provider} />
+                  <ComposerModelProviderIcon
+                    provider={group.iconProvider ?? group.provider}
+                    iconUrl={group.iconUrl}
+                  />
                   <span>{group.providerLabel}</span>
                 </DropdownMenuItem>
               </React.Fragment>
@@ -264,7 +298,10 @@ export function ComposerModelPicker({
                     data-model-option-id={model.id}
                     onSelect={() => onSelect(group.provider, model.id)}
                   >
-                    <ComposerModelProviderIcon provider={group.iconProvider ?? group.provider} />
+                    <ComposerModelProviderIcon
+                      provider={group.iconProvider ?? group.provider}
+                      iconUrl={group.iconUrl}
+                    />
                     <span>{group.providerLabel}</span>
                   </DropdownMenuItem>
                 ))}
@@ -278,7 +315,10 @@ export function ComposerModelPicker({
                 className="composer-model-provider-label"
                 data-provider-option={group.provider}
               >
-                <ComposerModelProviderIcon provider={group.iconProvider ?? group.provider} />
+                <ComposerModelProviderIcon
+                  provider={group.iconProvider ?? group.provider}
+                  iconUrl={group.iconUrl}
+                />
                 <span>{group.providerLabel}</span>
               </DropdownMenuLabel>
               <div className="composer-model-provider-models" data-provider-models={group.provider}>
