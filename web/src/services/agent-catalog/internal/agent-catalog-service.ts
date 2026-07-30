@@ -4,6 +4,10 @@ import type {
   IAgentCatalogService,
 } from '../agent-catalog-service.interface';
 import type { AgentModelCatalogEntry } from '../agent-catalog-types';
+import {
+  loadTuttiAgentTargetIconUrls,
+  mergeTuttiAgentTargetPresentations,
+} from './tutti-agent-target-presentation-adapter';
 
 export class AgentCatalogService implements IAgentCatalogService {
   readonly _serviceBrand = undefined;
@@ -11,6 +15,8 @@ export class AgentCatalogService implements IAgentCatalogService {
   private snapshot: AgentCatalogSnapshot;
   private loaded: boolean;
   private inFlight: Promise<AgentModelCatalogEntry[]> | null = null;
+  private presentationAttempted = false;
+  private presentationInFlight: Promise<void> | null = null;
   private readonly listeners = new Set<() => void>();
 
   constructor(initialCatalog: AgentModelCatalogEntry[] = []) {
@@ -40,7 +46,10 @@ export class AgentCatalogService implements IAgentCatalogService {
   }
 
   private load(force: boolean): Promise<AgentModelCatalogEntry[]> {
-    if (!force && this.loaded) return Promise.resolve(cloneCatalog(this.snapshot.catalog));
+    if (!force && this.loaded) {
+      this.requestPresentations(false);
+      return Promise.resolve(cloneCatalog(this.snapshot.catalog));
+    }
     if (this.inFlight) return this.inFlight;
 
     this.setSnapshot({ loading: true, error: null });
@@ -48,6 +57,7 @@ export class AgentCatalogService implements IAgentCatalogService {
       .then((catalog) => {
         this.loaded = true;
         this.setSnapshot({ catalog, loading: false, error: null });
+        this.requestPresentations(force);
         return cloneCatalog(catalog);
       })
       .catch((error: unknown) => {
@@ -62,6 +72,25 @@ export class AgentCatalogService implements IAgentCatalogService {
       });
     this.inFlight = request;
     return request;
+  }
+
+  private requestPresentations(force: boolean): void {
+    if (this.presentationInFlight || (!force && this.presentationAttempted)) return;
+    this.presentationAttempted = true;
+    const request = loadTuttiAgentTargetIconUrls()
+      .then((iconUrls) => {
+        if (iconUrls.size === 0) return;
+        this.setSnapshot({
+          catalog: mergeTuttiAgentTargetPresentations(
+            this.snapshot.catalog,
+            iconUrls,
+          ),
+        });
+      })
+      .finally(() => {
+        if (this.presentationInFlight === request) this.presentationInFlight = null;
+      });
+    this.presentationInFlight = request;
   }
 
   private setSnapshot(next: Partial<AgentCatalogSnapshot>): void {

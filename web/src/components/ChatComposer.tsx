@@ -53,6 +53,7 @@ type AgentTargetId = string;
 type ModelProviderEntry = {
   value: ComposerModelProvider;
   providerId: ComposerModelProvider;
+  iconUrl?: string;
   label: string;
   comingSoon?: boolean;
 };
@@ -162,6 +163,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
       return agentModelCatalog.map((entry) => ({
         value: entry.agentTargetId,
         providerId: normalizeComposerIconProvider(entry.providerId),
+        ...(entry.iconUrl ? { iconUrl: entry.iconUrl } : {}),
         label: entry.label,
       }));
     }, [agentModelCatalog]);
@@ -395,7 +397,10 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
             key={provider.value}
             onSelect={() => updateModelProvider(provider.value)}
           >
-            <ComposerModelProviderIcon provider={provider.providerId} />
+            <ComposerModelProviderIcon
+              provider={provider.providerId}
+              iconUrl={provider.iconUrl}
+            />
             <span>{provider.label}</span>
           </DropdownMenuItem>
         );
@@ -407,7 +412,10 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
             className="composer-model-provider-label"
             data-provider-option={provider.value}
           >
-            <ComposerModelProviderIcon provider={provider.providerId} />
+            <ComposerModelProviderIcon
+              provider={provider.providerId}
+              iconUrl={provider.iconUrl}
+            />
             <span>{provider.label}</span>
           </DropdownMenuLabel>
           <div className="composer-model-provider-models" data-provider-models={provider.value}>
@@ -451,7 +459,10 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
           key={provider.value}
           title={provider.comingSoon ? disabledReason ?? undefined : undefined}
         >
-          <ComposerModelProviderIcon provider={provider.providerId} />
+          <ComposerModelProviderIcon
+            provider={provider.providerId}
+            iconUrl={provider.iconUrl}
+          />
           <span>{provider.label}</span>
         </DropdownMenuItem>
       );
@@ -667,6 +678,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
                   return [{
                     provider: p.value,
                     iconProvider: p.providerId,
+                    ...(p.iconUrl ? { iconUrl: p.iconUrl } : {}),
                     providerLabel: p.label,
                     models: modelOptionsForProvider(p.value, agentModelCatalog).map((m) => ({
                       id: m.id,
@@ -678,6 +690,7 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
                 selectedKey={selectedModel ? `${modelProvider}:${selectedModel}` : modelProvider}
                 selectedProvider={modelProvider}
                 selectedIconProvider={modelProviders.find((provider) => provider.value === modelProvider)?.providerId}
+                selectedIconUrl={modelProviders.find((provider) => provider.value === modelProvider)?.iconUrl}
                 selectedProviderLabel={selectedProviderLabel}
                 selectedModelLabel={selectedModelLabel}
                 menuClassName="composer-model-menu-content"

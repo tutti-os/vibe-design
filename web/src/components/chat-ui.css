@@ -2178,6 +2178,17 @@ button.user-attachment-file {
   object-fit: cover;
 }
 
+.composer-model-provider-icon--fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .composer-model-menu-item[data-disabled],
 .composer-model-menu-content [data-slot='dropdown-menu-item'][data-disabled] {
   cursor: not-allowed;

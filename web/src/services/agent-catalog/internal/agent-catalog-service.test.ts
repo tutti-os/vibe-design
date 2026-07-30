@@ -39,4 +39,44 @@ describe('AgentCatalogService', () => {
       error: 'temporary',
     });
   });
+
+  it('enriches a server-provided initial catalog with Host target icons', async () => {
+    const listTargets = vi.fn(async () => ({
+      agents: [{
+        agentTargetId: 'team:tutti-agent',
+        availability: { status: 'ready' as const },
+        description: null,
+        iconUrl: 'data:image/webp;base64,tutti',
+        name: 'Tutti Agent',
+        provider: 'tutti-agent',
+      }],
+      capturedAtUnixMs: 123,
+      error: null,
+      status: 'ready' as const,
+    }));
+    vi.stubGlobal('window', {
+      tuttiExternal: {
+        agentActivity: { listTargets },
+      },
+    });
+    const fetch = vi.fn<typeof globalThis.fetch>();
+    vi.stubGlobal('fetch', fetch);
+    const service = new AgentCatalogService([{
+      agentTargetId: 'team:tutti-agent',
+      providerId: 'tutti-agent',
+      label: 'Tutti Agent',
+      supported: true,
+      models: [],
+    }]);
+
+    await service.ensureLoaded();
+
+    await vi.waitFor(() => {
+      expect(service.getSnapshot().catalog[0]?.iconUrl).toBe(
+        'data:image/webp;base64,tutti',
+      );
+    });
+    expect(listTargets).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });
