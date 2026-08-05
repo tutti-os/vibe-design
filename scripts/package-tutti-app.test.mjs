@@ -77,6 +77,7 @@ test('exposes the expected Tutti CLI capabilities', async () => {
     'projects',
     'open',
     'project-create',
+    'project-update',
     'session-start',
     'conversations',
     'conversation-messages',
@@ -84,8 +85,8 @@ test('exposes the expected Tutti CLI capabilities', async () => {
     'file-get',
     'comments',
   ]);
-  // Prototype creation is allowed; destructive verbs remain unavailable.
-  assert.equal(commandPaths.some((command) => /update|delete|rename|project-data|project-get/.test(command)), false);
+  // Prototype creation and metadata updates are allowed; destructive verbs remain unavailable.
+  assert.equal(commandPaths.some((command) => /delete|rename|project-data|project-get/.test(command)), false);
 });
 
 test('command handler timeouts stay within the Tutti release tooling bounds', async () => {

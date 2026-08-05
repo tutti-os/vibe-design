@@ -27,5 +27,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --dir server type-check
+      - run: pnpm build:web
       - run: pnpm --dir server test
       - run: pnpm package:tutti-app
