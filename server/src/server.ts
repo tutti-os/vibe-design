@@ -127,6 +127,8 @@ const CHAT_UI_CSS_PATHS = [
   resolve(REPO_ROOT, 'web/src/components/chat-ui.css'),
 ];
 const TUTTI_APP_OPEN_TIMEOUT_MS = 30_000;
+const DEV_LIVE_RELOAD_ENABLED = process.env.VIBE_DESIGN_DEV_LIVE_RELOAD === '1';
+const DEV_LIVE_RELOAD_INSTANCE = `${process.pid}-${Date.now()}`;
 
 export function createServer(options: CreateServerOptions = {}): http.Server {
   const app = express();
@@ -833,6 +835,9 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
   registerSkillsRoutes(app, ctx);
 
   app.get('/healthz', (_req: Request, res: Response) => {
+    if (DEV_LIVE_RELOAD_ENABLED) {
+      res.setHeader('X-Vibe-Design-Dev-Instance', DEV_LIVE_RELOAD_INSTANCE);
+    }
     res.status(204).end();
   });
 
@@ -918,7 +923,10 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
         models: entry.models,
       }));
     sendNoStore(res);
-    res.type('html').send(renderPage({ route: { kind: 'dashboard' }, recentProjects, agentModelCatalog }));
+    res.type('html').send(renderPage(
+      { route: { kind: 'dashboard' }, recentProjects, agentModelCatalog },
+      { liveReload: DEV_LIVE_RELOAD_ENABLED },
+    ));
   });
 
   app.get('/project/:projectId', async (req: Request<{ projectId: string }>, res: Response) => {
@@ -939,7 +947,10 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       runs,
     );
     sendNoStore(res);
-    res.type('html').send(renderPage({ route, projectEditor }));
+    res.type('html').send(renderPage(
+      { route, projectEditor },
+      { liveReload: DEV_LIVE_RELOAD_ENABLED },
+    ));
   });
 
   app.use((_req: Request, res: Response) => {

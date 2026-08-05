@@ -23,6 +23,17 @@ describe('renderPage', () => {
     expect(html).toContain('Create a prototype to see it here.');
     expect(html).not.toContain('Community');
     expect(html).not.toContain('Chat 事件流');
+    expect(html).not.toContain('data-vibe-design-dev-reload');
+  });
+
+  it('adds asset polling only for the local development runtime', () => {
+    const html = renderPage(undefined, { liveReload: true });
+
+    expect(html).toContain('data-vibe-design-dev-reload');
+    expect(html).toContain('method:"HEAD"');
+    expect(html).toContain('/healthz');
+    expect(html).toContain('x-vibe-design-dev-instance');
+    expect(html).toContain('window.location.reload()');
   });
 
   it('renders the project editor route with the migrated chat panel', () => {

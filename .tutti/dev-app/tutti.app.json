@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "tutti.app.manifest.v1",
+  "appId": "vibe-design",
+  "version": "0.0.37",
+  "name": "Prototype Design (Local Dev)",
+  "description": "Hot-reloading local development wrapper for Vibe Design.",
+  "icon": {
+    "type": "asset",
+    "src": "icon.svg"
+  },
+  "runtime": {
+    "bootstrap": "bootstrap.sh",
+    "healthcheckPath": "/healthz"
+  },
+  "launch": {
+    "mode": "workspace-open"
+  },
+  "author": {
+    "name": "Tutti"
+  },
+  "tags": ["design", "prototype", "workspace", "local-debug"]
+}

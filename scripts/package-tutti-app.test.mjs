@@ -338,3 +338,17 @@ test('bootstrap uses the managed Tutti Node runtime', async () => {
   assert.equal(source.includes('VIBE_TUTTI_CLI'), false);
   assert.equal(source.includes('exec node '), false);
 });
+
+test('local debug wrapper starts source watchers without packaged server artifacts', async () => {
+  const source = await readFile(new URL('../.tutti/dev-app/bootstrap.sh', import.meta.url), 'utf8');
+  const manifest = JSON.parse(
+    await readFile(new URL('../.tutti/dev-app/tutti.app.json', import.meta.url), 'utf8'),
+  );
+
+  assert.equal(manifest.runtime.healthcheckPath, '/healthz');
+  assert.match(source, /server\/src\/main\.ts/);
+  assert.match(source, /--watch \.\/dist\/main\.js/);
+  assert.match(source, /--watch=forever/);
+  assert.match(source, /--watch=always/);
+  assert.match(source, /VIBE_DESIGN_DEV_LIVE_RELOAD=1/);
+});

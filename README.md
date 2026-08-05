@@ -125,6 +125,17 @@ pnpm test:package       # Test the Tutti package builder
 pnpm package:tutti-app  # Build the distributable Tutti app package
 ```
 
+### Tutti local debugging
+
+Load `.tutti/dev-app` with Tutti's **Load unpackaged local app** action. The
+wrapper uses Tutti's managed Node runtime, starts the TypeScript server with
+Node watch mode, continuously rebuilds the browser bundle and Tailwind CSS,
+and reloads the page when those assets or the server change. No manual build is
+required before loading or retrying the local app.
+
+The repository-root `bootstrap.sh` remains the production package entrypoint
+and intentionally executes the prebuilt `server/dist/main.js` artifact.
+
 Package-scoped commands:
 
 ```bash
