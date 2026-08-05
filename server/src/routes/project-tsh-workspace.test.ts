@@ -1,6 +1,6 @@
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createServer } from '../server.js';
 import { getProjectFromStore } from '../sqlite-store.js';
@@ -66,7 +66,8 @@ describe('TSH project workspace lifecycle', () => {
         project: { id: string; metadata: { title: string }; workspaceRoot: string | null };
       };
       expect(created.project.metadata.title).toContain('猫猫插画');
-      expect(created.project.workspaceRoot).toMatch(new RegExp(`^${workspaceRoot}/.+-[a-f0-9]{8}$`));
+      expect(dirname(created.project.workspaceRoot!)).toBe(workspaceRoot);
+      expect(basename(created.project.workspaceRoot!)).toMatch(/^.+-[a-f0-9]{8}$/);
 
       const projectsDir = join(runtimeDir, 'projects');
       const stored = getProjectFromStore(projectsDir, created.project.id);
@@ -89,7 +90,7 @@ describe('TSH project workspace lifecycle', () => {
         project: { workspaceRoot: string | null; metadata: { title: string } };
       };
       expect(renamed.project.metadata.title).toBe('海边奇遇');
-      expect(renamed.project.workspaceRoot).toMatch(/\/海边奇遇-[a-f0-9]{8}$/);
+      expect(basename(renamed.project.workspaceRoot!)).toMatch(/^海边奇遇-[a-f0-9]{8}$/);
       expect(renamed.project.workspaceRoot).not.toBe(created.project.workspaceRoot);
 
       const deleteResponse = await fetch(

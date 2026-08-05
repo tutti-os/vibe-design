@@ -7,9 +7,23 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
   createPackageFilePlan,
+  resolveBuildCommand,
   validateTuttiManifest,
   validatePackageOutput,
 } from './package-tutti-app.mjs';
+
+test('runs pnpm through the current Node process and npm entrypoint', () => {
+  assert.deepEqual(
+    resolveBuildCommand('pnpm', ['build:web'], {
+      env: { npm_execpath: String.raw`C:\Program Files\pnpm\pnpm.cjs` },
+      execPath: String.raw`C:\Program Files\nodejs\node.exe`,
+    }),
+    {
+      command: String.raw`C:\Program Files\nodejs\node.exe`,
+      args: [String.raw`C:\Program Files\pnpm\pnpm.cjs`, 'build:web'],
+    },
+  );
+});
 
 test('validates the vibe-design Tutti app manifest contract', () => {
   assert.doesNotThrow(() =>
@@ -63,6 +77,7 @@ test('exposes the expected Tutti CLI capabilities', async () => {
     'projects',
     'open',
     'project-create',
+    'project-update',
     'session-start',
     'conversations',
     'conversation-messages',
@@ -70,8 +85,8 @@ test('exposes the expected Tutti CLI capabilities', async () => {
     'file-get',
     'comments',
   ]);
-  // Prototype creation is allowed; destructive verbs remain unavailable.
-  assert.equal(commandPaths.some((command) => /update|delete|rename|project-data|project-get/.test(command)), false);
+  // Prototype creation and metadata updates are allowed; destructive verbs remain unavailable.
+  assert.equal(commandPaths.some((command) => /delete|rename|project-data|project-get/.test(command)), false);
 });
 
 test('command handler timeouts stay within the Tutti release tooling bounds', async () => {
