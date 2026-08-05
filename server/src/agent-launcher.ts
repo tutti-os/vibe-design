@@ -1,5 +1,5 @@
 import { copyFile, mkdir, stat, unlink, writeFile } from 'node:fs/promises';
-import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve, win32 } from 'node:path';
 import {
   type AgentEvent as AcpAgentEvent,
   type AgentRunInput as AcpAgentRunInput,
@@ -1421,12 +1421,12 @@ function readPromptAttachments(value: unknown, cwd: string): PromptAttachment[] 
 }
 
 function normalizeProjectAttachmentPath(value: string): string | null {
-  if (isAbsolute(value)) {
+  if (isAbsolute(value) || win32.isAbsolute(value)) {
     return null;
   }
 
-  const normalized = normalize(value).replaceAll('\\', '/');
-  if (normalized === '.' || normalized.startsWith('..')) {
+  const normalized = normalize(value.replaceAll('\\', '/')).replaceAll('\\', '/');
+  if (normalized === '.' || normalized === '..' || normalized.startsWith('../')) {
     return null;
   }
 

@@ -1888,6 +1888,13 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         mime: 'text/tsx',
         kind: 'code',
       });
+      upsertProjectFileInStore(projectsDir, 'project-1', {
+        name: 'secret.txt',
+        path: 'safe/../../secret.txt',
+        size: 6,
+        mime: 'text/plain',
+        kind: 'text',
+      });
 
       const runs = createChatRunService({
         createSseResponse: createNoopSseResponse,
@@ -1906,7 +1913,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
           agentId: 'codex',
           context: {
             skillIds: ['dashboard'],
-            designFilePaths: ['assets/Hero.tsx'],
+            designFilePaths: ['assets/Hero.tsx', String.raw`safe\..\..\secret.txt`, String.raw`C:\secret.txt`],
           },
         },
         paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
@@ -1920,6 +1927,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       expect(prompt).toContain('Hero.tsx');
       expect(prompt).toContain('assets/Hero.tsx');
       expect(prompt).toContain(join(projectsDir, 'project-1', 'assets/Hero.tsx'));
+      expect(prompt).not.toContain('secret.txt');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
