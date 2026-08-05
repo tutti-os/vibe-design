@@ -45,7 +45,9 @@ export const en = {
       title: 'Conversation history',
     },
     composer: {
+      addContent: 'Add content',
       attachFiles: 'Attach files',
+      browseReferences: 'Browse files and app outputs',
       chatComposer: 'Chat composer',
       chooseDesignSystem: 'Choose design style',
       contextSearchUnavailable: 'Context search unavailable',
@@ -81,6 +83,7 @@ export const en = {
       responseLoading: 'Response loading',
       removeAttachment: 'Remove {{name}}',
       removeContext: 'Remove context {{name}}',
+      referenceSelectionFailed: 'Could not open the file browser',
       searchingContext: 'Searching context...',
       selectedContext: 'Selected context',
       send: 'Send',

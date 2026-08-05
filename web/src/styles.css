@@ -12,6 +12,7 @@
 @source "./";
 @source "../node_modules/@tutti-os/ui-rich-text/dist";
 @source "../node_modules/@tutti-os/ui-system/dist";
+@source "../node_modules/@tutti-os/workspace-file-reference/dist";
 
 @theme {
   --font-sans: "Lexend Variable", "Lexend", ui-sans-serif, system-ui, sans-serif;
