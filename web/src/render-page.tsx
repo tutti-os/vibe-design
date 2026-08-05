@@ -2,7 +2,14 @@ import { renderToString } from 'react-dom/server';
 import { createVibeDesignI18nRuntime, defaultVibeDesignLocale, toDocumentLanguage } from './i18n/core';
 import { createVibeDesignFlow, type VibeDesignFlowOptions } from './launch/vibe-design-flow';
 
-export function renderPage(options?: VibeDesignFlowOptions): string {
+export interface RenderPageRuntimeOptions {
+  liveReload?: boolean;
+}
+
+export function renderPage(
+  options?: VibeDesignFlowOptions,
+  runtimeOptions: RenderPageRuntimeOptions = {},
+): string {
   const appHtml = renderToString(createVibeDesignFlow(options).render());
   const initialData = escapeJsonForHtml(options ?? {});
   const locale = options?.locale ?? defaultVibeDesignLocale;
@@ -10,7 +17,13 @@ export function renderPage(options?: VibeDesignFlowOptions): string {
   const documentLanguage = toDocumentLanguage(locale);
   const documentTitle = escapeHtml(i18n.t('common.appTitle'));
 
-  return `<!doctype html><html lang="${documentLanguage}" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" type="image/png" href="/icon.png"><link rel="apple-touch-icon" href="/icon.png"><link rel="stylesheet" href="/styles.css"><title>${documentTitle}</title></head><body><div id="root">${appHtml}</div><script>window.__VIBE_DESIGN_INITIAL__=${initialData};</script><script type="module" src="/client.js"></script></body></html>`;
+  const liveReload = runtimeOptions.liveReload ? renderLiveReloadScript() : '';
+
+  return `<!doctype html><html lang="${documentLanguage}" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" type="image/png" href="/icon.png"><link rel="apple-touch-icon" href="/icon.png"><link rel="stylesheet" href="/styles.css"><title>${documentTitle}</title></head><body><div id="root">${appHtml}</div><script>window.__VIBE_DESIGN_INITIAL__=${initialData};</script><script type="module" src="/client.js"></script>${liveReload}</body></html>`;
+}
+
+function renderLiveReloadScript(): string {
+  return `<script data-vibe-design-dev-reload>(()=>{const e=["/client.js","/styles.css","/healthz"];let t=null,l=false;const n=async()=>{try{const n=(await Promise.all(e.map(async e=>{const t=await fetch(e,{method:"HEAD",cache:"no-store"});if(!t.ok)throw new Error("asset unavailable");return[t.headers.get("etag"),t.headers.get("content-length"),t.headers.get("x-vibe-design-dev-instance")].join(":")}))).join("|");if(l||t!==null&&t!==n){window.location.reload();return}t=n;l=false}catch{l=true}};void n();window.setInterval(()=>void n(),750)})();</script>`;
 }
 
 function escapeJsonForHtml(value: unknown): string {
