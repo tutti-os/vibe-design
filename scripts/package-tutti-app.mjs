@@ -244,6 +244,20 @@ export async function packageTuttiApp(options = {}) {
   return { packageRoot, files: plan.length };
 }
 
+export function resolveBuildCommand(command, args, options = {}) {
+  if (command !== 'pnpm') {
+    return { command, args };
+  }
+  const entrypoint = (options.env ?? process.env).npm_execpath?.trim();
+  if (!entrypoint) {
+    throw new Error('npm_execpath is required to run the package manager');
+  }
+  return {
+    command: options.execPath ?? process.execPath,
+    args: [entrypoint, ...args],
+  };
+}
+
 function shouldIncludePackageFile(relativePath) {
   if (EXCLUDED_PREFIXES.some((prefix) => relativePath.startsWith(prefix))) {
     if (!relativePath.startsWith('server/dist/') && !relativePath.startsWith('web/dist/')) {
@@ -316,7 +330,8 @@ async function assertMissingDirectory(filePath, message) {
 
 function run(command, args, options) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const resolved = resolveBuildCommand(command, args);
+    const child = spawn(resolved.command, resolved.args, {
       cwd: options.cwd,
       env: process.env,
       stdio: 'inherit',
@@ -327,7 +342,7 @@ function run(command, args, options) {
         resolve();
         return;
       }
-      reject(new Error(`${command} ${args.join(' ')} exited with ${code ?? 'unknown status'}`));
+      reject(new Error(`${resolved.command} ${resolved.args.join(' ')} exited with ${code ?? 'unknown status'}`));
     });
   });
 }

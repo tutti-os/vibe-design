@@ -7,9 +7,23 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import {
   createPackageFilePlan,
+  resolveBuildCommand,
   validateTuttiManifest,
   validatePackageOutput,
 } from './package-tutti-app.mjs';
+
+test('runs pnpm through the current Node process and npm entrypoint', () => {
+  assert.deepEqual(
+    resolveBuildCommand('pnpm', ['build:web'], {
+      env: { npm_execpath: String.raw`C:\Program Files\pnpm\pnpm.cjs` },
+      execPath: String.raw`C:\Program Files\nodejs\node.exe`,
+    }),
+    {
+      command: String.raw`C:\Program Files\nodejs\node.exe`,
+      args: [String.raw`C:\Program Files\pnpm\pnpm.cjs`, 'build:web'],
+    },
+  );
+});
 
 test('validates the vibe-design Tutti app manifest contract', () => {
   assert.doesNotThrow(() =>
