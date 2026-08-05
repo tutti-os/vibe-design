@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { join, resolve } from 'node:path';
 import {
   allocateRenamedTshProjectRoot,
   allocateTshProjectRoot,
@@ -16,23 +17,24 @@ describe('tsh-workspace', () => {
   });
 
   it('resolves parent paths only on TSH hosts', () => {
+    const workspaceRoot = resolve('/workspace');
     expect(resolveTshParentPath(undefined, {})).toBeNull();
     expect(
       resolveTshParentPath(undefined, { TSH_WORKSPACE_APP: '1' }),
-    ).toBe('/workspace');
+    ).toBe(workspaceRoot);
     expect(
       resolveTshParentPath('/workspace/docs', { TSH_WORKSPACE_APP: '1' }),
-    ).toBe('/workspace/docs');
+    ).toBe(join(workspaceRoot, 'docs'));
     expect(
       resolveTshParentPath(undefined, {
         TSH_WORKSPACE_APP: '1',
         TSH_WORKSPACE_ROOT: '/tmp/workspace-root',
       }),
-    ).toBe('/tmp/workspace-root');
+    ).toBe(resolve('/tmp/workspace-root'));
   });
 
   it('rejects escapes and .tsh', () => {
-    expect(() => assertAllowedTshParentPath('/tmp/out')).toThrow(/inside \/workspace/);
+    expect(() => assertAllowedTshParentPath('/tmp/out')).toThrow(`inside ${resolve('/workspace')}`);
     expect(() => assertAllowedTshParentPath('/workspace/.tsh')).toThrow(/\.tsh/);
     expect(() => assertAllowedTshParentPath('/workspace/.tsh/x')).toThrow(/\.tsh/);
   });

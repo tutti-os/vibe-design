@@ -188,7 +188,7 @@ describe('reconcileProjectFilesFromDisk', () => {
     await expect(readFile(assetPath, 'utf8')).resolves.toBe('<html>BBB</html>');
   });
 
-  it('propagates inaccessible directory errors and keeps indexed files when pruning', async () => {
+  it.skipIf(process.platform === 'win32')('propagates inaccessible directory errors and keeps indexed files when pruning', async () => {
     const projectsDir = await createProjectsDir();
     const projectId = 'project-inaccessible-assets';
     writeProjectToStore(projectsDir, storedProject(projectId));

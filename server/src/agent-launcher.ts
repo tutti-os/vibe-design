@@ -1425,7 +1425,7 @@ function normalizeProjectAttachmentPath(value: string): string | null {
     return null;
   }
 
-  const normalized = normalize(value);
+  const normalized = normalize(value).replaceAll('\\', '/');
   if (normalized === '.' || normalized.startsWith('..')) {
     return null;
   }

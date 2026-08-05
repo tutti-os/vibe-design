@@ -776,7 +776,7 @@ describe('createServer', () => {
     });
     const listedAbsolutePath = (files.body.value as { files: Array<{ absolutePath: string }> }).files[0].absolutePath;
     expect(isAbsolute(listedAbsolutePath)).toBe(true);
-    expect(listedAbsolutePath.endsWith(`projects/${projectId}/assets/hero.html`)).toBe(true);
+    expect(listedAbsolutePath.endsWith(join('projects', projectId, 'assets', 'hero.html'))).toBe(true);
 
     const staticFile = await fetch(`http://127.0.0.1:${port}/api/projects/${projectId}/files/hero.html`);
     expect(staticFile.status).toBe(200);

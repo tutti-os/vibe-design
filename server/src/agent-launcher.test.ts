@@ -72,6 +72,19 @@ function restoreOptionalEnv(key: string, value: string | undefined): void {
   }
 }
 
+async function writeNodeCommand(root: string, name: string, sourceLines: string[]): Promise<string> {
+  const scriptPath = join(root, `${name}.mjs`);
+  await writeFile(scriptPath, sourceLines.join('\n'));
+  if (process.platform === 'win32') {
+    const commandPath = join(root, `${name}.cmd`);
+    await writeFile(commandPath, `@"${process.execPath}" "${scriptPath}" %*\r\n`);
+    return commandPath;
+  }
+  await writeFile(scriptPath, `#!${process.execPath}\n${sourceLines.join('\n')}`);
+  await chmod(scriptPath, 0o755);
+  return scriptPath;
+}
+
 function createRecordingRuntime(
   events: Array<{ type: string; [key: string]: unknown }> = [{ type: 'done', status: 'completed', exitCode: 0 }],
 ): LocalAgentRuntime & { inputs: RuntimeInput[]; canceledRunIds: string[] } {
@@ -325,12 +338,10 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       const builtInSkillsRoot = join(root, 'skills');
       const userSkillsRoot = join(root, 'user-skills');
       const projectsDir = join(root, 'projects');
-      const cliPath = join(root, 'tutti-cli.mjs');
       const cliInvocationLog = join(root, 'tutti-cli-invocations.jsonl');
       await mkdir(builtInSkillsRoot, { recursive: true });
       await mkdir(userSkillsRoot, { recursive: true });
-      await writeFile(cliPath, [
-        '#!/usr/bin/env node',
+      const cliPath = await writeNodeCommand(root, 'tutti-cli', [
         'import { appendFileSync } from "node:fs";',
         'const args = process.argv.slice(2);',
         `appendFileSync(${JSON.stringify(cliInvocationLog)}, JSON.stringify({ args, cwd: process.cwd() }) + "\\n");`,
@@ -351,8 +362,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         '  agentSessionId: args[args.indexOf("--agent-session-id") + 1],',
         '  recommendedSystemPrompt: { content: "Target B skill context." }, skills: []',
         '}));',
-      ].join('\n'));
-      await chmod(cliPath, 0o755);
+      ]);
       process.env.TUTTI_CLI = cliPath;
 
       const runs = createChatRunService({
@@ -412,12 +422,10 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       const builtInSkillsRoot = join(root, 'skills');
       const userSkillsRoot = join(root, 'user-skills');
       const projectsDir = join(root, 'projects');
-      const cliPath = join(root, 'tutti-cli.mjs');
       const argsPath = join(root, 'tutti-cli-args.json');
       await mkdir(builtInSkillsRoot, { recursive: true });
       await mkdir(userSkillsRoot, { recursive: true });
-      await writeFile(cliPath, [
-        '#!/usr/bin/env node',
+      const cliPath = await writeNodeCommand(root, 'tutti-cli', [
         'import { writeFileSync } from "node:fs";',
         `writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)));`,
         'if (process.argv.includes("list")) {',
@@ -449,8 +457,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         '  }]',
         '}));',
         '',
-      ].join('\n'));
-      await chmod(cliPath, 0o755);
+      ]);
       process.env.TUTTI_CLI = cliPath;
 
       const runs = createChatRunService({
@@ -507,12 +514,10 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       const builtInSkillsRoot = join(root, 'skills');
       const userSkillsRoot = join(root, 'user-skills');
       const projectsDir = join(root, 'projects');
-      const cliPath = join(root, 'tutti-cli.mjs');
       const argsPath = join(root, 'tutti-cli-args.json');
       await mkdir(builtInSkillsRoot, { recursive: true });
       await mkdir(userSkillsRoot, { recursive: true });
-      await writeFile(cliPath, [
-        '#!/usr/bin/env node',
+      const cliPath = await writeNodeCommand(root, 'tutti-cli', [
         'import { writeFileSync } from "node:fs";',
         `writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(process.argv.slice(2)));`,
         'if (process.argv.includes("list")) {',
@@ -535,8 +540,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         '  }]',
         '}));',
         '',
-      ].join('\n'));
-      await chmod(cliPath, 0o755);
+      ]);
       process.env.TUTTI_CLI = cliPath;
 
       const runs = createChatRunService({
@@ -591,12 +595,10 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       const builtInSkillsRoot = join(root, 'skills');
       const userSkillsRoot = join(root, 'user-skills');
       const projectsDir = join(root, 'projects');
-      const cliPath = join(root, 'tutti-cli.mjs');
       const callsPath = join(root, 'tutti-cli-calls.json');
       await mkdir(builtInSkillsRoot, { recursive: true });
       await mkdir(userSkillsRoot, { recursive: true });
-      await writeFile(cliPath, [
-        '#!/usr/bin/env node',
+      const cliPath = await writeNodeCommand(root, 'tutti-cli', [
         'import { existsSync, readFileSync, writeFileSync } from "node:fs";',
         `const callsPath = ${JSON.stringify(callsPath)};`,
         'const calls = existsSync(callsPath) ? JSON.parse(readFileSync(callsPath, "utf8")) : [];',
@@ -612,8 +614,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         'process.stderr.write("unknown command: agent tutti-cli-skill-bundle\\n");',
         'process.exit(2);',
         '',
-      ].join('\n'));
-      await chmod(cliPath, 0o755);
+      ]);
       process.env.TUTTI_CLI = cliPath;
 
       const runs = createChatRunService({
@@ -714,7 +715,9 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         cwd: projectWorkspaceDir,
       });
       expect(runtime.inputs[0]?.env).toBeUndefined();
-      expect(JSON.stringify(run.events)).toContain(projectWorkspaceDir);
+      expect(run.events).toEqual(expect.arrayContaining([
+        expect.objectContaining({ data: expect.objectContaining({ cwd: projectWorkspaceDir }) }),
+      ]));
     } finally {
       if (previousDataDir === undefined) {
         delete process.env.TUTTI_APP_DATA_DIR;
