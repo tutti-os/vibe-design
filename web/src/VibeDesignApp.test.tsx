@@ -23,6 +23,8 @@ import type { ProjectEditorInitialData } from './project-editor-data';
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
+Element.prototype.scrollIntoView = vi.fn();
+
 const TEST_AGENT_MODEL_CATALOG = [
   { agentTargetId: 'codex', providerId: 'codex', label: 'Codex', supported: true, models: [{ id: 'default', label: 'Default (CLI config)' }] },
   { agentTargetId: 'claude-code', providerId: 'claude-code', label: 'Claude Code', supported: true, models: [{ id: 'default', label: 'Default' }] },
@@ -2028,6 +2030,96 @@ describe('VibeDesignApp', () => {
       expect(getByLabelText(container, 'Model').className).toContain('composer-model-menu-trigger');
       expect(getByLabelText(container, 'Create prototype').className).toContain('composer-send');
     } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('wires the dashboard prompt to the production Tutti file directory bridge', async () => {
+    const createdInputs: CreateProjectInput[] = [];
+    const atQuery = vi.fn(async () => []);
+    const atQueryDirectory = vi.fn(async () => [
+      {
+        providerId: 'file',
+        itemId: '/workspace/reference-assets',
+        label: 'reference-assets',
+        subtitle: '/workspace/reference-assets',
+        directory: {
+          path: '/workspace/reference-assets',
+          childCount: 1,
+        },
+        insert: {
+          kind: 'markdown-link',
+          label: 'reference-assets',
+          href: '/workspace/reference-assets/',
+        },
+      },
+    ]);
+    const hostWindow = window as Window & {
+      tuttiExternal?: {
+        at: {
+          query: typeof atQuery;
+          queryDirectory: typeof atQueryDirectory;
+        };
+      };
+    };
+    hostWindow.tuttiExternal = {
+      at: {
+        query: atQuery,
+        queryDirectory: atQueryDirectory,
+      },
+    };
+    const projectService: IProjectService = {
+      _serviceBrand: undefined,
+      async createProject(input) {
+        createdInputs.push(input);
+        return {
+          id: 'project-file-mention',
+          title: input.prompt,
+          prompt: input.prompt,
+          projectKind: input.projectKind,
+          createdAt: 1,
+          updatedAt: 1,
+        };
+      },
+      updateProjectTabsState: vi.fn(),
+      updateProjectTitle: vi.fn(),
+      updateProjectDesignSystem: vi.fn(),
+      deleteProject: vi.fn(),
+    };
+    const flow = createVibeDesignFlow({
+      projectService,
+      openProject: vi.fn(),
+    });
+    const { container, root } = renderComponent(flow.render());
+
+    try {
+      await changeText(getByLabelText(container, 'Prototype prompt'), '@');
+
+      await waitFor(() =>
+        expect(atQueryDirectory).toHaveBeenCalledWith({
+          directoryPath: '',
+          maxResults: 20,
+          providerId: 'file',
+        }),
+      );
+      expect(atQuery).not.toHaveBeenCalled();
+      await waitFor(() => expect(document.body.textContent).toContain('reference-assets'));
+
+      const folderButton = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) =>
+          button.textContent?.includes('reference-assets')
+          && button.getAttribute('aria-label') !== 'Enter folder',
+      );
+      expect(folderButton).toBeTruthy();
+      await act(async () => folderButton!.click());
+
+      await act(async () => getByLabelText(container, 'Create prototype').click());
+      await waitFor(() => expect(createdInputs).toHaveLength(1));
+      expect(createdInputs[0]?.prompt).toBe(
+        '[reference-assets](/workspace/reference-assets/)',
+      );
+    } finally {
+      delete hostWindow.tuttiExternal;
       cleanup(root, container);
     }
   });
