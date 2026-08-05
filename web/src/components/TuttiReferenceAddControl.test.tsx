@@ -35,7 +35,7 @@ describe('TuttiReferenceAddControl', () => {
       <TuttiReferenceAddControl
         labels={{
           addContent: 'Add content',
-          browseReferences: 'Browse references',
+          browseReferences: 'Workspace resources',
           uploadFile: 'Upload file',
         }}
         value="Use these"
@@ -51,7 +51,7 @@ describe('TuttiReferenceAddControl', () => {
       );
     });
     fireEvent.click(
-      await screen.findByRole('menuitem', { name: 'Browse references' }),
+      await screen.findByRole('menuitem', { name: 'Workspace resources' }),
     );
 
     await waitFor(() => {

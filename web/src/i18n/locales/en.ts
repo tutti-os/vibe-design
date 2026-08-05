@@ -47,7 +47,7 @@ export const en = {
     composer: {
       addContent: 'Add content',
       attachFiles: 'Attach files',
-      browseReferences: 'Browse files and app outputs',
+      browseReferences: 'Workspace resources',
       chatComposer: 'Chat composer',
       chooseDesignSystem: 'Choose design style',
       contextSearchUnavailable: 'Context search unavailable',

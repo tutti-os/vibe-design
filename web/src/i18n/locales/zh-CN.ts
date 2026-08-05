@@ -49,7 +49,7 @@ export const zhCN = {
     composer: {
       addContent: '添加内容',
       attachFiles: '附加文件',
-      browseReferences: '浏览文件和应用产物',
+      browseReferences: '工作区资源',
       chatComposer: '聊天输入区',
       chooseDesignSystem: '选择设计风格',
       contextSearchUnavailable: '上下文搜索不可用',
