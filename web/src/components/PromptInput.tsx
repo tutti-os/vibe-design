@@ -243,23 +243,26 @@ function createMentionPalette(t: TranslateFn): MentionPaletteOptions {
   return {
     categories: [
       {
-        id: 'apps',
-        label: t('chat.composer.mentionFilterApps'),
-        providerIds: ['workspace-app'],
-      },
-      {
-        id: 'agents',
-        label: t('chat.composer.mentionFilterAgents'),
-        providerIds: ['agent-target'],
+        id: 'files',
+        label: t('chat.composer.mentionFilterFiles'),
+        providerIds: ['file'],
       },
     ],
-    defaultCategoryId: 'agents',
+    defaultCategoryId: 'files',
     labels: {
       tabHint: t('chat.composer.mentionResults'),
       cycleFilter: t('chat.composer.mentionSwitchTabs'),
       moveSelection: t('chat.composer.mentionMoveSelection'),
       empty: t('chat.composer.noContextResults'),
       listbox: t('chat.composer.mentionResults'),
+    },
+    directoryNavigation: {
+      providerId: 'file',
+      labels: {
+        back: t('chat.composer.mentionDirectoryBack'),
+        enter: t('chat.composer.mentionDirectoryEnter'),
+        navigateHierarchy: t('chat.composer.mentionDirectoryNavigateHierarchy'),
+      },
     },
     maxHeightPx: 320,
   };

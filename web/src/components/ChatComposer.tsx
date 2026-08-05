@@ -642,8 +642,8 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
 
           <div className="composer-row">
             <ComposerIconButton
-              ariaLabel={t('chat.composer.openMentions')}
-              title={t('chat.composer.openMentions')}
+              ariaLabel={t('chat.composer.openFileMentions')}
+              title={t('chat.composer.openFileMentions')}
               onClick={insertMentionTrigger}
             >
               <AtSign size={14} aria-hidden />

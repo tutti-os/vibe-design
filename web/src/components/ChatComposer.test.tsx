@@ -2,6 +2,7 @@
 import React, { act } from 'react';
 import { fireEvent, waitFor } from '@testing-library/react';
 import { createRoot, type Root } from 'react-dom/client';
+import { TooltipProvider } from '@tutti-os/ui-system/components';
 import { describe, expect, it, vi } from 'vitest';
 import { ChatComposer as ChatComposerBase } from './ChatComposer';
 import { TuttiExternalMentionServiceRoot } from './TuttiExternalMentionServiceRoot';
@@ -28,13 +29,15 @@ const TEST_AGENT_MODEL_CATALOG = [
 
 function ChatComposer(props: React.ComponentProps<typeof ChatComposerBase>): React.ReactElement {
   return (
-    <TuttiExternalMentionServiceRoot>
-      <ChatComposerBase
-        {...props}
-        agentAvailability={props.agentAvailability ?? TEST_AGENT_AVAILABILITY}
-        agentModelCatalog={props.agentModelCatalog ?? TEST_AGENT_MODEL_CATALOG}
-      />
-    </TuttiExternalMentionServiceRoot>
+    <TooltipProvider>
+      <TuttiExternalMentionServiceRoot>
+        <ChatComposerBase
+          {...props}
+          agentAvailability={props.agentAvailability ?? TEST_AGENT_AVAILABILITY}
+          agentModelCatalog={props.agentModelCatalog ?? TEST_AGENT_MODEL_CATALOG}
+        />
+      </TuttiExternalMentionServiceRoot>
+    </TooltipProvider>
   );
 }
 
@@ -109,21 +112,26 @@ async function flushAsyncWork(): Promise<void> {
   });
 }
 
-function setTuttiExternalAtQuery(
-  query: (input: {
+interface TestTuttiExternalAtBridge {
+  query(input: {
     keyword: string;
     maxResults?: number;
     providers?: readonly string[];
-  }) => Promise<unknown[]>,
-): void {
+  }): Promise<unknown[]>;
+  queryDirectory?(input: {
+    directoryPath: string;
+    maxResults?: number;
+    providerId: string;
+  }): Promise<unknown[]>;
+}
+
+function setTuttiExternalAtBridge(at: TestTuttiExternalAtBridge): void {
   (window as Window & {
     tuttiExternal?: {
-      at?: {
-        query: typeof query;
-      };
+      at?: TestTuttiExternalAtBridge;
     };
   }).tuttiExternal = {
-    at: { query },
+    at,
   };
 }
 
@@ -163,7 +171,7 @@ describe('ChatComposer', () => {
     try {
       expect(container.querySelector('[aria-label="Pet"]')).toBeNull();
       expect(container.textContent).not.toContain('宠物');
-      expect(getByLabelText(container, 'Open mentions')).toBeTruthy();
+      expect(getByLabelText(container, 'Mention files')).toBeTruthy();
       expect(getByLabelText(container, 'Attach files')).toBeTruthy();
     } finally {
       cleanup(root, container);
@@ -1236,33 +1244,48 @@ describe('ChatComposer', () => {
     }
   });
 
-  it('queries Tutti external agent targets and inserts the exact agent mention', async () => {
+  it('browses Tutti workspace directories, returns to root, and inserts the selected folder path', async () => {
     const selectResult = vi.fn();
     const onDraftChange = vi.fn();
-    const atQuery = vi.fn(async () => [
-      {
-        providerId: 'agent-target',
-        itemId: 'team:automation',
-        label: 'Automation Agent',
-        subtitle: 'Agent',
-        thumbnailUrl: '/assets/automation-agent.png',
-        insert: {
-          kind: 'mention',
-          mention: {
-            entityId: 'team:automation',
-            label: 'Automation Agent',
-            scope: {
-              workspaceId: 'workspace-1',
-            },
-            presentation: {
-              iconUrl: '/assets/automation-agent.png',
-              subtitle: 'Agent',
+    const atQuery = vi.fn(async () => []);
+    const atQueryDirectory = vi.fn(async ({ directoryPath }: { directoryPath: string }) => {
+      if (directoryPath === '/workspace/reference-assets') {
+        return [
+          {
+            providerId: 'file',
+            itemId: '/workspace/reference-assets/brief.md',
+            label: 'brief.md',
+            subtitle: '/workspace/reference-assets/brief.md',
+            insert: {
+              kind: 'markdown-link',
+              label: 'brief.md',
+              href: '/workspace/reference-assets/brief.md',
             },
           },
+        ];
+      }
+      return [
+        {
+          providerId: 'file',
+          itemId: '/workspace/reference-assets',
+          label: 'reference-assets',
+          subtitle: '/workspace/reference-assets',
+          directory: {
+            path: '/workspace/reference-assets',
+            childCount: 1,
+          },
+          insert: {
+            kind: 'markdown-link',
+            label: 'reference-assets',
+            href: '/workspace/reference-assets/',
+          },
         },
-      },
-    ]);
-    setTuttiExternalAtQuery(atQuery);
+      ];
+    });
+    setTuttiExternalAtBridge({
+      query: atQuery,
+      queryDirectory: atQueryDirectory,
+    });
     const { container, root } = renderComponent(
       <ChatComposer
         streaming={false}
@@ -1279,24 +1302,40 @@ describe('ChatComposer', () => {
 
     try {
       const message = getByLabelText(container, 'Message');
-      await changeText(message, '@auto');
+      await changeText(message, '@');
 
       await waitFor(() =>
-        expect(atQuery).toHaveBeenCalledWith({
-          keyword: 'auto',
+        expect(atQueryDirectory).toHaveBeenCalledWith({
+          directoryPath: '',
           maxResults: 20,
-          providers: ['agent-target'],
+          providerId: 'file',
         }),
       );
-      await waitFor(() => expect(document.body.textContent).toContain('Automation Agent'));
-      expect(document.body.textContent).toContain('Agent');
+      expect(atQuery).not.toHaveBeenCalled();
+      await waitFor(() => expect(document.body.textContent).toContain('reference-assets'));
 
-      await act(async () => buttonByName(document.body, 'Automation Agent').click());
+      await act(async () => getByLabelText(document.body, 'Enter folder').click());
+      await waitFor(() =>
+        expect(atQueryDirectory).toHaveBeenCalledWith({
+          directoryPath: '/workspace/reference-assets',
+          maxResults: 20,
+          providerId: 'file',
+        }),
+      );
+      await waitFor(() => expect(document.body.textContent).toContain('brief.md'));
+
+      await act(async () => getByLabelText(document.body, 'Back').click());
+      await waitFor(() =>
+        expect(atQueryDirectory.mock.calls.filter(([input]) => input.directoryPath === '')).toHaveLength(2),
+      );
+      await waitFor(() => expect(document.body.textContent).toContain('reference-assets'));
+
+      await act(async () => buttonByName(document.body, 'reference-assets').click());
       await flushAsyncWork();
 
       expect(selectResult).not.toHaveBeenCalled();
       expect(onDraftChange).toHaveBeenLastCalledWith(
-        '[@Automation Agent](mention://agent-target/team:automation?workspaceId=workspace-1)',
+        '[reference-assets](/workspace/reference-assets/)',
       );
       expect(container.querySelector('[aria-label="Mention results"]')).toBeNull();
     } finally {

@@ -40,7 +40,7 @@ describe('TuttiExternalMentionServiceRoot', () => {
     expect(createMentionService).toHaveBeenCalledTimes(2);
     expect(createMentionService).toHaveBeenLastCalledWith({
       getBridge: expect.any(Function),
-      providerIds: ['workspace-app', 'agent-target'],
+      providerIds: ['file'],
     });
     expect(first.dispose).toHaveBeenCalledTimes(1);
     expect(providedServices.at(-1)).toBe(second);

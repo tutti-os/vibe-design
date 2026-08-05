@@ -2024,6 +2024,7 @@ describe('VibeDesignApp', () => {
       expect(buttonByText(container, 'Design style None').className).not.toContain('project-secondary-button');
       expect(buttonByText(container, 'Design style None').className).not.toContain('project-primary-button');
       expect(getByLabelText(container, 'Choose reference files').className).toContain('icon-btn');
+      expect(getByLabelText(container, 'Mention files').className).toContain('icon-btn');
       expect(getByLabelText(container, 'Model').className).toContain('composer-model-menu-trigger');
       expect(getByLabelText(container, 'Create prototype').className).toContain('composer-send');
     } finally {

@@ -242,7 +242,18 @@ describe('ChatPane', () => {
     }
   });
 
-  it('renders rich mention markdown in user messages without exposing mention hrefs', () => {
+  it.each([
+    {
+      href: 'mention://workspace-app/group-chat?workspaceId=workspace-1',
+      label: '群聊',
+      providerId: 'workspace-app',
+    },
+    {
+      href: 'mention://agent-target/team:automation?workspaceId=workspace-1',
+      label: 'Automation Agent',
+      providerId: 'agent-target',
+    },
+  ])('renders historical $providerId mentions in user messages', ({ href, label, providerId }) => {
     const snapshot: ChatTimelineSnapshot = {
       activeRunId: null,
       phase: 'idle',
@@ -254,7 +265,7 @@ describe('ChatPane', () => {
         {
           id: 'user-1',
           role: 'user',
-          content: 'Ask [@群聊](mention://workspace-app/group-chat?workspaceId=workspace-1) for context',
+          content: `Ask [@${label}](${href}) for context`,
           events: [],
           blocks: [],
         },
@@ -280,9 +291,9 @@ describe('ChatPane', () => {
       const userText = container.querySelector('.msg.user .user-text');
       const mention = userText?.querySelector('.tutti-rich-text-mention');
 
-      expect(userText?.textContent).toBe('Ask 群聊 for context');
-      expect(userText?.textContent).not.toContain('mention://workspace-app');
-      expect(mention?.getAttribute('data-provider-id')).toBe('workspace-app');
+      expect(userText?.textContent).toBe(`Ask ${label} for context`);
+      expect(userText?.textContent).not.toContain(href);
+      expect(mention?.getAttribute('data-provider-id')).toBe(providerId);
     } finally {
       cleanup(root, container);
     }
