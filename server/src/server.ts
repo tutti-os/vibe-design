@@ -59,6 +59,7 @@ import {
 import { registerReferencesRoutes } from './routes/references-routes.js';
 import { registerSkillsRoutes } from './routes/skills-routes.js';
 import { createChatRunService } from './runs.js';
+import { projectAssetFilePath } from './project-workspace.js';
 import {
   listProjectFilesFromStore,
   sqlitePathForProjectsDir,
@@ -67,6 +68,10 @@ import {
   type StoredConversationMessage,
   type StoredProject,
 } from './sqlite-store.js';
+import {
+  isTshWorkspaceAppHost,
+  tshWorkspaceRootPath,
+} from './tsh-workspace.js';
 import type {
   CliOpenAppInput,
   CliServiceResult,
@@ -148,8 +153,12 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     process.env.TUTTI_APP_DATA_DIR ??
     join(process.cwd(), '.vibe');
   const userDataDir = process.env.TUTTI_APP_DATA_DIR ?? runtimeDir;
+  // Private durable app state prefers DATABASE_DIR (SQLite, skills, design systems).
+  // Public project workspaces on TSH live under /workspace via workspace_root.
+  const privateDataDir =
+    process.env.TUTTI_APP_DATABASE_DIR?.trim() || userDataDir;
   const projectsDir = join(runtimeDir, 'projects');
-  const runsLogDir = join(runtimeDir, 'runs');
+  const runsLogDir = join(privateDataDir, 'runs');
   const providerSnapshots = createAgentProviderSnapshotDetector(
     options.detectAgentProviders ?? detectLocalAgentProviders,
   );
@@ -259,10 +268,10 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
       runtimeDir,
       projectsDir,
       runsLogDir,
-      userSkillsRoot: options.userSkillsRoot ?? process.env.VIBE_USER_SKILLS_DIR ?? join(userDataDir, 'skills'),
+      userSkillsRoot: options.userSkillsRoot ?? process.env.VIBE_USER_SKILLS_DIR ?? join(privateDataDir, 'skills'),
       builtInSkillsRoot: options.builtInSkillsRoot ?? process.env.VIBE_BUILTIN_SKILLS_DIR ?? join(REPO_ROOT, 'skills'),
       userDesignSystemsRoot:
-        options.userDesignSystemsRoot ?? process.env.VIBE_USER_DESIGN_SYSTEMS_DIR ?? join(userDataDir, 'design-systems'),
+        options.userDesignSystemsRoot ?? process.env.VIBE_USER_DESIGN_SYSTEMS_DIR ?? join(privateDataDir, 'design-systems'),
       builtInDesignSystemsRoot: options.builtInDesignSystemsRoot ?? process.env.VIBE_BUILTIN_DESIGN_SYSTEMS_DIR ?? join(REPO_ROOT, 'design-systems'),
     },
     chat: {
@@ -666,6 +675,15 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     if (normalized.designSystemId === undefined && input['design-system-id'] !== undefined) {
       normalized.designSystemId = input['design-system-id'];
     }
+    if (normalized.parentPath === undefined && input['parent-path'] !== undefined) {
+      normalized.parentPath = input['parent-path'];
+    }
+    if (normalized.projectId === undefined && input['project-id'] !== undefined) {
+      normalized.projectId = input['project-id'];
+    }
+    if (normalized.title === undefined && input.title !== undefined) {
+      normalized.title = input.title;
+    }
     return normalized;
   }
 
@@ -838,7 +856,12 @@ export function createServer(options: CreateServerOptions = {}): http.Server {
     if (DEV_LIVE_RELOAD_ENABLED) {
       res.setHeader('X-Vibe-Design-Dev-Instance', DEV_LIVE_RELOAD_INSTANCE);
     }
-    res.status(204).end();
+    const tshWorkspaceApp = isTshWorkspaceAppHost();
+    res.status(200).json({
+      ok: true,
+      tshWorkspaceApp,
+      ...(tshWorkspaceApp ? { defaultParentPath: tshWorkspaceRootPath() } : {}),
+    });
   });
 
   app.get('/styles.css', async (_req: Request, res: Response) => {
@@ -1143,7 +1166,7 @@ function isSvgMime(mime: string): boolean {
 }
 
 function projectAssetPath(projectsDir: string, projectId: string, name: string): string {
-  return join(projectsDir, projectId, 'assets', name);
+  return projectAssetFilePath(projectsDir, projectId, name);
 }
 
 function staticImageContentType(name: string): string {

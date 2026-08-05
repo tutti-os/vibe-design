@@ -41,12 +41,29 @@
           "prompt": { "type": "string", "description": "Design prompt describing the prototype to build." },
           "title": { "type": "string", "description": "Optional project title summarized from the prompt, within 20 characters. If omitted, the server derives a short title from the prompt." },
           "project-kind": { "type": "string", "description": "Optional project kind." },
-          "design-system-id": { "type": "string", "description": "Optional design system id to apply." }
+          "design-system-id": { "type": "string", "description": "Optional design system id to apply." },
+          "parent-path": { "type": "string", "description": "Optional TSH parent directory under /workspace for the project folder. Defaults to /workspace on TSH hosts." }
         },
         "required": ["prompt"]
       },
       "output": { "defaultMode": "json", "json": true },
       "handler": { "kind": "http", "method": "POST", "path": "/tutti/cli/project-create", "timeoutMs": 30000 }
+    },
+    {
+      "path": ["project-update"],
+      "summary": "Update a Prototype Design project",
+      "description": "Update a project's title or design system. On TSH hosts, renaming the title also renames the public workspace folder under /workspace while preserving the trailing short id.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "project-id": { "type": "string", "description": "Project id." },
+          "title": { "type": "string", "description": "Optional new project title, within 20 characters." },
+          "design-system-id": { "type": "string", "description": "Optional design system id. Pass null to clear." }
+        },
+        "required": ["project-id"]
+      },
+      "output": { "defaultMode": "json", "json": true },
+      "handler": { "kind": "http", "method": "POST", "path": "/tutti/cli/project-update", "timeoutMs": 30000 }
     },
     {
       "path": ["session-start"],

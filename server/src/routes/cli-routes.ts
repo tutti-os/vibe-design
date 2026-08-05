@@ -12,6 +12,7 @@ import {
   listProjectSummariesFromStore,
   type ProjectFileKind,
 } from '../sqlite-store.js';
+import { resolveProjectWorkspaceDir } from '../project-workspace.js';
 import { isSafeFileName, isSafeProjectId } from './project-routes.js';
 
 type CliRouteDeps = RouteDeps<'http' | 'paths' | 'cli'>;
@@ -190,12 +191,11 @@ function readRequiredSafeFileName(res: Response, input: CliInput): string | null
 }
 
 function projectAssetPath(projectsDir: string, projectId: string, name: string): string {
-  return path.resolve(projectsDir, projectId, 'assets', name);
+  return path.resolve(resolveProjectWorkspaceDir(projectsDir, projectId), 'assets', name);
 }
 
-function projectFileStaticUrl(req: Request, projectId: string, name: string): string {
-  const host = req.get('host') ?? '127.0.0.1';
-  return `${req.protocol}://${host}/static/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(name)}`;
+function projectFileStaticUrl(_req: Request, projectId: string, name: string): string {
+  return `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(name)}`;
 }
 
 function shouldReturnUtf8(mime: string, kind: ProjectFileKind): boolean {

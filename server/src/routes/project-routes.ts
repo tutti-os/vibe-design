@@ -7,6 +7,7 @@ import { ensureDefaultConversation } from '../conversations.js';
 import { listAvailableDesignSystems } from '../design-systems.js';
 import { prepareProjectFilesFromDisk } from '../project-file-preparation.js';
 import { enqueueProjectFileOperation } from '../project-file-coordinator.js';
+import { resolveProjectWorkspaceDir } from '../project-workspace.js';
 import type { RouteDeps } from '../server-context.js';
 import {
   deleteProjectFileFromStore,
@@ -32,6 +33,13 @@ import {
   type ProjectTab,
   type StoredProject,
 } from '../sqlite-store.js';
+import {
+  allocateRenamedTshProjectRoot,
+  allocateTshProjectRoot,
+  ensureTshProjectRoot,
+  isTshWorkspaceAppHost,
+  resolveTshParentPath,
+} from '../tsh-workspace.js';
 
 type ProjectRouteDeps = RouteDeps<'http' | 'paths'>;
 type ProjectParams = { id: string };
@@ -243,12 +251,18 @@ export function registerProjectRoutes(app: Express, ctx: ProjectRouteDeps): void
     }
 
     try {
+      const existing = getProjectFromStore(ctx.paths.projectsDir, id);
+      if (!existing) {
+        sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
+        return;
+      }
+      const diskRoot = resolveProjectWorkspaceDir(ctx.paths.projectsDir, id);
       const deleted = deleteProjectFromStore(ctx.paths.projectsDir, id);
       if (!deleted) {
         sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
         return;
       }
-      await rm(path.join(ctx.paths.projectsDir, id), { recursive: true, force: true });
+      await rm(diskRoot, { recursive: true, force: true });
       res.json({ ok: true });
     } catch (error) {
       sendInternalError(ctx, res, error, 'project delete failed');
@@ -515,16 +529,28 @@ export async function createProject(ctx: ProjectRouteDeps, input: ProjectCreateI
   const startedAt = Date.now();
   try {
     const id = await createUniqueProjectId(ctx.paths.projectsDir);
+    let workspaceRoot: string | null = null;
+    if (isTshWorkspaceAppHost()) {
+      const parentPath = resolveTshParentPath(input.parentPath);
+      if (!parentPath) {
+        throw new Error('TSH parent path is required');
+      }
+      workspaceRoot = ensureTshProjectRoot(
+        allocateTshProjectRoot(parentPath, input.title, id),
+      );
+      await mkdir(path.join(workspaceRoot, 'assets'), { recursive: true });
+    }
     const project = createDefaultProject(id, {
       title: input.title,
       prompt: input.prompt,
       projectKind: input.projectKind,
-    }, input.designSystemId);
+    }, input.designSystemId, workspaceRoot);
     writeProjectToStore(ctx.paths.projectsDir, project);
     console.info(JSON.stringify({
       event: 'vibe.project.create',
       outcome: 'succeeded',
       project_id: project.id,
+      workspace_root: project.workspaceRoot,
       elapsed_ms: Date.now() - startedAt,
     }));
     return project;
@@ -552,8 +578,30 @@ export async function updateProject(
   project: StoredProject,
   projectUpdate: ProjectUpdateInput,
 ): Promise<StoredProject> {
-  const updatedProject = {
+  let workspaceRoot = project.workspaceRoot;
+  if (
+    projectUpdate.title !== undefined
+    && workspaceRoot
+    && isTshWorkspaceAppHost()
+  ) {
+    const nextRoot = allocateRenamedTshProjectRoot(workspaceRoot, projectUpdate.title);
+    if (nextRoot !== workspaceRoot) {
+      await mkdir(path.dirname(nextRoot), { recursive: true });
+      try {
+        await rename(workspaceRoot, nextRoot);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          throw error;
+        }
+        await mkdir(path.join(nextRoot, 'assets'), { recursive: true });
+      }
+      workspaceRoot = nextRoot;
+    }
+  }
+
+  const updatedProject: StoredProject = {
     ...project,
+    workspaceRoot,
     ...(projectUpdate.designSystemId !== undefined ? { designSystemId: projectUpdate.designSystemId } : {}),
     ...(projectUpdate.title !== undefined
       ? { metadata: { ...project.metadata, title: projectUpdate.title } }
@@ -592,6 +640,7 @@ function createDefaultProject(
   id: string,
   metadata: Record<string, unknown> = {},
   designSystemId: string | null = null,
+  workspaceRoot: string | null = null,
 ): StoredProject {
   const timestamp = Date.now();
   return {
@@ -601,6 +650,7 @@ function createDefaultProject(
     updatedAt: timestamp,
     tabsState: { tabs: [], activeTabKey: null },
     metadata,
+    workspaceRoot,
   };
 }
 
@@ -609,6 +659,7 @@ export interface ProjectCreateInput {
   prompt: string;
   projectKind: string;
   designSystemId: string | null;
+  parentPath?: string | null;
 }
 
 export interface ProjectUpdateInput {
@@ -627,11 +678,13 @@ export function readProjectCreateInput(bodyValue: unknown): ProjectCreateInput |
     return null;
   }
 
+  const parentPath = readString(body.parentPath);
   return {
     title: normalizeProjectCreateTitle(readString(body.title), prompt),
     prompt,
     projectKind: normalizeProjectKind(readString(body.projectKind)),
     designSystemId: normalizeDesignSystemId(readString(body.designSystemId)),
+    ...(parentPath ? { parentPath } : {}),
   };
 }
 
@@ -707,7 +760,8 @@ function normalizeProjectText(value: string | null): string | null {
 
 function normalizeProjectCreateTitle(value: string | null, prompt: string): string {
   const explicitTitle = value?.trim();
-  const source = explicitTitle || summarizeProjectPromptAsTitle(prompt);
+  const isPlaceholder = !explicitTitle || /^untitled$/i.test(explicitTitle);
+  const source = isPlaceholder ? summarizeProjectPromptAsTitle(prompt) : explicitTitle;
   return Array.from(source).slice(0, PROJECT_TITLE_MAX_LENGTH).join('');
 }
 
@@ -852,13 +906,14 @@ function withProjectFileUrl<T extends Omit<ProjectFile, 'url'>>(req: Request, pr
   };
 }
 
-function projectFileStaticUrl(req: Request, projectId: string, name: string): string {
-  const host = req.get('host') ?? '127.0.0.1';
-  return `${req.protocol}://${host}/static/projects/${encodeURIComponent(projectId)}/assets/${encodeURIComponent(name)}`;
+function projectFileStaticUrl(_req: Request, projectId: string, name: string): string {
+  // Prefer same-origin relative URLs so covers/assets work behind TSH proxies
+  // that do not expose loopback hostnames to the browser.
+  return `/api/projects/${encodeURIComponent(projectId)}/files/${encodeURIComponent(name)}`;
 }
 
 function projectAssetsDir(projectsDir: string, projectId: string): string {
-  return path.join(projectsDir, projectId, 'assets');
+  return path.join(resolveProjectWorkspaceDir(projectsDir, projectId), 'assets');
 }
 
 function projectAssetPath(projectsDir: string, projectId: string, name: string): string {
@@ -879,12 +934,12 @@ async function deleteProjectAsset(projectsDir: string, projectId: string, name: 
 }
 
 async function deleteLegacyRootProjectFile(projectsDir: string, projectId: string, name: string): Promise<void> {
-  await rm(path.join(projectsDir, projectId, name), { force: true });
+  await rm(path.join(resolveProjectWorkspaceDir(projectsDir, projectId), name), { force: true });
   deleteLegacyRootFileBaseline(projectsDir, projectId, name);
 }
 
 async function suppressLegacyRootProjectFile(projectsDir: string, projectId: string, name: string): Promise<void> {
-  const info = await stat(path.join(projectsDir, projectId, name)).catch(() => null);
+  const info = await stat(path.join(resolveProjectWorkspaceDir(projectsDir, projectId), name)).catch(() => null);
   if (!info?.isFile()) return;
   // Keep an unindexed compatibility file recoverable, but record it as the
   // durable baseline so it cannot overwrite the newly renamed canonical file
@@ -916,7 +971,7 @@ async function readProjectFileIdentities(
 ): Promise<ProjectFileTombstoneIdentities> {
   const [assetIdentity, rootIdentity] = await Promise.all([
     readOptionalProjectFileIdentity(projectAssetPath(projectsDir, projectId, name)),
-    readOptionalProjectFileIdentity(path.join(projectsDir, projectId, name)),
+    readOptionalProjectFileIdentity(path.join(resolveProjectWorkspaceDir(projectsDir, projectId), name)),
   ]);
   return { assetIdentity, rootIdentity };
 }

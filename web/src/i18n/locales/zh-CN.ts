@@ -269,6 +269,10 @@ export const zhCN = {
       title: '新建原型',
       untitledProjectTitle: '未命名',
       uploadFiles: '上传参考文件',
+      parentPathHint: '选择项目文件夹创建在 /workspace 下的位置',
+      parentPathLabel: '项目目录',
+      linkExistingParentPath: '选择文件夹…',
+      workspaceRoot: '工作区',
     },
     designSystem: {
       allSelected: '所有设计风格都已选择',

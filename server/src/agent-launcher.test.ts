@@ -138,6 +138,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         updatedAt: Date.now(),
         tabsState: { tabs: [], activeTabKey: null },
         metadata: {},
+        workspaceRoot: null,
       });
       const staleRoot = join(projectDir, 'index.html');
       const currentAsset = join(assetsDir, 'index.html');
@@ -1522,6 +1523,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         updatedAt: Date.now(),
         tabsState: { tabs: [], activeTabKey: null },
         metadata: { prompt: 'Build a product page', projectKind: 'prototype' },
+        workspaceRoot: null,
       });
 
       const runs = createChatRunService({
@@ -1609,6 +1611,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         updatedAt: Date.now(),
         tabsState: { tabs: [], activeTabKey: null },
         metadata: { prompt: 'Build a product page', projectKind: 'prototype' },
+        workspaceRoot: null,
       });
 
       const runs = createChatRunService({
@@ -2011,6 +2014,7 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         updatedAt: Date.now(),
         tabsState: { tabs: [], activeTabKey: null },
         metadata: {},
+        workspaceRoot: null,
       });
       const runs = createChatRunService({
         createSseResponse: createNoopSseResponse,

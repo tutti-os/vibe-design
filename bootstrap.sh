@@ -1,10 +1,11 @@
 #!/bin/sh
 set -eu
 
-: "${TUTTI_APP_PACKAGE_DIR:?}"
-: "${TUTTI_APP_ID:?}"
-: "${TUTTI_WORKSPACE_ID:?}"
-: "${TUTTI_WORKSPACE_NAME:?}"
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+package_dir="${TUTTI_APP_PACKAGE_DIR:-$script_dir}"
+
+# Factory validation only injects package/runtime dirs + host/port. Identity
+# vars are optional at boot (agent launch still requires TUTTI_APP_ID later).
 : "${TUTTI_APP_HOST:?}"
 : "${TUTTI_APP_RUNTIME_DIR:?}"
 : "${TUTTI_APP_DATA_DIR:?}"
@@ -13,7 +14,10 @@ set -eu
 : "${TUTTI_APP_BASE_URL:?}"
 : "${TUTTI_APP_NODE:?}"
 
-export TUTTI_APP_PACKAGE_DIR TUTTI_APP_ID TUTTI_WORKSPACE_ID TUTTI_WORKSPACE_NAME
+export TUTTI_APP_PACKAGE_DIR="$package_dir"
+export TUTTI_APP_ID="${TUTTI_APP_ID:-vibe-design}"
+export TUTTI_WORKSPACE_ID="${TUTTI_WORKSPACE_ID:-local}"
+export TUTTI_WORKSPACE_NAME="${TUTTI_WORKSPACE_NAME:-local}"
 export TUTTI_APP_HOST TUTTI_APP_RUNTIME_DIR TUTTI_APP_DATA_DIR TUTTI_APP_LOG_DIR
 export TUTTI_APP_PORT TUTTI_APP_BASE_URL TUTTI_APP_NODE
 export TUTTI_APP_DATABASE_DIR="${TUTTI_APP_DATABASE_DIR:-$TUTTI_APP_DATA_DIR}"

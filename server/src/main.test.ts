@@ -315,7 +315,8 @@ describe('createServer', () => {
 
     const response = await fetch(`http://127.0.0.1:${port}/healthz`);
 
-    expect(response.status).toBe(204);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, tshWorkspaceApp: false });
   });
 
   it('includes local agent availability in the project editor initial data', async () => {
@@ -331,6 +332,7 @@ describe('createServer', () => {
         prompt: 'Check local agents.',
         projectKind: 'prototype',
       },
+      workspaceRoot: null,
     });
     const port = await listenOnRandomPort(
       createTestServer({
@@ -370,6 +372,7 @@ describe('createServer', () => {
         prompt: 'Check managed agents.',
         projectKind: 'prototype',
       },
+      workspaceRoot: null,
     });
     const port = await listenOnRandomPort(
       createTestServer({
@@ -559,6 +562,7 @@ describe('createServer', () => {
       updatedAt: 2,
       tabsState: { tabs: [], activeTabKey: null },
       metadata: { title: 'Live run', prompt: 'Generate a page.', projectKind: 'prototype' },
+      workspaceRoot: null,
     });
     // The default no-op startAgentRun leaves the run live (non-terminal) without
     // ever writing an end event, mirroring a project reopened mid-generation.
@@ -594,6 +598,7 @@ describe('createServer', () => {
       updatedAt: 2,
       tabsState: { tabs: [], activeTabKey: null },
       metadata: { title: 'Orphan run', prompt: 'Generate a page.', projectKind: 'prototype' },
+      workspaceRoot: null,
     });
     createConversationInStore(projectsDir, projectId, conversationId, 'Main thread');
     upsertMessageInStore(projectsDir, projectId, conversationId, {
@@ -669,6 +674,7 @@ describe('createServer', () => {
         prompt: 'Create a new landing page direction.',
         projectKind: 'prototype',
       },
+      workspaceRoot: null,
     });
     createConversationInStore(projectsDir, projectId, conversationId, 'Main thread');
     upsertMessageInStore(projectsDir, projectId, conversationId, {
@@ -739,6 +745,7 @@ describe('createServer', () => {
         prompt: 'Existing project with a legacy id.',
         projectKind: 'prototype',
       },
+      workspaceRoot: null,
     });
     const nonRoutableProject = await postCli(port, 'open', { 'project-id': nonRoutableProjectId });
     expect(nonRoutableProject.status).toBe(400);
@@ -763,7 +770,7 @@ describe('createServer', () => {
         {
           name: 'hero.html',
           mime: 'text/html',
-          url: `http://127.0.0.1:${port}/static/projects/${projectId}/assets/hero.html`,
+          url: `/api/projects/${projectId}/files/hero.html`,
         },
       ],
     });
@@ -771,7 +778,7 @@ describe('createServer', () => {
     expect(isAbsolute(listedAbsolutePath)).toBe(true);
     expect(listedAbsolutePath.endsWith(`projects/${projectId}/assets/hero.html`)).toBe(true);
 
-    const staticFile = await fetch(`http://127.0.0.1:${port}/static/projects/${projectId}/assets/hero.html`);
+    const staticFile = await fetch(`http://127.0.0.1:${port}/api/projects/${projectId}/files/hero.html`);
     expect(staticFile.status).toBe(200);
     expect(await staticFile.text()).toBe('<section>Hero</section>');
 
@@ -2430,7 +2437,7 @@ describe('createServer', () => {
     expect(createFilePayload).toMatchObject({
       file: { name: 'index.html', kind: 'html' },
     });
-    expect(createFilePayload.file.url).toBe(`http://127.0.0.1:${port}/static/projects/project-1/assets/index.html`);
+    expect(createFilePayload.file.url).toBe(`/api/projects/project-1/files/index.html`);
 
     const markdownFileResponse = await fetch(`${baseUrl}/files`, {
       method: 'POST',
@@ -2471,22 +2478,22 @@ describe('createServer', () => {
         {
           name: 'design.md',
           kind: 'text',
-          url: `http://127.0.0.1:${port}/static/projects/project-1/assets/design.md`,
+          url: `/api/projects/project-1/files/design.md`,
         },
         {
           name: 'index.html',
           kind: 'html',
-          url: `http://127.0.0.1:${port}/static/projects/project-1/assets/index.html`,
+          url: `/api/projects/project-1/files/index.html`,
         },
         {
           name: 'style.css',
           kind: 'css',
-          url: `http://127.0.0.1:${port}/static/projects/project-1/assets/style.css`,
+          url: `/api/projects/project-1/files/style.css`,
         },
         {
           name: '中文.csv',
           kind: 'file',
-          url: `http://127.0.0.1:${port}/static/projects/project-1/assets/${encodeURIComponent('中文.csv')}`,
+          url: `/api/projects/project-1/files/${encodeURIComponent('中文.csv')}`,
         },
       ],
     });
@@ -2495,7 +2502,7 @@ describe('createServer', () => {
     expect(rawResponse.status).toBe(200);
     expect(await rawResponse.text()).toBe('<main>Track 1</main>');
 
-    const staticResponse = await fetch(`http://127.0.0.1:${port}/static/projects/project-1/assets/index.html`);
+    const staticResponse = await fetch(`http://127.0.0.1:${port}/api/projects/project-1/files/index.html`);
     expect(staticResponse.status).toBe(200);
     expect(staticResponse.headers.get('content-type')).toContain('text/html');
     expect(await staticResponse.text()).toBe('<main>Track 1</main>');
@@ -3184,6 +3191,7 @@ describe('createServer', () => {
       updatedAt: 1,
       tabsState: { tabs: [], activeTabKey: null },
       metadata: { title: 'Legacy artifact project', prompt: 'Build a festival guide', projectKind: 'prototype' },
+      workspaceRoot: null,
     });
     createConversationInStore(projectsDir, projectId, conversationId, 'Legacy artifact');
     upsertMessageInStore(projectsDir, projectId, conversationId, {
@@ -3237,6 +3245,7 @@ describe('createServer', () => {
       updatedAt: 1,
       tabsState: { tabs: [], activeTabKey: null },
       metadata: { title: 'Edited artifact project', prompt: 'Build a festival guide', projectKind: 'prototype' },
+      workspaceRoot: null,
     });
     createConversationInStore(projectsDir, projectId, conversationId, 'Edited artifact');
     await mkdir(dirname(assetPath), { recursive: true });

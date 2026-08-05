@@ -106,11 +106,12 @@ The server consumes the web renderer through the workspace dependency `@vibe-des
 | --- | --- | --- |
 | `TUTTI_APP_HOST` or `HOST` | HTTP bind host | `127.0.0.1` |
 | `TUTTI_APP_PORT` or `PORT` | HTTP bind port | `3000` |
-| `TUTTI_APP_DATA_DIR` | Durable project, conversation, skill, and design system data | `.vibe` under the current working directory |
-| `TUTTI_APP_DATABASE_DIR` | VM-local active SQLite database and WAL files | `$TUTTI_APP_DATA_DIR` |
-| `VIBE_USER_SKILLS_DIR` | User-imported skill root | `$TUTTI_APP_DATA_DIR/skills` |
+| `TUTTI_APP_DATA_DIR` | Legacy durable root; on TSH, public projects use `/workspace` instead | `.vibe` under the current working directory |
+| `TUTTI_APP_DATABASE_DIR` | Private durable root for SQLite, skills, design systems, and run logs | `$TUTTI_APP_DATA_DIR` |
+| `TSH_WORKSPACE_APP` | When `1`, allocate public project folders under `/workspace/<title>-<id8>/` | unset |
+| `VIBE_USER_SKILLS_DIR` | User-imported skill root | `$TUTTI_APP_DATABASE_DIR/skills` when set, else `$TUTTI_APP_DATA_DIR/skills` |
 | `VIBE_BUILTIN_SKILLS_DIR` | Bundled skill root | `skills/` |
-| `VIBE_USER_DESIGN_SYSTEMS_DIR` | User-editable design system root | `$TUTTI_APP_DATA_DIR/design-systems` |
+| `VIBE_USER_DESIGN_SYSTEMS_DIR` | User-editable design system root | `$TUTTI_APP_DATABASE_DIR/design-systems` when set, else `$TUTTI_APP_DATA_DIR/design-systems` |
 | `VIBE_BUILTIN_DESIGN_SYSTEMS_DIR` | Bundled design system root | `design-systems/` |
 
 ### Scripts
