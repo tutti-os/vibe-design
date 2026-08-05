@@ -535,8 +535,8 @@ function ProjectCreator({
                 <UploadIcon aria-hidden="true" size={16} />
               </ComposerIconButton>
               <ComposerIconButton
-                ariaLabel={t('chat.composer.openMentions')}
-                title={t('chat.composer.openMentions')}
+                ariaLabel={t('chat.composer.openFileMentions')}
+                title={t('chat.composer.openFileMentions')}
                 onClick={insertMentionTrigger}
               >
                 <AtSign aria-hidden="true" size={16} />

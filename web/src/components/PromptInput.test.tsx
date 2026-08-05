@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import React, { act } from 'react';
-import { fireEvent } from '@testing-library/react';
+import { fireEvent, waitFor } from '@testing-library/react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import { PromptInput, type PromptInputHandle } from './PromptInput';
@@ -62,8 +62,19 @@ describe('PromptInput', () => {
     }
   });
 
-  it('renders mention markdown as an inline reference while preserving the form value', () => {
-    const value = 'Ask [@群聊](mention://workspace-app/group-chat?workspaceId=workspace-1) for context';
+  it.each([
+    {
+      href: 'mention://workspace-app/group-chat?workspaceId=workspace-1',
+      label: '群聊',
+      providerId: 'workspace-app',
+    },
+    {
+      href: 'mention://agent-target/team:automation?workspaceId=workspace-1',
+      label: 'Automation Agent',
+      providerId: 'agent-target',
+    },
+  ])('renders historical $providerId mention markdown while preserving the form value', async ({ href, label }) => {
+    const value = `Ask [@${label}](${href}) for context`;
     const { container, root } = renderComponent(
       <PromptInput
         ariaLabel="Prompt"
@@ -77,9 +88,10 @@ describe('PromptInput', () => {
       const promptEditor = editor(container);
       const hiddenInput = container.querySelector<HTMLInputElement>('input[type="hidden"][name="prompt"]');
 
+      await waitFor(() => expect(promptEditor.textContent).toContain(label));
       expect(promptEditor.textContent).toContain('Ask');
       expect(promptEditor.textContent).toContain('for context');
-      expect(promptEditor.textContent).not.toContain('mention://workspace-app');
+      expect(promptEditor.textContent).not.toContain(href);
       expect(hiddenInput?.value).toBe(value);
     } finally {
       cleanup(root, container);

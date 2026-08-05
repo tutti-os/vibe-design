@@ -13,7 +13,7 @@ export function TuttiExternalMentionServiceRoot({ children }: { children: ReactN
         (typeof window === 'undefined'
           ? undefined
           : (window as unknown as { tuttiExternal?: unknown }).tuttiExternal) as never,
-      providerIds: ['workspace-app', 'agent-target'],
+      providerIds: ['file'],
     });
     setService(next);
     fallbackService.dispose();
