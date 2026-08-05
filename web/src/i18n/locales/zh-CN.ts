@@ -47,7 +47,9 @@ export const zhCN = {
       title: '会话历史',
     },
     composer: {
+      addContent: '添加内容',
       attachFiles: '附加文件',
+      browseReferences: '工作区资源',
       chatComposer: '聊天输入区',
       chooseDesignSystem: '选择设计风格',
       contextSearchUnavailable: '上下文搜索不可用',
@@ -83,6 +85,7 @@ export const zhCN = {
       responseLoading: '响应加载中',
       removeAttachment: '移除 {{name}}',
       removeContext: '移除上下文 {{name}}',
+      referenceSelectionFailed: '无法打开文件浏览器',
       searchingContext: '正在搜索上下文...',
       selectedContext: '已选上下文',
       send: '发送',

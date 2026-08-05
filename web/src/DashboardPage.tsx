@@ -20,7 +20,6 @@ import {
   ImageFileIcon,
   MoreHorizontalIcon,
   SearchIcon,
-  UploadIcon,
 } from '@tutti-os/ui-system/icons';
 import { AtSign } from 'lucide-react';
 import { useService } from '@tutti-os/infra/di';
@@ -48,6 +47,7 @@ import { type TranslateFn, useTranslation } from './i18n';
 import { ParentPathPicker } from './components/ParentPathPicker';
 import { IProjectService } from './services/projects/project-service.interface';
 import { IAgentCatalogService } from './services/agent-catalog/agent-catalog-service.interface';
+import { TuttiReferenceAddControl } from './components/TuttiReferenceAddControl';
 
 export interface DashboardProject {
   id: string;
@@ -562,13 +562,14 @@ function ProjectCreator({
                 type="file"
                 onChange={(event) => stageReferenceFiles(event.currentTarget.files)}
               />
-              <ComposerIconButton
-                ariaLabel={t('dashboard.creator.chooseFiles')}
-                title={t('dashboard.creator.chooseFiles')}
-                onClick={() => imageInputRef.current?.click()}
-              >
-                <UploadIcon aria-hidden="true" size={16} />
-              </ComposerIconButton>
+              <TuttiReferenceAddControl
+                className="icon-btn"
+                labels={{ uploadFile: t('dashboard.creator.chooseFiles') }}
+                value={projectPrompt}
+                onChange={updatePrompt}
+                onError={() => setError(t('chat.composer.referenceSelectionFailed'))}
+                onUploadFile={() => imageInputRef.current?.click()}
+              />
               <ComposerIconButton
                 ariaLabel={t('chat.composer.openFileMentions')}
                 title={t('chat.composer.openFileMentions')}

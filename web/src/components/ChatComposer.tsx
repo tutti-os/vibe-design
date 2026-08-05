@@ -22,7 +22,6 @@ import {
   CloseIcon,
   FileTextIcon,
   ImageFileIcon,
-  UploadIcon,
 } from '@tutti-os/ui-system/icons';
 import type {
   ContextPickerSnapshot,
@@ -47,6 +46,7 @@ import {
   type ComposerModelProvider,
 } from './ComposerControls';
 import { PromptInput, type PromptInputHandle } from './PromptInput';
+import { TuttiReferenceAddControl } from './TuttiReferenceAddControl';
 
 type AgentTargetId = string;
 
@@ -657,13 +657,16 @@ export const ChatComposer = forwardRef<ChatComposerHandle, ChatComposerProps>(
               type="file"
               onChange={(event) => stageSelectedFiles(event.currentTarget.files)}
             />
-            <ComposerIconButton
-              ariaLabel={t('chat.composer.attachFiles')}
-              title={t('chat.composer.attachFiles')}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <UploadIcon size={14} />
-            </ComposerIconButton>
+            <TuttiReferenceAddControl
+              className="icon-btn"
+              disabled={sendPending}
+              value={draft}
+              onChange={updateDraft}
+              onError={() =>
+                setSendError(t('chat.composer.referenceSelectionFailed'))
+              }
+              onUploadFile={() => fileInputRef.current?.click()}
+            />
 
             <span className="composer-spacer" />
 
