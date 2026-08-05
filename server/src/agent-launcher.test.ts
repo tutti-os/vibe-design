@@ -403,13 +403,10 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
       expect(cliInvocations.length).toBeGreaterThan(0);
       expect(cliInvocations.some((invocation) => invocation.args.includes('composer-options'))).toBe(false);
       const canonicalWorkspaceCwd = await realpath(join(projectsDir, 'project-1'));
-      expect(cliInvocations.map((invocation) => ({
-        command: invocation.args.slice(1, 3).join(' '),
-        cwd: invocation.cwd,
-      }))).toEqual(cliInvocations.map((invocation) => ({
-        command: invocation.args.slice(1, 3).join(' '),
-        cwd: canonicalWorkspaceCwd,
-      })));
+      const invocationCwds = await Promise.all(
+        cliInvocations.map((invocation) => realpath(invocation.cwd)),
+      );
+      expect(invocationCwds).toEqual(cliInvocations.map(() => canonicalWorkspaceCwd));
       expect(runtime.inputs[0]?.cwd).toBe(join(projectsDir, 'project-1'));
     } finally {
       await rm(root, { recursive: true, force: true });

@@ -46,10 +46,10 @@ describe('tsh-workspace', () => {
   it('allocates and renames while preserving short id', () => {
     const projectId = 'abcdef12-3456-7890-abcd-ef1234567890';
     expect(allocateTshProjectRoot('/workspace', '猫猫插画', projectId)).toBe(
-      '/workspace/猫猫插画-abcdef12',
+      join(resolve('/workspace'), '猫猫插画-abcdef12'),
     );
     expect(
       allocateRenamedTshProjectRoot('/workspace/Untitled-abcdef12', '猫猫插画'),
-    ).toBe('/workspace/猫猫插画-abcdef12');
+    ).toBe(join(resolve('/workspace'), '猫猫插画-abcdef12'));
   });
 });
