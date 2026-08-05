@@ -29,18 +29,30 @@ describe('TuttiReferenceAddControl', () => {
       },
     });
     const onChange = vi.fn();
+    const onUploadFile = vi.fn();
 
     render(
       <TuttiReferenceAddControl
-        labels={{ addContent: 'Add content' }}
+        labels={{
+          addContent: 'Add content',
+          browseReferences: 'Browse references',
+          uploadFile: 'Upload file',
+        }}
         value="Use these"
         onChange={onChange}
+        onUploadFile={onUploadFile}
       />,
     );
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Add content' }));
+      fireEvent.pointerDown(
+        screen.getByRole('button', { name: 'Add content' }),
+        { button: 0, ctrlKey: false },
+      );
     });
+    fireEvent.click(
+      await screen.findByRole('menuitem', { name: 'Browse references' }),
+    );
 
     await waitFor(() => {
       expect(onChange).toHaveBeenCalledWith(
