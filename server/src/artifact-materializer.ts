@@ -1,6 +1,7 @@
 import { mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { enqueueProjectFileOperation } from './project-file-coordinator.js';
+import { projectAssetsDir } from './project-workspace.js';
 import {
   getProjectFileFromStore,
   isProjectFileTombstoned,
@@ -150,7 +151,7 @@ async function handleParserEvent(
   // user delete/rename. Only a new live provider event can revive the name.
   if (!options.clearTombstone && isProjectFileTombstoned(projectsDir, projectId, name)) return;
   const content = Buffer.from(artifact.html, 'utf8');
-  const assetDir = path.join(projectsDir, projectId, 'assets');
+  const assetDir = projectAssetsDir(projectsDir, projectId);
   const assetPath = path.join(assetDir, name);
   await mkdir(assetDir, { recursive: true });
   let fileSize = content.length;

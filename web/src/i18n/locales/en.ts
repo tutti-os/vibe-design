@@ -267,6 +267,10 @@ export const en = {
       title: 'New prototype',
       untitledProjectTitle: 'Untitled',
       uploadFiles: 'Upload reference files',
+      parentPathHint: 'Choose where the project folder is created under /workspace',
+      parentPathLabel: 'Project folder',
+      linkExistingParentPath: 'Choose folder…',
+      workspaceRoot: 'Workspace',
     },
     designSystem: {
       allSelected: 'All design styles are selected',

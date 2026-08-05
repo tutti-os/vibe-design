@@ -45,6 +45,7 @@ import { useServiceSnapshot } from './hooks/use-service-snapshot';
 import { IContextPickerService } from './services/context-picker/context-picker-service.interface';
 import type { ContextPickerSnapshot } from './services/context-picker/context-picker-types';
 import { type TranslateFn, useTranslation } from './i18n';
+import { ParentPathPicker } from './components/ParentPathPicker';
 import { IProjectService } from './services/projects/project-service.interface';
 import { IAgentCatalogService } from './services/agent-catalog/agent-catalog-service.interface';
 
@@ -316,10 +317,40 @@ function ProjectCreator({
   } = useServiceSnapshot(agentCatalog);
   const [creationPhase, setCreationPhase] = React.useState<ProjectCreationPhase>('idle');
   const [error, setError] = React.useState<string | null>(null);
+  const [tshWorkspaceApp, setTshWorkspaceApp] = React.useState(false);
+  const [parentPath, setParentPath] = React.useState('/workspace');
   const formRef = React.useRef<HTMLFormElement | null>(null);
   const imageInputRef = React.useRef<HTMLInputElement | null>(null);
   const promptInputRef = React.useRef<PromptInputHandle | null>(null);
   const createProjectInFlightRef = React.useRef(false);
+  const parentPathRef = React.useRef(parentPath);
+  parentPathRef.current = parentPath;
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void fetch('/healthz', { headers: { accept: 'application/json' } })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return response.json().catch(() => null);
+      })
+      .then((health) => {
+        if (cancelled || !health || typeof health !== 'object') return;
+        const enabled = (health as { tshWorkspaceApp?: unknown }).tshWorkspaceApp === true;
+        setTshWorkspaceApp(enabled);
+        if (enabled) {
+          const defaultParent = (health as { defaultParentPath?: unknown }).defaultParentPath;
+          setParentPath(
+            typeof defaultParent === 'string' && defaultParent.trim()
+              ? defaultParent.trim()
+              : '/workspace',
+          );
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // The dashboard has no project yet, so project files are unavailable here.
   const selectedSkillChips = React.useMemo(
@@ -397,13 +428,17 @@ function ProjectCreator({
     setError(null);
     try {
       setCreationPhase('creating_project');
+      const nextParentPath = tshWorkspaceApp
+        ? parentPathRef.current.trim() || '/workspace'
+        : undefined;
       const project = await projectService.createProject({
-        title: t('dashboard.creator.untitledProjectTitle'),
+        // Omit placeholder titles so the server can derive a stem from the prompt.
         prompt: nextPrompt,
         projectKind: typeof formProjectKind === 'string' ? formProjectKind : 'prototype',
         ...(designSystemId ? { designSystemId } : {}),
         agentTargetId: selectedModel.agentTargetId,
         ...(selectedModel.modelId ? { model: selectedModel.modelId } : {}),
+        ...(nextParentPath ? { parentPath: nextParentPath } : {}),
       });
       try {
         setCreationPhase('uploading_context');
@@ -542,6 +577,17 @@ function ProjectCreator({
                 <AtSign aria-hidden="true" size={16} />
               </ComposerIconButton>
               <DesignSystemPrompt selectedDesignSystem={selectedDesignSystem} onSetup={onSetupDesignSystem} />
+              {tshWorkspaceApp ? (
+                <ParentPathPicker
+                  disabled={isCreating}
+                  linkExistingLabel={t('dashboard.creator.linkExistingParentPath')}
+                  parentPath={parentPath}
+                  placeholder={t('dashboard.creator.parentPathLabel')}
+                  title={t('dashboard.creator.parentPathHint')}
+                  workspaceRootLabel={t('dashboard.creator.workspaceRoot')}
+                  onParentPathChange={setParentPath}
+                />
+              ) : null}
               <span className="min-w-0 flex-1" />
               {selectedModel ? (
                 <ComposerModelPicker

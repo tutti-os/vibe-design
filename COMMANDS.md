@@ -8,7 +8,7 @@ The surface is mostly read-only, plus an `open` command for UI activation and tw
 
 - Only the commands documented below are supported.
 - `open` is limited to UI activation: it can open the dashboard or an existing project, but it does not create or update project data.
-- Write capability is limited to prototype creation: `project-create` and `session-start`. (`session-start` also creates the conversation when one is not supplied.)
+- Write capability includes `project-create`, `project-update`, and `session-start`. (`session-start` also creates the conversation when one is not supplied.)
 - Project updates, project deletion, project detail export, standalone conversation creation/rename, resource writes/deletes/renames, and comment create/update/delete remain intentionally unavailable through `tutti vibe-design`.
 - The server only registers the matching `/tutti/cli/*` handlers. Unsupported write commands should return 404 if called directly.
 - Do not treat internal Web UI `/api/*` routes as public CLI capabilities.
@@ -28,7 +28,8 @@ All supported commands return Tutti CLI JSON output. Prefer `--json` when anothe
 - `tutti vibe-design projects [--limit 50]`: list projects.
 - `tutti vibe-design open`: open the Prototype Design dashboard.
 - `tutti vibe-design open --project-id <id>`: open an existing project.
-- `tutti vibe-design project-create --prompt <text> [--title <text>] [--project-kind <kind>] [--design-system-id <id>]`: create a project from a prompt and initialize its default conversation. Returns `{ project, conversationId, resolvedDir }`. This only creates the records — call `session-start` to actually generate the prototype.
+- `tutti vibe-design project-create --prompt <text> [--title <text>] [--project-kind <kind>] [--design-system-id <id>] [--parent-path <path>]`: create a project from a prompt and initialize its default conversation. Returns `{ project, conversationId, resolvedDir }`. On TSH hosts, pass `--parent-path` under `/workspace` to choose the public project folder parent. This only creates the records — call `session-start` to actually generate the prototype.
+- `tutti vibe-design project-update --project-id <id> [--title <text>] [--design-system-id <id>]`: update project metadata. On TSH hosts, renaming the title also renames the public workspace folder while preserving the trailing short id.
 
 ## Creating a Prototype Page
 

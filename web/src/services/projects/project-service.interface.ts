@@ -8,6 +8,7 @@ export interface CreateProjectInput {
   designSystemId?: string | null;
   agentTargetId?: string;
   model?: string;
+  parentPath?: string;
 }
 
 export interface CreatedProject {

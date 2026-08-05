@@ -31,6 +31,7 @@ function storedProject(id: string): StoredProject {
     updatedAt: now,
     tabsState: { tabs: [], activeTabKey: null },
     metadata: {},
+    workspaceRoot: null,
   };
 }
 

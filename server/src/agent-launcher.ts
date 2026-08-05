@@ -1,4 +1,4 @@
-import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve } from 'node:path';
 import {
   type AgentEvent as AcpAgentEvent,
@@ -32,6 +32,7 @@ import {
   readAvailableDesignSystemDetail,
   resolveDesignSystemAssets,
 } from './design-systems.js';
+import { projectAssetsDir, resolveProjectWorkspaceDir } from './project-workspace.js';
 import { getProjectFromStore, listProjectFilesFromStore, upsertProjectFileInStore } from './sqlite-store.js';
 import type { ChatRun, ChatRunService } from './types/run.js';
 
@@ -134,7 +135,9 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   timing.emit('agent_prepare_started');
 
   const projectId = readString(request.projectId) ?? run.projectId;
-  const projectWorkspaceDir = projectId ? join(paths.projectsDir, projectId) : paths.projectsDir;
+  const projectWorkspaceDir = projectId
+    ? resolveProjectWorkspaceDir(paths.projectsDir, projectId)
+    : paths.projectsDir;
   await timing.measure('prepare', 'project_directory', () =>
     mkdir(projectWorkspaceDir, { recursive: true }));
   const agentCwd = projectWorkspaceDir;
@@ -546,6 +549,8 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
         scanProjectFilesAfterRun(paths.projectsDir, projectId, run.id)).catch((error) => {
           console.warn(`[vibe-design] project file scan deferred: ${error instanceof Error ? error.message : String(error)}`);
         });
+      // Durable TSH project dirs must not keep kit Codex-root markers.
+      await unlink(join(projectWorkspaceDir, '.agent-acp-kit-codex-root')).catch(() => undefined);
     }
     run.acpSession = null;
     timing.emit('agent_run_done', {
@@ -850,7 +855,7 @@ async function materializeAcpFileWriteNow(
     return null;
   }
 
-  const assetsDir = join(projectsDir, projectId, 'assets');
+  const assetsDir = projectAssetsDir(projectsDir, projectId);
   const assetPath = join(assetsDir, name);
   await mkdir(assetsDir, { recursive: true });
   if (sourcePath !== assetPath) {

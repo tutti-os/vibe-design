@@ -1,6 +1,7 @@
 import type { Dirent, Stats } from 'node:fs';
 import { copyFile, mkdir, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { resolveProjectWorkspaceDir } from './project-workspace.js';
 import {
   clearProjectFileTombstone,
   deleteProjectFileFromStore,
@@ -28,7 +29,7 @@ export async function reconcileProjectFilesFromDisk(
   projectId: string,
   options: { pruneMissing?: boolean; reviveTombstones?: boolean } = {},
 ): Promise<void> {
-  const projectDir = path.join(projectsDir, projectId);
+  const projectDir = resolveProjectWorkspaceDir(projectsDir, projectId);
   const assetsDir = path.join(projectDir, 'assets');
   await mkdir(assetsDir, { recursive: true });
 

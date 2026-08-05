@@ -106,11 +106,12 @@ vibe-design/
 | --- | --- | --- |
 | `TUTTI_APP_HOST` 或 `HOST` | HTTP 绑定主机 | `127.0.0.1` |
 | `TUTTI_APP_PORT` 或 `PORT` | HTTP 绑定端口 | `3000` |
-| `TUTTI_APP_DATA_DIR` | 持久化项目、会话、skill 和设计系统数据 | 当前工作目录下的 `.vibe` |
-| `TUTTI_APP_DATABASE_DIR` | VM 本地的活跃 SQLite 数据库与 WAL 文件 | `$TUTTI_APP_DATA_DIR` |
-| `VIBE_USER_SKILLS_DIR` | 用户导入的 skill 根目录 | `$TUTTI_APP_DATA_DIR/skills` |
+| `TUTTI_APP_DATA_DIR` | 旧持久化根；TSH 上公开项目目录改用 `/workspace` | 当前工作目录下的 `.vibe` |
+| `TUTTI_APP_DATABASE_DIR` | 私有持久化根（SQLite、skills、设计系统、run logs） | `$TUTTI_APP_DATA_DIR` |
+| `TSH_WORKSPACE_APP` | 为 `1` 时，在 `/workspace/<title>-<id8>/` 下分配公开项目目录 | 未设置 |
+| `VIBE_USER_SKILLS_DIR` | 用户导入的 skill 根目录 | 优先 `$TUTTI_APP_DATABASE_DIR/skills` |
 | `VIBE_BUILTIN_SKILLS_DIR` | 内置 skill 根目录 | `skills/` |
-| `VIBE_USER_DESIGN_SYSTEMS_DIR` | 用户可编辑的设计系统根目录 | `$TUTTI_APP_DATA_DIR/design-systems` |
+| `VIBE_USER_DESIGN_SYSTEMS_DIR` | 用户可编辑的设计系统根目录 | 优先 `$TUTTI_APP_DATABASE_DIR/design-systems` |
 | `VIBE_BUILTIN_DESIGN_SYSTEMS_DIR` | 内置设计系统根目录 | `design-systems/` |
 
 ### 常用命令

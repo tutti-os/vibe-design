@@ -12,6 +12,8 @@ export interface StoredProject {
   updatedAt: number;
   tabsState: ProjectTabsState;
   metadata: Record<string, unknown>;
+  /** TSH public workspace root under `/workspace/...`; null for legacy private dirs. */
+  workspaceRoot: string | null;
 }
 
 export type ProjectTab =
@@ -166,6 +168,7 @@ interface ProjectRow {
   updated_at: number;
   tabs_state_json: string;
   metadata_json: string;
+  workspace_root: string | null;
 }
 
 interface ProjectFileRow {
@@ -305,11 +308,14 @@ export function getStore(projectsDir: string): SqliteDatabase {
   return db;
 }
 
+const PROJECT_SELECT_COLUMNS =
+  'id, design_system_id, created_at, updated_at, tabs_state_json, metadata_json, workspace_root';
+
 export function listProjectSummariesFromStore(projectsDir: string, limit = 20): ProjectSummary[] {
   const db = getStore(projectsDir);
   const rows = db
     .prepare(
-      `SELECT id, design_system_id, created_at, updated_at, tabs_state_json, metadata_json
+      `SELECT ${PROJECT_SELECT_COLUMNS}
        FROM projects
        ORDER BY updated_at DESC, created_at DESC
        LIMIT ?`,
@@ -325,7 +331,7 @@ export function listProjectSummariesFromStore(projectsDir: string, limit = 20): 
 export function getProjectFromStore(projectsDir: string, id: string): StoredProject | null {
   const row = getStore(projectsDir)
     .prepare(
-      `SELECT id, design_system_id, created_at, updated_at, tabs_state_json, metadata_json
+      `SELECT ${PROJECT_SELECT_COLUMNS}
        FROM projects
        WHERE id = ?`,
     )
@@ -336,13 +342,16 @@ export function getProjectFromStore(projectsDir: string, id: string): StoredProj
 export function writeProjectToStore(projectsDir: string, project: StoredProject): void {
   getStore(projectsDir)
     .prepare(
-      `INSERT INTO projects (id, design_system_id, created_at, updated_at, tabs_state_json, metadata_json)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO projects (
+         id, design_system_id, created_at, updated_at, tabs_state_json, metadata_json, workspace_root
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          design_system_id = excluded.design_system_id,
          updated_at = excluded.updated_at,
          tabs_state_json = excluded.tabs_state_json,
-         metadata_json = excluded.metadata_json`,
+         metadata_json = excluded.metadata_json,
+         workspace_root = excluded.workspace_root`,
     )
     .run(
       project.id,
@@ -351,6 +360,7 @@ export function writeProjectToStore(projectsDir: string, project: StoredProject)
       project.updatedAt,
       JSON.stringify(project.tabsState),
       JSON.stringify(project.metadata),
+      project.workspaceRoot,
     );
 }
 
@@ -1395,7 +1405,8 @@ function migrate(db: SqliteDatabase): void {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       tabs_state_json TEXT NOT NULL,
-      metadata_json TEXT NOT NULL
+      metadata_json TEXT NOT NULL,
+      workspace_root TEXT
     );
 
     CREATE TABLE IF NOT EXISTS project_files (
@@ -1528,6 +1539,11 @@ function migrate(db: SqliteDatabase): void {
     CREATE INDEX IF NOT EXISTS idx_preview_comments_scope_updated
       ON preview_comments(project_id, updated_at DESC);
   `);
+
+  const projectColumns = db.prepare('PRAGMA table_info(projects)').all() as Array<{ name: string }>;
+  if (!projectColumns.some((column) => column.name === 'workspace_root')) {
+    db.exec('ALTER TABLE projects ADD COLUMN workspace_root TEXT');
+  }
 
   const messageColumns = db.prepare('PRAGMA table_info(messages)').all() as Array<{ name: string }>;
   if (!messageColumns.some((column) => column.name === 'comment_attachments_json')) {
@@ -1689,6 +1705,7 @@ function migratePreviewCommentsToProjectScope(db: SqliteDatabase): void {
 }
 
 function projectFromRow(row: ProjectRow): StoredProject {
+  const workspaceRoot = typeof row.workspace_root === 'string' ? row.workspace_root.trim() : '';
   return {
     id: row.id,
     designSystemId: row.design_system_id,
@@ -1696,6 +1713,7 @@ function projectFromRow(row: ProjectRow): StoredProject {
     updatedAt: row.updated_at,
     tabsState: parseJson(row.tabs_state_json, { tabs: [], activeTabKey: null }),
     metadata: parseJson(row.metadata_json, {}),
+    workspaceRoot: workspaceRoot || null,
   };
 }
 

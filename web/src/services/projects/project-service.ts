@@ -8,6 +8,7 @@ export class ProjectService implements IProjectService {
 
   async createProject(input: CreateProjectInput): Promise<CreatedProject> {
     const title = input.title?.trim();
+    const parentPath = input.parentPath?.trim();
     return this.api.createProject({
       ...(title ? { title } : {}),
       prompt: input.prompt.trim(),
@@ -15,6 +16,7 @@ export class ProjectService implements IProjectService {
       ...(input.designSystemId ? { designSystemId: input.designSystemId } : {}),
       ...(input.agentTargetId ? { agentTargetId: input.agentTargetId } : {}),
       ...(input.model ? { model: input.model } : {}),
+      ...(parentPath ? { parentPath } : {}),
     });
   }
 
