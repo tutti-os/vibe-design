@@ -1421,7 +1421,7 @@ function readPromptAttachments(value: unknown, cwd: string): PromptAttachment[] 
 }
 
 function normalizeProjectAttachmentPath(value: string): string | null {
-  if (isAbsolute(value) || win32.isAbsolute(value)) {
+  if (isAbsolute(value) || win32.parse(value).root) {
     return null;
   }
 

@@ -1913,7 +1913,12 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
           agentId: 'codex',
           context: {
             skillIds: ['dashboard'],
-            designFilePaths: ['assets/Hero.tsx', String.raw`safe\..\..\secret.txt`, String.raw`C:\secret.txt`],
+            designFilePaths: [
+              'assets/Hero.tsx',
+              String.raw`safe\..\..\secret.txt`,
+              String.raw`C:\secret.txt`,
+              String.raw`C:secret.txt`,
+            ],
           },
         },
         paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
