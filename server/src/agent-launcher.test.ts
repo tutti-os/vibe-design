@@ -266,6 +266,56 @@ describe('startAgentRun', { timeout: 10_000 }, () => {
         content: 'total 8\n',
         isError: false,
       });
+      expect(runtime.inputs[0]?.writeCodexProjectRootMarker).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('disables Codex project-root markers for TSH-bound /workspace project dirs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-launcher-tsh-marker-'));
+    try {
+      const builtInSkillsRoot = join(root, 'skills');
+      const userSkillsRoot = join(root, 'user-skills');
+      const projectsDir = join(root, 'projects');
+      const workspaceRoot = join(root, 'workspace', 'Demo-abcd1234');
+      await Promise.all([
+        mkdir(builtInSkillsRoot, { recursive: true }),
+        mkdir(userSkillsRoot, { recursive: true }),
+        mkdir(workspaceRoot, { recursive: true }),
+      ]);
+      writeProjectToStore(projectsDir, {
+        id: 'project-1',
+        designSystemId: null,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        tabsState: { tabs: [], activeTabKey: null },
+        metadata: {},
+        workspaceRoot,
+      });
+
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({ projectId: 'project-1', agentId: 'codex' });
+      const runtime = createRecordingRuntime();
+
+      await startAgentRun({
+        run,
+        runs,
+        request: { projectId: 'project-1', prompt: 'Edit the prototype', agentId: 'codex' },
+        paths: { projectsDir, userSkillsRoot, builtInSkillsRoot },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+      });
+
+      expect(runtime.inputs).toHaveLength(1);
+      expect(runtime.inputs[0]).toMatchObject({
+        cwd: workspaceRoot,
+        writeCodexProjectRootMarker: false,
+      });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
