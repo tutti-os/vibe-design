@@ -256,13 +256,11 @@ export function registerProjectRoutes(app: Express, ctx: ProjectRouteDeps): void
         sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
         return;
       }
-      const diskRoot = resolveProjectWorkspaceDir(ctx.paths.projectsDir, id);
       const deleted = deleteProjectFromStore(ctx.paths.projectsDir, id);
       if (!deleted) {
         sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
         return;
       }
-      await rm(diskRoot, { recursive: true, force: true });
       res.json({ ok: true });
     } catch (error) {
       sendInternalError(ctx, res, error, 'project delete failed');
