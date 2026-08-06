@@ -129,7 +129,7 @@ describe('detectLocalAgentProviders', () => {
     expect(runtime.detect).toHaveBeenCalledWith({ cwd: '/workspace/project' });
   });
 
-  it('uses the process cwd when none is explicit', async () => {
+  it('omits cwd when none is explicit instead of falling back to process.cwd', async () => {
     const runtime = {
       detect: vi.fn(async () => []),
       listProviders: () => [],
@@ -137,7 +137,18 @@ describe('detectLocalAgentProviders', () => {
       run: vi.fn(),
     };
     await detectLocalAgentProviders(undefined, runtime as never);
-    expect(runtime.detect).toHaveBeenCalledWith({ cwd: process.cwd() });
+    expect(runtime.detect).toHaveBeenCalledWith(undefined);
+  });
+
+  it('strips blank cwd so package-dir process.cwd is not injected', async () => {
+    const runtime = {
+      detect: vi.fn(async () => []),
+      listProviders: () => [],
+      cancel: vi.fn(async () => undefined),
+      run: vi.fn(),
+    };
+    await detectLocalAgentProviders({ cwd: '  ', refresh: true }, runtime as never);
+    expect(runtime.detect).toHaveBeenCalledWith({ refresh: true });
   });
 
   it('fails closed by omitting detections without an exact agent target id', async () => {
