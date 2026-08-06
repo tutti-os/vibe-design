@@ -24,8 +24,11 @@ export async function detectLocalAgentProviders(
   context?: DetectContext,
   runtime: typeof localAgentRuntime = localAgentRuntime,
 ): Promise<AgentProviderSnapshot[]> {
-  const cwd = resolveAgentCatalogCwd(context);
-  const detectContext = context?.cwd === cwd ? context : { ...context, cwd };
+  // Match ai-office: never fall back to process.cwd(). Workspace-app process cwd
+  // is the package cache (/var/cache/tsh/...), which TSH rejects for managed-agent
+  // prepare ("cwd must be under /workspace"). Omit cwd so catalog detection stays
+  // valid; callers with a project pass an explicit /workspace path.
+  const detectContext = normalizeAgentCatalogDetectContext(context);
   const providers = await runtime.detect(detectContext);
   return providers.flatMap((provider) => {
     const agentTargetId = provider.agentTargetId?.trim();
@@ -44,8 +47,21 @@ export async function detectLocalAgentProviders(
   });
 }
 
-function resolveAgentCatalogCwd(context?: DetectContext): string {
-  return context?.cwd?.trim() || process.cwd();
+/** Explicit non-empty cwd only. Blank/missing must not become process.cwd(). */
+function resolveAgentCatalogCwd(context?: DetectContext): string | undefined {
+  const cwd = context?.cwd?.trim();
+  return cwd || undefined;
+}
+
+function normalizeAgentCatalogDetectContext(context?: DetectContext): DetectContext | undefined {
+  if (!context) return undefined;
+  const cwd = resolveAgentCatalogCwd(context);
+  if (cwd) {
+    return context.cwd === cwd ? context : { ...context, cwd };
+  }
+  if (!('cwd' in context)) return context;
+  const { cwd: _omit, ...rest } = context;
+  return Object.keys(rest).length > 0 ? rest : undefined;
 }
 
 export function createAgentProviderSnapshotDetector(detectProviders: DetectAgentProviders): {
@@ -88,7 +104,7 @@ function cloneProvider(provider: AgentProviderSnapshot): AgentProviderSnapshot {
 }
 
 function providerSnapshotKey(context?: DetectContext): string {
-  const workspace = resolveAgentCatalogCwd(context);
+  const workspace = resolveAgentCatalogCwd(context) ?? '';
   const environmentFingerprint = createHash('sha256')
     .update(
       Object.entries(context?.env ?? {})
