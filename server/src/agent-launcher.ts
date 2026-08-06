@@ -135,9 +135,12 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
   timing.emit('agent_prepare_started');
 
   const projectId = readString(request.projectId) ?? run.projectId;
+  const projectRecord = projectId ? getProjectFromStore(paths.projectsDir, projectId) : null;
   const projectWorkspaceDir = projectId
     ? resolveProjectWorkspaceDir(paths.projectsDir, projectId)
     : paths.projectsDir;
+  // TSH-bound /workspace roots are user-visible; never materialize kit Codex markers there.
+  const isTshBoundProject = Boolean(projectRecord?.workspaceRoot?.trim());
   await timing.measure('prepare', 'project_directory', () =>
     mkdir(projectWorkspaceDir, { recursive: true }));
   const agentCwd = projectWorkspaceDir;
@@ -327,6 +330,9 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
       ...(tuttiSkillBundle.skillManifest.length > 0 ? { skillManifest: tuttiSkillBundle.skillManifest } : {}),
       signal: controller.signal,
       resume,
+      // Match ai-doc / ai-slide / ai-media-canvas: do not write `.agent-acp-kit-codex-root`
+      // into durable TSH project trees under /workspace.
+      ...(isTshBoundProject ? { writeCodexProjectRootMarker: false } : {}),
       metadata: { timingDiagnostics: true },
     };
 
