@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -36,7 +36,7 @@ describe('TSH project workspace lifecycle', () => {
     await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
   });
 
-  it('creates, renames, and deletes bound workspace roots', async () => {
+  it('creates dated workspace roots and follows filesystem renames', async () => {
     const runtimeDir = await createRuntimeDir();
     const workspaceRoot = join(runtimeDir, 'workspace');
     vi.stubEnv('TSH_WORKSPACE_APP', '1');
@@ -57,7 +57,7 @@ describe('TSH project workspace lifecycle', () => {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           title: 'Untitled',
-          prompt: '猫猫插画工作室的着陆页原型',
+          prompt: '猫猫插画风格的着陆页原型',
           parentPath: workspaceRoot,
         }),
       });
@@ -65,9 +65,9 @@ describe('TSH project workspace lifecycle', () => {
       const created = await createResponse.json() as {
         project: { id: string; metadata: { title: string }; workspaceRoot: string | null };
       };
-      expect(created.project.metadata.title).toContain('猫猫插画');
       expect(dirname(created.project.workspaceRoot!)).toBe(workspaceRoot);
-      expect(basename(created.project.workspaceRoot!)).toMatch(/^.+-[a-f0-9]{8}$/);
+      expect(basename(created.project.workspaceRoot!)).toMatch(/^design-\d{4}-\d{2}-\d{2}-\d+$/);
+      expect(created.project.metadata.title).toBe('猫猫插画风格的着陆页原型');
 
       const projectsDir = join(runtimeDir, 'projects');
       const stored = getProjectFromStore(projectsDir, created.project.id);
@@ -77,6 +77,7 @@ describe('TSH project workspace lifecycle', () => {
       );
       expect(await readdir(created.project.workspaceRoot!)).toContain('assets');
 
+      // Title PATCH must not rename the TSH directory.
       const renameResponse = await fetch(
         `http://127.0.0.1:${port}/api/projects/${encodeURIComponent(created.project.id)}`,
         {
@@ -86,12 +87,24 @@ describe('TSH project workspace lifecycle', () => {
         },
       );
       expect(renameResponse.status).toBe(200);
-      const renamed = await renameResponse.json() as {
+      const patched = await renameResponse.json() as {
         project: { workspaceRoot: string | null; metadata: { title: string } };
       };
-      expect(renamed.project.metadata.title).toBe('海边奇遇');
-      expect(basename(renamed.project.workspaceRoot!)).toMatch(/^海边奇遇-[a-f0-9]{8}$/);
-      expect(renamed.project.workspaceRoot).not.toBe(created.project.workspaceRoot);
+      expect(patched.project.workspaceRoot).toBe(created.project.workspaceRoot);
+      expect(patched.project.metadata.title).toBe('海边奇遇');
+
+      // Filesystem rename rebinds workspaceRoot but must not overwrite display title.
+      const nextRoot = join(workspaceRoot, '海边奇遇');
+      await rename(created.project.workspaceRoot!, nextRoot);
+      const getResponse = await fetch(
+        `http://127.0.0.1:${port}/api/projects/${encodeURIComponent(created.project.id)}`,
+      );
+      expect(getResponse.status).toBe(200);
+      const loaded = await getResponse.json() as {
+        project: { workspaceRoot: string | null; metadata: { title: string } };
+      };
+      expect(loaded.project.workspaceRoot).toBe(nextRoot);
+      expect(loaded.project.metadata.title).toBe('海边奇遇');
 
       const deleteResponse = await fetch(
         `http://127.0.0.1:${port}/api/projects/${encodeURIComponent(created.project.id)}`,

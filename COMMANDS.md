@@ -29,7 +29,7 @@ All supported commands return Tutti CLI JSON output. Prefer `--json` when anothe
 - `tutti vibe-design open`: open the Prototype Design dashboard.
 - `tutti vibe-design open --project-id <id>`: open an existing project.
 - `tutti vibe-design project-create --prompt <text> [--title <text>] [--project-kind <kind>] [--design-system-id <id>] [--parent-path <path>]`: create a project from a prompt and initialize its default conversation. Returns `{ project, conversationId, resolvedDir }`. On TSH hosts, pass `--parent-path` under `/workspace` to choose the public project folder parent. This only creates the records — call `session-start` to actually generate the prototype.
-- `tutti vibe-design project-update --project-id <id> [--title <text>] [--design-system-id <id>]`: update project metadata. On TSH hosts, renaming the title also renames the public workspace folder while preserving the trailing short id.
+- `tutti vibe-design project-update --project-id <id> [--title <text>] [--design-system-id <id>]`: update project metadata. `--title` updates the human-readable display title only and does not rename the on-disk workspace folder. New TSH projects are created as `design-YYYY-MM-DD-<n>/`; display title and folder name are independent.
 
 ## Creating a Prototype Page
 

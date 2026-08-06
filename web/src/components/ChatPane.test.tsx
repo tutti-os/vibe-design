@@ -299,7 +299,47 @@ describe('ChatPane', () => {
     }
   });
 
-  it('renames the project title from the active header when a project title is shown', async () => {
+  it('shows the project title as read-only when no rename handler is provided', async () => {
+    const onRenameConversation = vi.fn();
+    const snapshot: ChatTimelineSnapshot = {
+      activeRunId: null,
+      phase: 'idle',
+      activeConversationId: 'conversation-1',
+      activeConversationTitle: 'New conversation',
+      conversations: [{ id: 'conversation-1', title: 'New conversation', createdAt: 1, updatedAt: 1 }],
+      pinnedTodoInput: null,
+      messages: [],
+    };
+
+    const { container, root } = renderComponent(
+      <ChatPane
+        projectId="project-1"
+        projectTitle="design-2026-08-06-1"
+        snapshot={snapshot}
+        contextSnapshot={{ selectedSkills: [], selectedDesignFiles: [] }}
+        contextSearch={async () => ({ items: [] })}
+        contextSelect={vi.fn()}
+        onSend={vi.fn()}
+        onStop={vi.fn()}
+        onAnswerToolQuestion={vi.fn()}
+        onCreateConversation={vi.fn()}
+        onSelectConversation={vi.fn()}
+        onRenameConversation={onRenameConversation}
+      />,
+    );
+
+    try {
+      expect(container.querySelector('[data-testid="chat-active-conversation-title"]')?.textContent).toBe(
+        'design-2026-08-06-1',
+      );
+      expect(() => getByLabelText(container, 'Rename project')).toThrow();
+      expect(onRenameConversation).not.toHaveBeenCalled();
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
+  it('renames the project title from the active header when a rename handler is provided', async () => {
     const onRenameConversation = vi.fn();
     const onRenameProject = vi.fn();
     const snapshot: ChatTimelineSnapshot = {
@@ -344,7 +384,9 @@ describe('ChatPane', () => {
 
       expect(onRenameProject).toHaveBeenCalledWith('project-1', 'Updated music app');
       expect(onRenameConversation).not.toHaveBeenCalled();
-      expect(container.querySelector('[data-testid="chat-active-conversation-title"]')?.textContent).toBe('Updated music app');
+      expect(container.querySelector('[data-testid="chat-active-conversation-title"]')?.textContent).toBe(
+        'Updated music app',
+      );
     } finally {
       cleanup(root, container);
     }
