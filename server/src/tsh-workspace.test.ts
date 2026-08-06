@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { join, resolve } from 'node:path';
 import {
-  allocateRenamedTshProjectRoot,
   allocateTshProjectRoot,
   assertAllowedTshParentPath,
+  formatTshArtifactDateSlug,
+  formatTshArtifactDatedStem,
   isTshWorkspaceAppHost,
   resolveTshParentPath,
   safeTshFileStem,
+  tshProjectDisplayTitle,
 } from './tsh-workspace.js';
 
 describe('tsh-workspace', () => {
@@ -43,13 +45,18 @@ describe('tsh-workspace', () => {
     expect(safeTshFileStem('猫猫插画')).toBe('猫猫插画');
   });
 
-  it('allocates and renames while preserving short id', () => {
-    const projectId = 'abcdef12-3456-7890-abcd-ef1234567890';
-    expect(allocateTshProjectRoot('/workspace', '猫猫插画', projectId)).toBe(
-      join(resolve('/workspace'), '猫猫插画-abcdef12'),
+  it('allocates design-YYYY-MM-DD-n under /workspace', () => {
+    const now = new Date('2026-08-06T12:00:00.000Z');
+    const stem = formatTshArtifactDatedStem('design', now);
+    expect(stem).toBe(`design-${formatTshArtifactDateSlug(now)}`);
+    expect(allocateTshProjectRoot('/workspace', { now })).toBe(
+      join(resolve('/workspace'), `${stem}-1`),
     );
-    expect(
-      allocateRenamedTshProjectRoot('/workspace/Untitled-abcdef12', '猫猫插画'),
-    ).toBe(join(resolve('/workspace'), '猫猫插画-abcdef12'));
+  });
+
+  it('tshProjectDisplayTitle returns the directory basename helper', () => {
+    expect(tshProjectDisplayTitle('/workspace/design-2026-08-06-1')).toBe(
+      'design-2026-08-06-1',
+    );
   });
 });

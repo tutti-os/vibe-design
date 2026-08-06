@@ -223,7 +223,8 @@ export function ChatPane({
   const canCreateConversation = visibleSnapshot.messages.length > 0;
   const createConversationUnavailableReason = t('chat.activeConversation.startNewUnavailable');
   const displayTitle = localProjectTitle || localizedConversationTitle(visibleSnapshot.activeConversationTitle, t);
-  const editingProjectTitle = Boolean(projectId && normalizedProjectTitle !== null);
+  // Project titles are filesystem-owned; UI rename only applies when a handler is provided.
+  const editingProjectTitle = Boolean(onRenameProject && projectId && normalizedProjectTitle !== null);
   const chatScrollKey = visibleSnapshot.activeConversationId ?? 'empty-conversation';
   const openImagePreview = React.useCallback((image: ImagePreviewState) => {
     setPreviewImageFitScale(IMAGE_PREVIEW_INITIAL_SCALE);
@@ -430,7 +431,7 @@ export function ChatPane({
               <span className="chat-active-conversation-title" data-testid="chat-active-conversation-title">
                 {displayTitle}
               </span>
-              {visibleSnapshot.activeConversationId ? (
+              {visibleSnapshot.activeConversationId && (editingProjectTitle || !localProjectTitle) ? (
                 <button
                   type="button"
                   aria-label={editingProjectTitle ? t('chat.activeConversation.renameProject') : t('chat.activeConversation.renameConversation')}

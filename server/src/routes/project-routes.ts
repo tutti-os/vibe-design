@@ -1,5 +1,6 @@
 import { isUtf8 } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Express, Request, Response } from 'express';
@@ -34,12 +35,13 @@ import {
   type StoredProject,
 } from '../sqlite-store.js';
 import {
-  allocateRenamedTshProjectRoot,
   allocateTshProjectRoot,
   ensureTshProjectRoot,
   isTshWorkspaceAppHost,
   resolveTshParentPath,
 } from '../tsh-workspace.js';
+
+const TSH_PROJECT_ID_MARKER = path.join('.vibe-design', 'project-id');
 
 type ProjectRouteDeps = RouteDeps<'http' | 'paths'>;
 type ProjectParams = { id: string };
@@ -490,18 +492,91 @@ export function registerProjectRoutes(app: Express, ctx: ProjectRouteDeps): void
 }
 
 export async function listProjectSummaries(projectsDir: string, limit = 20): Promise<ProjectSummary[]> {
-  return listProjectSummariesFromStore(projectsDir, limit);
+  const summaries = listProjectSummariesFromStore(projectsDir, limit);
+  return summaries.map((summary) => {
+    const project = getProjectFromStore(projectsDir, summary.id);
+    if (!project) return summary;
+    const synced = persistSyncedTshProject(projectsDir, project);
+    const title = typeof synced.metadata.title === 'string' ? synced.metadata.title : summary.title;
+    return title === summary.title ? summary : { ...summary, title };
+  });
 }
 
 export async function ensureProject(ctx: ProjectRouteDeps, id: string): Promise<StoredProject> {
   const existing = getProjectFromStore(ctx.paths.projectsDir, id);
   if (existing) {
-    return existing;
+    return persistSyncedTshProject(ctx.paths.projectsDir, existing);
   }
 
   const project = createDefaultProject(id);
   writeProjectToStore(ctx.paths.projectsDir, project);
   return project;
+}
+
+function writeTshProjectIdMarker(workspaceRoot: string, projectId: string): void {
+  const markerPath = path.join(workspaceRoot, TSH_PROJECT_ID_MARKER);
+  mkdirSync(path.dirname(markerPath), { recursive: true });
+  writeFileSync(markerPath, `${projectId}\n`, 'utf8');
+}
+
+/** Rebind workspaceRoot after an external FS rename; never overwrite display title. */
+function syncTshProjectBinding(project: StoredProject): StoredProject {
+  let bound = project.workspaceRoot?.trim() || null;
+  if (!bound || !isTshWorkspaceAppHost()) return project;
+
+  if (!existsSync(bound)) {
+    const recovered = recoverTshProjectRoot(project.id, bound);
+    if (!recovered) return project;
+    bound = recovered;
+  } else {
+    const markerPath = path.join(bound, TSH_PROJECT_ID_MARKER);
+    if (!existsSync(markerPath)) {
+      try {
+        writeTshProjectIdMarker(bound, project.id);
+      } catch {
+        // best-effort
+      }
+    }
+  }
+
+  if (project.workspaceRoot === bound) return project;
+  return {
+    ...project,
+    workspaceRoot: bound,
+    updatedAt: Date.now(),
+  };
+}
+
+function persistSyncedTshProject(projectsDir: string, project: StoredProject): StoredProject {
+  const synced = syncTshProjectBinding(project);
+  if (synced === project) return project;
+  writeProjectToStore(projectsDir, synced);
+  return synced;
+}
+
+function recoverTshProjectRoot(projectId: string, missingPath: string): string | null {
+  const parent = path.dirname(missingPath);
+  if (!existsSync(parent)) return null;
+  let entries: string[];
+  try {
+    entries = readdirSync(parent, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    return null;
+  }
+  const matches: string[] = [];
+  for (const name of entries) {
+    const candidate = path.join(parent, name);
+    const markerPath = path.join(candidate, TSH_PROJECT_ID_MARKER);
+    if (!existsSync(markerPath)) continue;
+    try {
+      if (readFileSync(markerPath, 'utf8').trim() === projectId) matches.push(candidate);
+    } catch {
+      // ignore
+    }
+  }
+  return matches.length === 1 ? matches[0]! : null;
 }
 
 async function writeProject(projectsDir: string, project: StoredProject): Promise<void> {
@@ -534,12 +609,15 @@ export async function createProject(ctx: ProjectRouteDeps, input: ProjectCreateI
         throw new Error('TSH parent path is required');
       }
       workspaceRoot = ensureTshProjectRoot(
-        allocateTshProjectRoot(parentPath, input.title, id),
+        allocateTshProjectRoot(parentPath, {}),
       );
       await mkdir(path.join(workspaceRoot, 'assets'), { recursive: true });
+      writeTshProjectIdMarker(workspaceRoot, id);
     }
+    // Display title is independent of the on-disk directory name.
+    const title = input.title;
     const project = createDefaultProject(id, {
-      title: input.title,
+      title,
       prompt: input.prompt,
       projectKind: input.projectKind,
     }, input.designSystemId, workspaceRoot);
@@ -576,27 +654,7 @@ export async function updateProject(
   project: StoredProject,
   projectUpdate: ProjectUpdateInput,
 ): Promise<StoredProject> {
-  let workspaceRoot = project.workspaceRoot;
-  if (
-    projectUpdate.title !== undefined
-    && workspaceRoot
-    && isTshWorkspaceAppHost()
-  ) {
-    const nextRoot = allocateRenamedTshProjectRoot(workspaceRoot, projectUpdate.title);
-    if (nextRoot !== workspaceRoot) {
-      await mkdir(path.dirname(nextRoot), { recursive: true });
-      try {
-        await rename(workspaceRoot, nextRoot);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-          throw error;
-        }
-        await mkdir(path.join(nextRoot, 'assets'), { recursive: true });
-      }
-      workspaceRoot = nextRoot;
-    }
-  }
-
+  const workspaceRoot = project.workspaceRoot;
   const updatedProject: StoredProject = {
     ...project,
     workspaceRoot,
@@ -607,7 +665,7 @@ export async function updateProject(
     updatedAt: Date.now(),
   };
   await writeProject(ctx.paths.projectsDir, updatedProject);
-  return updatedProject;
+  return persistSyncedTshProject(ctx.paths.projectsDir, updatedProject);
 }
 
 export async function saveProjectFile(
