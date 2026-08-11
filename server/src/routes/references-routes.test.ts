@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServer } from '../server';
+import { getProjectFromStore, writeProjectToStore } from '../sqlite-store';
 
 let server: Server | undefined;
 const tempRoots: string[] = [];
@@ -31,6 +32,7 @@ afterEach(async () => {
 
 interface Api {
   url: (path: string) => string;
+  runtimeDir: string;
 }
 
 async function startApi(): Promise<Api> {
@@ -51,7 +53,7 @@ async function startApi(): Promise<Api> {
     });
   });
 
-  return { url: (path: string) => `http://127.0.0.1:${port}${path}` };
+  return { url: (path: string) => `http://127.0.0.1:${port}${path}`, runtimeDir };
 }
 
 async function createProject(api: Api, prompt: string): Promise<string> {
@@ -149,7 +151,7 @@ describe('references list endpoint', () => {
     expect(match?.reference?.parentGroupLabel).toBe(group?.displayName);
   });
 
-  it('returns app-data-relative file references inside a project group', async () => {
+  it('returns absolute workspace-path file references for legacy projects', async () => {
     const api = await startApi();
     const projectId = await createProject(api, 'Build a landing page');
     await createFile(api, projectId, 'index.html', '<!doctype html><title>hi</title>');
@@ -160,11 +162,28 @@ describe('references list endpoint', () => {
     expect(reference?.kind).toBe('file');
     expect(reference?.displayName).toBe('index.html');
     expect(reference?.location).toEqual({
-      type: 'app-data-relative',
-      path: `projects/${projectId}/assets/index.html`,
+      type: 'workspace-path',
+      path: join(api.runtimeDir, 'projects', projectId, 'assets', 'index.html'),
     });
     expect(reference?.sizeBytes).toBeGreaterThan(0);
     expect(reference?.mimeType).toContain('html');
+  });
+
+  it('uses a bound workspaceRoot for project file references', async () => {
+    const api = await startApi();
+    const projectId = await createProject(api, 'Build a bound workspace page');
+    const projectsDir = join(api.runtimeDir, 'projects');
+    const project = getProjectFromStore(projectsDir, projectId);
+    expect(project).not.toBeNull();
+    const workspaceRoot = join(api.runtimeDir, 'workspace', 'bound-project');
+    writeProjectToStore(projectsDir, { ...project!, workspaceRoot });
+    await createFile(api, projectId, 'bound.html', '<!doctype html><title>bound</title>');
+
+    const children = await listReferences(api, { parentGroupId: projectId });
+    expect(children.items[0]?.reference?.location).toEqual({
+      type: 'workspace-path',
+      path: join(workspaceRoot, 'assets', 'bound.html'),
+    });
   });
 
   it('filters direct children by filterText without changing group reference counts', async () => {
@@ -252,8 +271,8 @@ describe('references search endpoint', () => {
     // Locations resolve under the owning project's assets directory.
     const heroItem = result.items.find((item) => item.reference?.displayName === 'hero.html');
     expect(heroItem?.reference?.location).toEqual({
-      type: 'app-data-relative',
-      path: `projects/${projectA}/assets/hero.html`,
+      type: 'workspace-path',
+      path: join(api.runtimeDir, 'projects', projectA, 'assets', 'hero.html'),
     });
 
     // Each flattened search hit carries its owning project's title as the

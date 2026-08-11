@@ -5,6 +5,7 @@ import {
   listProjectSummariesFromStore,
   type StoredProjectFile,
 } from '../sqlite-store.js';
+import { projectAssetFilePath } from '../project-workspace.js';
 import { isSafeFileName, isSafeProjectId } from './project-routes.js';
 
 type ReferencesRouteDeps = RouteDeps<'paths'>;
@@ -51,8 +52,8 @@ interface MatchedFile {
 
 // Implements the Tutti workspace app "Reference List Runtime Protocol".
 // Root level returns one navigational group per project; entering a project
-// group returns its materialized design assets as file references whose
-// `location` is resolved by the daemon, never an absolute host path.
+// group returns its materialized design assets as file references resolved
+// from the project's actual workspace (TSH-bound or legacy).
 export function registerReferencesRoutes(app: Express, ctx: ReferencesRouteDeps): void {
   app.post('/tutti/references/list', (req: Request, res: Response) => {
     const body = isRecord(req.body) ? req.body : {};
@@ -151,8 +152,8 @@ function listProjectFileReferences(projectsDir: string, projectId: string, optio
       kind: 'file',
       displayName: file.name,
       location: {
-        type: 'app-data-relative',
-        path: `projects/${projectId}/assets/${file.name}`,
+        type: 'workspace-path',
+        path: projectAssetFilePath(projectsDir, projectId, file.name),
       },
       sizeBytes: file.size,
       mtimeMs: mtimeMsOf(file),
@@ -208,8 +209,8 @@ function searchProjectFileReferences(projectsDir: string, options: SearchOptions
       kind: 'file',
       displayName: file.name,
       location: {
-        type: 'app-data-relative',
-        path: `projects/${project.id}/assets/${file.name}`,
+        type: 'workspace-path',
+        path: projectAssetFilePath(projectsDir, project.id, file.name),
       },
       sizeBytes: file.size,
       mtimeMs: mtimeMsOf(file),
