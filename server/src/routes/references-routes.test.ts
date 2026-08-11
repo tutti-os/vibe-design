@@ -1,9 +1,10 @@
 import type { Server } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServer } from '../server';
+import { getProjectFromStore, writeProjectToStore } from '../sqlite-store';
 
 let server: Server | undefined;
 const tempRoots: string[] = [];
@@ -31,6 +32,7 @@ afterEach(async () => {
 
 interface Api {
   url: (path: string) => string;
+  runtimeDir: string;
 }
 
 async function startApi(): Promise<Api> {
@@ -51,7 +53,7 @@ async function startApi(): Promise<Api> {
     });
   });
 
-  return { url: (path: string) => `http://127.0.0.1:${port}${path}` };
+  return { url: (path: string) => `http://127.0.0.1:${port}${path}`, runtimeDir };
 }
 
 async function createProject(api: Api, prompt: string): Promise<string> {
@@ -165,6 +167,35 @@ describe('references list endpoint', () => {
     });
     expect(reference?.sizeBytes).toBeGreaterThan(0);
     expect(reference?.mimeType).toContain('html');
+  });
+
+  it('encodes a bound workspaceRoot through the existing app-data-relative protocol', async () => {
+    const api = await startApi();
+    const projectId = await createProject(api, 'Build a bound workspace page');
+    const projectsDir = join(api.runtimeDir, 'projects');
+    const project = getProjectFromStore(projectsDir, projectId);
+    expect(project).not.toBeNull();
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'vibe-design-bound-reference-'));
+    tempRoots.push(workspaceRoot);
+    writeProjectToStore(projectsDir, { ...project!, workspaceRoot });
+    await createFile(api, projectId, 'bound.html', '<!doctype html><title>bound</title>');
+
+    const children = await listReferences(api, { parentGroupId: projectId });
+    const expectedPath = relative(
+      api.runtimeDir,
+      join(workspaceRoot, 'assets', 'bound.html'),
+    ).split('\\').join('/');
+    expect(children.items[0]?.reference?.location).toEqual({
+      type: 'app-data-relative',
+      path: expectedPath,
+    });
+    expect(resolve(api.runtimeDir, expectedPath)).toBe(join(workspaceRoot, 'assets', 'bound.html'));
+
+    const search = await searchReferences(api, { query: 'bound' });
+    expect(search.items[0]?.reference?.location).toEqual({
+      type: 'app-data-relative',
+      path: expectedPath,
+    });
   });
 
   it('filters direct children by filterText without changing group reference counts', async () => {
