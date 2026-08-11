@@ -1,10 +1,13 @@
 import type { Express, Request, Response } from 'express';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import type { RouteDeps } from '../server-context.js';
 import {
   listProjectFilesFromStore,
   listProjectSummariesFromStore,
+  getProjectFromStore,
   type StoredProjectFile,
 } from '../sqlite-store.js';
+import { projectAssetFilePath } from '../project-workspace.js';
 import { isSafeFileName, isSafeProjectId } from './project-routes.js';
 
 type ReferencesRouteDeps = RouteDeps<'paths'>;
@@ -51,8 +54,8 @@ interface MatchedFile {
 
 // Implements the Tutti workspace app "Reference List Runtime Protocol".
 // Root level returns one navigational group per project; entering a project
-// group returns its materialized design assets as file references whose
-// `location` is resolved by the daemon, never an absolute host path.
+// group returns its materialized design assets using the project's actual
+// workspace binding, encoded through the existing app-data-relative protocol.
 export function registerReferencesRoutes(app: Express, ctx: ReferencesRouteDeps): void {
   app.post('/tutti/references/list', (req: Request, res: Response) => {
     const body = isRecord(req.body) ? req.body : {};
@@ -152,7 +155,7 @@ function listProjectFileReferences(projectsDir: string, projectId: string, optio
       displayName: file.name,
       location: {
         type: 'app-data-relative',
-        path: `projects/${projectId}/assets/${file.name}`,
+        path: projectFileReferencePath(projectsDir, projectId, file.name),
       },
       sizeBytes: file.size,
       mtimeMs: mtimeMsOf(file),
@@ -209,7 +212,7 @@ function searchProjectFileReferences(projectsDir: string, options: SearchOptions
       displayName: file.name,
       location: {
         type: 'app-data-relative',
-        path: `projects/${project.id}/assets/${file.name}`,
+        path: projectFileReferencePath(projectsDir, project.id, file.name),
       },
       sizeBytes: file.size,
       mtimeMs: mtimeMsOf(file),
@@ -223,6 +226,24 @@ function searchProjectFileReferences(projectsDir: string, options: SearchOptions
   }));
 
   return { items, nextCursor: page.nextCursor };
+}
+
+function projectFileReferencePath(projectsDir: string, projectId: string, fileName: string): string {
+  const appDataRoot = dirname(projectsDir);
+  const absolutePath = resolve(projectAssetFilePath(projectsDir, projectId, fileName));
+  const locator = relative(resolve(appDataRoot), absolutePath);
+  if (!locator || isAbsolute(locator)) throw new Error('reference cannot be encoded relative to app data');
+  if (locator === '..' || locator.startsWith(`..${sep}`)) {
+    // TSH-bound projects may live beside the app-data directory. Do not allow
+    // traversal for legacy/unbound projects or to anywhere outside that binding.
+    const boundRoot = getProjectFromStore(projectsDir, projectId)?.workspaceRoot?.trim();
+    if (!boundRoot) throw new Error('unbound reference escapes app data');
+    const assetsRoot = resolve(boundRoot, 'assets');
+    if (absolutePath !== assetsRoot && !absolutePath.startsWith(`${assetsRoot}${sep}`)) {
+      throw new Error('reference escapes the bound project workspace');
+    }
+  }
+  return locator.split('\\').join('/');
 }
 
 // Relevance score in [0, 1]: exact > prefix > substring; 0 means no match.
