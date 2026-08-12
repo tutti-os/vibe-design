@@ -9,6 +9,8 @@ export interface ProjectEditorInitialProject {
   title?: string | null;
   prompt?: string | null;
   designSystemId?: string | null;
+  /** TSH-only absolute project root under /workspace. */
+  workspaceRoot?: string | null;
   tabsState: WorkspaceTabsState;
 }
 

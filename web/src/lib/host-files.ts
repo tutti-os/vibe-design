@@ -1,3 +1,9 @@
+type TuttiExternalFilesOpen = (input: {
+  path: string;
+  name?: string;
+  mode?: 'auto' | 'preview' | 'reveal';
+}) => Promise<void>;
+
 type TuttiExternalUserProject = {
   path: string;
   name?: string;
@@ -13,13 +19,25 @@ type TuttiExternalUserProjects = {
   }) => Promise<{ path: string } | null>;
 };
 
-function readTuttiExternalUserProjects(): TuttiExternalUserProjects | undefined {
+function readTuttiExternal():
+  | {
+      files?: { open?: TuttiExternalFilesOpen };
+      userProjects?: TuttiExternalUserProjects;
+    }
+  | undefined {
   if (typeof window === 'undefined') return undefined;
   return (
     window as unknown as {
-      tuttiExternal?: { userProjects?: TuttiExternalUserProjects };
+      tuttiExternal?: {
+        files?: { open?: TuttiExternalFilesOpen };
+        userProjects?: TuttiExternalUserProjects;
+      };
     }
-  ).tuttiExternal?.userProjects;
+  ).tuttiExternal;
+}
+
+function readTuttiExternalUserProjects(): TuttiExternalUserProjects | undefined {
+  return readTuttiExternal()?.userProjects;
 }
 
 export async function listTuttiExternalUserProjects(): Promise<
@@ -55,4 +73,17 @@ export async function selectTuttiExternalUserProjectDirectory(input?: {
   );
   const path = selected?.path?.trim() ?? '';
   return path || null;
+}
+
+/**
+ * Reveal a workspace path in the host Files UI when Tutti/TSH injects
+ * `window.tuttiExternal.files.open`. Returns false when the bridge is absent.
+ */
+export async function revealPathInHostFiles(path: string): Promise<boolean> {
+  const trimmed = path.trim();
+  if (!trimmed) return false;
+  const open = readTuttiExternal()?.files?.open;
+  if (typeof open !== 'function') return false;
+  await open({ path: trimmed, mode: 'reveal' });
+  return true;
 }

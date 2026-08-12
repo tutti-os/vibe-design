@@ -45,6 +45,7 @@ import type { ChatAttachment, ProjectFile } from './types';
 import { useTranslation } from './i18n';
 import { fetchAgentAvailability } from './services/agent-catalog/agent-catalog-api';
 import { IAgentCatalogService } from './services/agent-catalog/agent-catalog-service.interface';
+import { revealPathInHostFiles } from './lib/host-files';
 
 const CHAT_PANEL_MIN_WIDTH = 360;
 const CHAT_PANEL_MAX_WIDTH = 600;
@@ -84,6 +85,10 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
   const [autoOpenFileRequest, setAutoOpenFileRequest] = React.useState<{ path: string; revision: number } | null>(null);
   const [autoOpenCommentRequest, setAutoOpenCommentRequest] = React.useState<{ id: string; revision: number } | null>(null);
   const [projectTitle, setProjectTitle] = React.useState<string | null>(initialData?.project.title ?? null);
+  const [tshWorkspaceApp, setTshWorkspaceApp] = React.useState(false);
+  const [projectWorkspaceRoot, setProjectWorkspaceRoot] = React.useState<string | null>(
+    () => initialData?.project.workspaceRoot?.trim() || null,
+  );
   const pendingCanvasSaveNamesRef = React.useRef(new Map<string, number>());
   const filesRef = React.useRef(files);
   const previewScreenshotRequesterRef = React.useRef<CanvasPreviewScreenshotRequester | null>(null);
@@ -126,6 +131,52 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
         : [],
     [activeWorkspaceFilePath, previewCommentSnapshot.comments],
   );
+
+  React.useEffect(() => {
+    let cancelled = false;
+    void fetch('/healthz', { headers: { accept: 'application/json' } })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return response.json().catch(() => null);
+      })
+      .then((health) => {
+        if (cancelled || !health || typeof health !== 'object') return;
+        setTshWorkspaceApp((health as { tshWorkspaceApp?: unknown }).tshWorkspaceApp === true);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (projectWorkspaceRoot || !tshWorkspaceApp) return;
+    let cancelled = false;
+    void fetch(`/api/projects/${encodeURIComponent(projectId)}`, { headers: { accept: 'application/json' } })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return response.json().catch(() => null);
+      })
+      .then((payload) => {
+        if (cancelled || !payload || typeof payload !== 'object') return;
+        const project = (payload as { project?: { workspaceRoot?: unknown } }).project;
+        const root = typeof project?.workspaceRoot === 'string' ? project.workspaceRoot.trim() : '';
+        if (root) setProjectWorkspaceRoot(root);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, projectWorkspaceRoot, tshWorkspaceApp]);
+
+  const openProjectLocation =
+    tshWorkspaceApp && projectWorkspaceRoot
+      ? () => {
+          void revealPathInHostFiles(projectWorkspaceRoot).catch((error) => {
+            console.error(error);
+          });
+        }
+      : undefined;
 
   React.useEffect(() => {
     if (!resizingChatPanel) return;
@@ -622,6 +673,7 @@ export function ProjectEditorPage({ projectId, initialData }: { projectId: strin
             uploadPreviewScreenshot={handleUploadPreviewScreenshot}
             onTabsStateChange={handleTabsStateChange}
             onFileContentChange={handleFileContentChange}
+            onOpenProjectLocation={openProjectLocation}
           />
         </section>
       </div>
