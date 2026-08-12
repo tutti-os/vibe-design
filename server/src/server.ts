@@ -1059,6 +1059,7 @@ async function createProjectEditorInitialData(
       title: readProjectTitle(project),
       prompt: readProjectPrompt(project),
       designSystemId: project.designSystemId,
+      workspaceRoot: project.workspaceRoot?.trim() || null,
       tabsState: { tabs, activeTabKey },
     },
     files,

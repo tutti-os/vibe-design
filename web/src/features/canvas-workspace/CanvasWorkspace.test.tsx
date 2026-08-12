@@ -207,6 +207,21 @@ describe('CanvasWorkspace', () => {
     expect(screen.getByTestId('canvas-workspace-empty').textContent).toContain('Choose a file to preview.');
   });
 
+  it('opens the host project location instead of the Design Files surface when provided', () => {
+    const onOpenProjectLocation = vi.fn();
+    render(<CanvasWorkspace files={files} onOpenProjectLocation={onOpenProjectLocation} />);
+
+    expect(screen.queryByTestId('design-files-surface')).toBeNull();
+    expect(screen.getByTestId('canvas-empty-card')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Design Files' }).getAttribute('aria-selected')).toBe('false');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Design Files' }));
+
+    expect(onOpenProjectLocation).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('design-files-surface')).toBeNull();
+    expect(screen.getByTestId('canvas-empty-card')).toBeTruthy();
+  });
+
   it('renders the Design Files surface by default when files are available', () => {
     render(<CanvasWorkspace files={files} />);
 

@@ -186,6 +186,11 @@ export interface CanvasWorkspaceProps {
   onCommentModeChange?: (active: boolean) => void;
   onTabsStateChange?: (tabsState: WorkspaceTabsState) => void;
   onFileContentChange?: (file: WorkspaceFile, content: string) => void;
+  /**
+   * TSH: replace the in-app Design Files surface with host Files reveal.
+   * When set, Design Files opens the project directory instead of the canvas panel.
+   */
+  onOpenProjectLocation?: () => void | Promise<void>;
 }
 
 export function CanvasWorkspace({
@@ -210,6 +215,7 @@ export function CanvasWorkspace({
   onCommentModeChange,
   onTabsStateChange,
   onFileContentChange,
+  onOpenProjectLocation,
 }: CanvasWorkspaceProps) {
   const { t } = useTranslation();
   const workspaceTitle = title ?? t('workspace.defaultTitle');
@@ -281,8 +287,13 @@ export function CanvasWorkspace({
   const isCommentMode = canCommentActiveFile && activeMode === 'comment';
   const usesManualPreviewLayout = supportsHtmlSurfaceModes && (activeMode === 'preview' || activeMode === 'comment');
   const isInteractivePreviewMode = isCommentMode;
-  const shouldShowEmptyCanvas = !activeFile && effectiveFiles.length === 0 && !showDesignFilesWhenEmpty;
-  const isDesignFilesActive = tabsState.activeTabKey === null && !shouldShowEmptyCanvas;
+  const hostOpenProjectLocation = typeof onOpenProjectLocation === 'function';
+  // TSH replaces Design Files with host Files reveal, so never show the in-app surface.
+  const shouldShowEmptyCanvas =
+    !activeFile
+    && (hostOpenProjectLocation || (effectiveFiles.length === 0 && !showDesignFilesWhenEmpty));
+  const isDesignFilesActive =
+    !hostOpenProjectLocation && tabsState.activeTabKey === null && !shouldShowEmptyCanvas;
   const selectedDesignFile =
     effectiveFiles.find((candidate) => candidate.path === selectedDesignFilePath) ?? null;
   const displayedComments = previewComments ?? savedComments;
@@ -640,6 +651,10 @@ export function CanvasWorkspace({
   }
 
   function showDesignFiles() {
+    if (onOpenProjectLocation) {
+      void onOpenProjectLocation();
+      return;
+    }
     attemptTransition({ kind: 'activate-tab', key: null });
   }
 
