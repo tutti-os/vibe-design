@@ -370,12 +370,13 @@ function QuestionCard({
 
   const submit = live ? onAnswer : onFallbackAnswer;
   const form = askUserQuestionForm(questions, t);
+  const hasSubmittedFallbackAnswer = !live && matchesAskUserQuestionAnswers(questions, nextUserContent);
 
   return (
     <QuestionFormCard
       form={form}
       interactive={true}
-      answered={answered}
+      answered={answered || hasSubmittedFallbackAnswer}
       nextUserContent={nextUserContent}
       requireAllAnswers
       submitErrorMessage={t('tools.answerFailed')}
@@ -530,4 +531,25 @@ function formatAskUserQuestionAnswers(
   return formattedAnswers
     .map(({ question, answer }, index) => `${index + 1}. ${question.question} ${answer}`)
     .join('\n');
+}
+
+function matchesAskUserQuestionAnswers(
+  questions: ParsedQuestion[],
+  content: string | undefined,
+): boolean {
+  if (!content) return false;
+  const trimmed = content.trim();
+
+  if (questions.length === 1) {
+    return questions[0]?.options.some((option) => option.label === trimmed) ?? false;
+  }
+
+  const lines = trimmed.split('\n').map((line) => line.trim());
+  return questions.every((question, index) => {
+    const prefix = `${index + 1}. ${question.question} `;
+    const line = lines[index];
+    if (!line?.startsWith(prefix)) return false;
+    const answer = line.slice(prefix.length).trim();
+    return question.options.some((option) => option.label === answer);
+  });
 }

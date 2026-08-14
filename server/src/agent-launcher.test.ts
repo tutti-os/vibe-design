@@ -2,6 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, realpath, rm, utimes, writeFile } from
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { TuttiIntegrationError } from '@tutti-os/agent-acp-kit/tutti';
 import {
   startAgentRun as startAgentRunWithDependencies,
   type LocalAgentRuntime,
@@ -131,6 +132,48 @@ async function startAgentRun(input: StartAgentRunInput): Promise<void> {
 }
 
 describe('startAgentRun', { timeout: 10_000 }, () => {
+  it('retries Tutti skill context once after a CLI timeout', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'vibe-agent-skill-retry-'));
+    try {
+      const resolveAgentSkillBundle = vi.fn()
+        .mockRejectedValueOnce(new TuttiIntegrationError('cli_timeout', 'Tutti CLI request timed out.'))
+        .mockResolvedValue({
+          source: 'tutti-cli',
+          agentTargetId: 'local:codex',
+          providerId: 'codex',
+          skills: [],
+          skillManifest: [],
+        });
+      const runs = createChatRunService({
+        createSseResponse: createNoopSseResponse,
+        createSseErrorPayload: (code, message, init) => ({ code, message, ...init }),
+        runsLogDir: null,
+      });
+      const run = runs.create({ projectId: 'project-1', agentTargetId: 'local:codex', provider: 'codex' });
+      const runtime = createRecordingRuntime();
+
+      await startAgentRunWithDependencies({
+        run,
+        runs,
+        request: { projectId: 'project-1', prompt: 'Build a page.', agentTargetId: 'local:codex', provider: 'codex' },
+        paths: {
+          projectsDir: join(root, 'projects'),
+          userSkillsRoot: join(root, 'user-skills'),
+          builtInSkillsRoot: join(root, 'skills'),
+        },
+        registry: createAgentRegistry([codexDef]),
+        agentRuntime: runtime,
+        resolveAgentSkillBundle,
+      });
+
+      expect(resolveAgentSkillBundle).toHaveBeenCalledTimes(2);
+      expect(runtime.inputs).toHaveLength(1);
+      expect(run.status).toBe('succeeded');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('reconciles project files before invoking an agent without a prior page load', async () => {
     const root = await mkdtemp(join(tmpdir(), 'vibe-agent-preparation-'));
     try {

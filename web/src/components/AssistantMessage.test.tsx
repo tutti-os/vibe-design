@@ -1462,6 +1462,35 @@ describe('AssistantMessage', () => {
     }
   });
 
+  it('marks a completed AskUserQuestion fallback turn as answered', () => {
+    const message: ChatMessage = {
+      id: 'assistant-aq-fallback',
+      role: 'assistant',
+      content: '',
+      runStatus: 'succeeded',
+    };
+    const input = { question: 'Pick one', options: [{ label: 'Alpha' }, { label: 'Beta' }] };
+
+    const { container, root } = renderComponent(
+      <AssistantMessage
+        message={message}
+        blocks={[{ kind: 'ask-user-question', toolUseId: 't1', input, answered: false }]}
+        streaming={false}
+        nextUserContent="Alpha"
+        onAnswerToolQuestion={vi.fn()}
+        onSubmitToolQuestionFallback={vi.fn()}
+      />,
+    );
+
+    try {
+      expect(container.textContent).toContain('Answered');
+      expect(container.textContent).not.toContain('Skipped');
+      expect(buttonByName(container, 'Submit').disabled).toBe(true);
+    } finally {
+      cleanup(root, container);
+    }
+  });
+
   it('routes markdown links for project files into the design file workspace instead of opening a browser tab', async () => {
     const onOpenGeneratedFile = vi.fn();
     const message: ChatMessage = {
