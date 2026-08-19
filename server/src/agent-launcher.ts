@@ -6,6 +6,7 @@ import {
   type AgentRunMessage as AcpAgentRunMessage,
   type DetectContext,
 } from '@tutti-os/agent-acp-kit';
+import { TuttiIntegrationError } from '@tutti-os/agent-acp-kit/tutti';
 import { type AgentRegistry } from './agents.js';
 import { createAgentRunTimingLogger } from './agent-run-timing.js';
 import {
@@ -204,13 +205,29 @@ export async function startAgentRun(input: StartAgentRunInput): Promise<void> {
     ...(input.detectContext ?? {}),
     ...(!input.detectContext?.cwd ? { cwd: agentCwd } : {}),
   };
-  const tuttiSkillBundle = await timing.measure('prepare', 'tutti_skill_context', () =>
+  const resolveSkillBundle = () =>
     (input.resolveAgentSkillBundle ?? resolveTuttiAgentSkillBundle)({
       agentSessionId: run.id,
       cwd: workspaceCwd,
       detectContext: skillDetectContext,
       agentTargetId,
-    }));
+    });
+  const tuttiSkillBundle = await timing.measure('prepare', 'tutti_skill_context', async () => {
+    try {
+      return await resolveSkillBundle();
+    } catch (error) {
+      if (!(error instanceof TuttiIntegrationError) || error.code !== 'cli_timeout') {
+        throw error;
+      }
+      timing.emit('agent_prepare_retry', {
+        phase: 'prepare',
+        stage: 'tutti_skill_context',
+        reason: error.code,
+        attempt: 2,
+      });
+      return resolveSkillBundle();
+    }
+  });
   if (run.cancelRequested || runs.isTerminal(run.status)) {
     return;
   }
